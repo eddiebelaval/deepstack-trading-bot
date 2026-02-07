@@ -19,6 +19,7 @@ import TradeDetailModal from '@/components/TradeDetailModal';
 import StrategyDetailModal from '@/components/StrategyDetailModal';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
+import { useSessionTimeout } from '@/hooks/useSessionTimeout';
 import { DashboardState, Trade, Strategy, BotConfig } from '@/lib/types';
 
 export default function Dashboard() {
@@ -44,6 +45,9 @@ export default function Dashboard() {
 
   // Sound effects
   const sound = useSoundEffects();
+
+  // Session security: auto-logout after 5 minutes of inactivity
+  const { logout } = useSessionTimeout(5);
 
   // Fetch dashboard state
   const fetchStatus = async () => {
@@ -257,7 +261,7 @@ export default function Dashboard() {
 
           {/* Header (hidden on mobile — replaced by compact bar above) */}
           <div className="hidden md:block">
-            <Header />
+            <Header onLogout={logout} />
           </div>
 
         {/* Staleness / Error Banner */}
