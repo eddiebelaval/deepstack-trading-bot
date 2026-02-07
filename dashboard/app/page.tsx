@@ -264,7 +264,7 @@ export default function Dashboard() {
         </div>
 
         {/* Strategy Status Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-6">
           {dashboardState.strategies.map((strategy) => (
             <StrategyCard
               key={strategy.name}
