@@ -261,7 +261,7 @@ export default function Dashboard() {
 
           {/* Header (hidden on mobile — replaced by compact bar above) */}
           <div className="hidden md:block">
-            <Header onLogout={logout} />
+            <Header onLogout={logout} lastHeartbeat={botConfig?.last_heartbeat} botMode={botConfig?.mode} />
           </div>
 
         {/* Staleness / Error Banner */}

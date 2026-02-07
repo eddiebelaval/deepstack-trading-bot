@@ -4,11 +4,15 @@ import { useEffect, useState } from 'react';
 
 interface HeaderProps {
   onLogout?: () => void;
+  lastHeartbeat?: string | null;
+  botMode?: string;
 }
 
-export default function Header({ onLogout }: HeaderProps) {
+export default function Header({ onLogout, lastHeartbeat, botMode }: HeaderProps) {
   const [currentTime, setCurrentTime] = useState<string>('');
-  const isLive = true; // Always live in this version
+  const isLive = lastHeartbeat
+    ? (Date.now() - new Date(lastHeartbeat).getTime()) < 120_000
+    : false;
 
   useEffect(() => {
     const updateTime = () => {
@@ -51,7 +55,7 @@ export default function Header({ onLogout }: HeaderProps) {
               : 'bg-terminal-red'
           }`} />
           <span className={isLive ? 'text-terminal-green-bright font-bold' : 'text-terminal-red'}>
-            {isLive ? 'LIVE' : 'OFFLINE'}
+            {isLive ? (botMode?.toUpperCase() || 'LIVE') : 'OFFLINE'}
           </span>
         </div>
         <div className="tabular-nums text-terminal-cyan transition-all duration-300">
