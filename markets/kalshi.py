@@ -92,8 +92,10 @@ class KalshiMarket(Market):
         Returns:
             List of normalized market dicts
         """
+        # Treat "*" as "all markets" (no series filter)
+        effective_series = None if series == "*" else series
         markets = await self.client.get_markets(
-            series_ticker=series,
+            series_ticker=effective_series,
             status=status,
             limit=limit,
         )
