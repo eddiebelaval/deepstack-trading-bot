@@ -216,6 +216,17 @@ export default function Dashboard() {
         dashboardState={dashboardState}
         botConfig={botConfig}
         onCommand={sendCommand}
+        onStrategyToggle={(name, enabled) => {
+          // Optimistic update — reflect toggle instantly in UI
+          if (dashboardState) {
+            setDashboardState({
+              ...dashboardState,
+              strategies: dashboardState.strategies.map(s =>
+                s.name === name ? { ...s, enabled } : s
+              ),
+            });
+          }
+        }}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
@@ -343,6 +354,18 @@ export default function Dashboard() {
         isOpen={selectedStrategy !== null}
         onClose={() => setSelectedStrategy(null)}
         strategy={selectedStrategy}
+        onToggle={(name, enabled) => {
+          sendCommand('toggle_strategy', { strategy: name, enabled });
+          // Optimistic update
+          if (dashboardState) {
+            setDashboardState({
+              ...dashboardState,
+              strategies: dashboardState.strategies.map(s =>
+                s.name === name ? { ...s, enabled } : s
+              ),
+            });
+          }
+        }}
       />
     </div>
   );

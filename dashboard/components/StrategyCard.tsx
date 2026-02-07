@@ -1,6 +1,7 @@
 'use client';
 
 import { Strategy } from '@/lib/types';
+import { getStrategyMeta } from '@/lib/strategy-meta';
 
 interface StrategyCardProps {
   strategy: Strategy;
@@ -8,6 +9,8 @@ interface StrategyCardProps {
 }
 
 export default function StrategyCard({ strategy, onClick }: StrategyCardProps) {
+  const meta = getStrategyMeta(strategy.name);
+
   const statusSymbol = () => {
     switch (strategy.status) {
       case 'active':
@@ -50,7 +53,10 @@ export default function StrategyCard({ strategy, onClick }: StrategyCardProps) {
           <div className="text-[9px] md:text-xs text-terminal-dim group-hover:text-terminal-green transition-colors">[+]</div>
         </div>
         <div className="text-xs md:text-lg font-bold terminal-glow tracking-wide uppercase transition-all duration-300 group-hover:terminal-glow-bright truncate">
-          {strategy.name.replace(/_/g, ' ')}
+          {meta.shortName}
+        </div>
+        <div className="text-[8px] md:text-[10px] text-terminal-amber/60 mt-0.5 tracking-wider">
+          {meta.edgeType.toUpperCase()}
         </div>
       </div>
 

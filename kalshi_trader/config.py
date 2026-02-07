@@ -66,6 +66,18 @@ class RiskConfig(BaseModel):
         description="Minimum position size in dollars",
         ge=1.0,
     )
+    max_position_pct: float = Field(
+        default=5.0,
+        description="Maximum position size as percentage of balance (e.g., 3.0 = 3%)",
+        ge=0.1,
+        le=100.0,
+    )
+    max_total_exposure_pct: float = Field(
+        default=25.0,
+        description="Maximum total exposure as percentage of balance (circuit breaker)",
+        ge=1.0,
+        le=100.0,
+    )
 
 
 class YAMLConfig(BaseModel):

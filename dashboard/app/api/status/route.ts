@@ -22,9 +22,18 @@ const DEFAULT_STATE: DashboardState = {
     risk_percentage: 0,
   },
   strategies: [
+    // Original strategies
     { name: 'mean_reversion', enabled: true, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'momentum', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
     { name: 'combinatorial_arbitrage', enabled: true, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
     { name: 'cross_platform_arbitrage', enabled: true, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    // Prediction market strategies (disabled by default)
+    { name: 'high_probability_bonds', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'calibration_edge', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'weather_aggregation', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'news_sentiment_fade', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'correlated_event_arbitrage', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'domain_specialization', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
   ],
 };
 
