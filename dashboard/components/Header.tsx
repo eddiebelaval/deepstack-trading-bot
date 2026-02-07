@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from 'react';
 
-export default function Header() {
+interface HeaderProps {
+  onLogout?: () => void;
+}
+
+export default function Header({ onLogout }: HeaderProps) {
   const [currentTime, setCurrentTime] = useState<string>('');
   const isLive = true; // Always live in this version
 
@@ -53,6 +57,15 @@ export default function Header() {
         <div className="tabular-nums text-terminal-cyan transition-all duration-300">
           {currentTime}
         </div>
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="px-2 py-1 text-[10px] font-bold tracking-wider text-terminal-dim border border-terminal-dim/30 rounded
+              hover:text-terminal-red hover:border-terminal-red/50 transition-colors duration-200"
+          >
+            LOGOUT
+          </button>
+        )}
       </div>
     </div>
   );
