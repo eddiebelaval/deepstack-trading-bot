@@ -119,7 +119,7 @@ class MomentumStrategy(Strategy):
             volume = market.get("volume", 0) or market.get("volume_24h", 0)
 
             # Skip closed/settled markets
-            if status != "open":
+            if status not in ("open", "active"):
                 continue
 
             # Skip low volume (momentum needs liquidity)

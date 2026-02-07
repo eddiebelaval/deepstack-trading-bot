@@ -64,7 +64,7 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
   }
 
   function groupStrategiesByCategory(strategies: Strategy[]): Record<StrategyCategory, Strategy[]> {
-    const groups: Record<StrategyCategory, Strategy[]> = { original: [], prediction_market: [] };
+    const groups: Record<StrategyCategory, Strategy[]> = { original: [], prediction_market: [], crypto: [] };
     for (const s of strategies) {
       const meta = getStrategyMeta(s.name);
       groups[meta.category].push(s);
@@ -298,7 +298,7 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
       <div className="border-b border-terminal-green/30">
         {(() => {
           const grouped = groupStrategiesByCategory(strategies);
-          const categories: StrategyCategory[] = ['original', 'prediction_market'];
+          const categories: StrategyCategory[] = ['original', 'crypto', 'prediction_market'];
           const catTheme: Record<StrategyCategory, { accent: string; accentDim: string; bg: string; border: string; glow: string; dot: string }> = {
             original: {
               accent: 'text-terminal-green',
@@ -307,6 +307,14 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
               border: 'border-terminal-green',
               glow: 'shadow-[0_0_8px_rgba(0,255,65,0.15)]',
               dot: 'bg-terminal-green',
+            },
+            crypto: {
+              accent: 'text-terminal-amber',
+              accentDim: 'text-terminal-amber/60',
+              bg: 'bg-terminal-amber',
+              border: 'border-terminal-amber',
+              glow: 'shadow-[0_0_8px_rgba(255,191,0,0.15)]',
+              dot: 'bg-terminal-amber',
             },
             prediction_market: {
               accent: 'text-terminal-cyan',
@@ -329,7 +337,7 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
                 <button
                   onClick={() => setCollapsedCategories(prev => ({ ...prev, [cat]: !prev[cat] }))}
                   className={`w-full flex items-center gap-2 px-4 py-3 transition-all duration-200 hover:bg-white/[0.02] ${
-                    cat === 'prediction_market' ? 'border-t border-terminal-dim/20' : ''
+                    cat !== 'original' ? 'border-t border-terminal-dim/20' : ''
                   }`}
                 >
                   {/* Icon badge */}

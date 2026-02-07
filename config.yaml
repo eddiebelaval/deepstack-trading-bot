@@ -152,6 +152,62 @@ strategies:
       take_profit_cents: 8
       stop_loss_cents: 5
 
+  # === New Strategies (Feb 2026) ===
+
+  - name: crypto_intraday
+    enabled: false            # Short-timeframe crypto with external price feeds
+    markets:
+      - platform: kalshi
+        series: "KXBTC"
+      - platform: kalshi
+        series: "KXETH"
+      - platform: kalshi
+        series: "KXSOL"
+    config:
+      price_source: coingecko
+      min_edge_cents: 3
+      take_profit_cents: 6
+      stop_loss_cents: 4
+      min_volume: 50
+      max_hold_minutes: 45
+
+  - name: bear_macro
+    enabled: false            # Economic indicator trading via FRED (needs FRED_API_KEY)
+    markets:
+      - platform: kalshi
+        series: "KXFED"
+      - platform: kalshi
+        series: "KXCPI"
+      - platform: kalshi
+        series: "KXGDP"
+      - platform: kalshi
+        series: "KXJOBS"
+    config:
+      min_edge_cents: 5
+      bear_mode_only: false
+      take_profit_cents: 10
+      stop_loss_cents: 7
+      min_volume: 50
+      max_hold_hours: 168
+
+  - name: market_making
+    enabled: false            # Non-directional spread capture
+    markets:
+      - platform: kalshi
+        series: "KXBTC"
+      - platform: kalshi
+        series: "KXETH"
+      - platform: kalshi
+        series: "INXD"
+    config:
+      min_spread_cents: 3
+      max_spread_cents: 15
+      inventory_limit: 10
+      skew_per_contract: 1
+      take_profit_cents: 3
+      stop_loss_cents: 5
+      min_volume: 50
+
 risk:
   max_position_size: 50       # Max dollars per trade
   daily_loss_limit: 100       # Stop trading after this daily loss

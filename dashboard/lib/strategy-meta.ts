@@ -3,7 +3,7 @@
  * descriptions, and categories across all dashboard components.
  */
 
-export type StrategyCategory = 'original' | 'prediction_market';
+export type StrategyCategory = 'original' | 'prediction_market' | 'crypto';
 
 export interface StrategyMeta {
   /** Full display name */
@@ -104,16 +104,46 @@ export const STRATEGY_META: Record<string, StrategyMeta> = {
     category: 'prediction_market',
     expectedWinRate: 0.56,
   },
+
+  // ── Crypto Strategies ───────────────────────────────────
+  crypto_intraday: {
+    displayName: 'Crypto Intraday',
+    shortName: 'Crypto Intra',
+    description: 'Short-timeframe crypto trading using CoinGecko price feeds, fair value estimation, and volatility harvest.',
+    edgeType: 'External Data',
+    category: 'crypto',
+    expectedWinRate: 0.58,
+  },
+  market_making: {
+    displayName: 'Market Making',
+    shortName: 'Market Maker',
+    description: 'Non-directional spread capture via two-sided quoting with inventory management.',
+    edgeType: 'Liquidity',
+    category: 'crypto',
+    expectedWinRate: 0.70,
+  },
+
+  // ── Macro Strategies ───────────────────────────────────
+  bear_macro: {
+    displayName: 'Bear Market Macro',
+    shortName: 'Bear Macro',
+    description: 'Trades economic indicator markets (Fed rate, CPI, GDP, jobs) using FRED data with regime detection.',
+    edgeType: 'Macro Fundamental',
+    category: 'prediction_market',
+    expectedWinRate: 0.58,
+  },
 };
 
 export const CATEGORY_LABELS: Record<StrategyCategory, string> = {
   original: 'STOCK MARKET',
   prediction_market: 'PREDICTION MARKET',
+  crypto: 'CRYPTO',
 };
 
 export const CATEGORY_ICONS: Record<StrategyCategory, string> = {
   original: 'S&P',
   prediction_market: 'PM',
+  crypto: 'BTC',
 };
 
 export function getStrategyMeta(name: string): StrategyMeta {
@@ -132,6 +162,7 @@ export function getStrategiesByCategory(): Record<StrategyCategory, string[]> {
   const groups: Record<StrategyCategory, string[]> = {
     original: [],
     prediction_market: [],
+    crypto: [],
   };
 
   for (const [name, meta] of Object.entries(STRATEGY_META)) {
