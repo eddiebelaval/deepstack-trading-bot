@@ -34,6 +34,10 @@ const DEFAULT_STATE: DashboardState = {
     { name: 'news_sentiment_fade', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
     { name: 'correlated_event_arbitrage', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
     { name: 'domain_specialization', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    // New strategies (Feb 2026)
+    { name: 'crypto_intraday', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'bear_macro', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'market_making', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
   ],
 };
 

@@ -104,6 +104,32 @@ export const STRATEGY_META: Record<string, StrategyMeta> = {
     category: 'prediction_market',
     expectedWinRate: 0.56,
   },
+
+  // ── New Strategies (Feb 2026) ──────────────────────────
+  crypto_intraday: {
+    displayName: 'Crypto Intraday',
+    shortName: 'Crypto Intra',
+    description: 'Short-timeframe crypto trading using CoinGecko price feeds, fair value estimation, and volatility harvest.',
+    edgeType: 'External Data',
+    category: 'original',
+    expectedWinRate: 0.58,
+  },
+  bear_macro: {
+    displayName: 'Bear Market Macro',
+    shortName: 'Bear Macro',
+    description: 'Trades economic indicator markets (Fed rate, CPI, GDP, jobs) using FRED data with regime detection.',
+    edgeType: 'Macro Fundamental',
+    category: 'prediction_market',
+    expectedWinRate: 0.58,
+  },
+  market_making: {
+    displayName: 'Market Making',
+    shortName: 'Market Maker',
+    description: 'Non-directional spread capture via two-sided quoting with inventory management.',
+    edgeType: 'Liquidity',
+    category: 'original',
+    expectedWinRate: 0.70,
+  },
 };
 
 export const CATEGORY_LABELS: Record<StrategyCategory, string> = {
