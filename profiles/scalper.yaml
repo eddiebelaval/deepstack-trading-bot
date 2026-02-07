@@ -1,0 +1,46 @@
+# Scalper Profile
+# High-frequency small gains strategy
+# Best for: Active traders, liquid markets, fast execution
+
+name: scalper
+description: Quick in-and-out trades. Tight take-profit, fast exits.
+
+risk:
+  max_position_size: 75        # $75 max per trade
+  daily_loss_limit: 100        # $100 daily max loss
+  kelly_fraction: 0.5          # Half Kelly
+
+strategies:
+  - name: mean_reversion
+    enabled: true
+    markets:
+      - platform: kalshi
+        series: INXD           # Focus on most liquid hourly markets
+    config:
+      # Very tight range for high-probability setups
+      price_floor_cents: 48
+      price_ceiling_cents: 52
+      take_profit_cents: 4      # Small quick profits
+      stop_loss_cents: 3        # Very tight stops
+      min_volume: 500           # High liquidity required
+      min_score: 35
+
+  - name: momentum
+    enabled: true
+    markets:
+      - platform: kalshi
+        series: INXD
+    config:
+      lookback_periods: 3       # Shorter lookback for faster signals
+      momentum_threshold: 0.02  # Lower threshold
+      take_profit_cents: 5      # Quick exits
+      stop_loss_cents: 4        # Tight stops
+      min_volume: 500           # High liquidity
+      min_score: 40
+      reversal_threshold: 0.015 # Quick reversal detection
+
+# Additional scalper settings
+advanced:
+  poll_interval_seconds: 30    # Faster polling
+  max_concurrent_positions: 3  # More positions allowed
+  exit_before_expiry_minutes: 2 # Exit earlier before settlement

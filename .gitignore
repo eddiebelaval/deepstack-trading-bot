@@ -1,0 +1,93 @@
+# Secrets - NEVER commit these
+.env
+.env.*
+!.env.example
+*.pem
+kalshi_private_key.pem
+private_key.pem
+
+# Databases
+*.db
+supabase/.temp/
+*.db-journal
+*.db-wal
+*.db-shm
+trade_journal.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+# Python build directories (not dashboard/lib)
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.env.local
+
+# Node
+node_modules/
+.next/
+out/
+.nuxt/
+.cache/
+*.tsbuildinfo
+.vercel/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+*.pyc
+*.pyo
+*.exe
+*.dll
+*.dylib
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*

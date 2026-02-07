@@ -1,0 +1,44 @@
+{
+  "timestamp": "2026-01-26T23:30:00.000Z",
+  "account": {
+    "balance_cents": 100000,
+    "daily_pnl_cents": 1250,
+    "daily_pnl_percentage": 1.25,
+    "total_positions": 3,
+    "available_balance_cents": 85000
+  },
+  "risk": {
+    "daily_loss_limit_cents": 10000,
+    "daily_loss_used_cents": 0,
+    "max_position_size_cents": 5000,
+    "kelly_fraction": 0.5,
+    "positions_at_risk": 1,
+    "risk_percentage": 0
+  },
+  "strategies": [
+    {
+      "name": "mean_reversion",
+      "enabled": true,
+      "active_positions": 2,
+      "opportunities_found": 15,
+      "last_scan": "23:29:45",
+      "status": "active"
+    },
+    {
+      "name": "combinatorial_arbitrage",
+      "enabled": true,
+      "active_positions": 1,
+      "opportunities_found": 3,
+      "last_scan": "23:29:47",
+      "status": "scanning"
+    },
+    {
+      "name": "cross_platform_arbitrage",
+      "enabled": true,
+      "active_positions": 0,
+      "opportunities_found": 0,
+      "last_scan": "23:29:50",
+      "status": "inactive"
+    }
+  ]
+}

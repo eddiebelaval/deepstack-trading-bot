@@ -1,0 +1,78 @@
+# Kalshi Trading Bot Configuration
+#
+# This is the main configuration file for the trading bot.
+# Settings here override environment variables.
+#
+# Available profiles: conservative, aggressive, scalper
+# Or set profile: null to use settings below directly.
+
+profile: null  # Load a profile from profiles/ directory
+
+strategies:
+  - name: mean_reversion
+    enabled: true
+    markets:
+      - platform: kalshi
+        series: INXD          # S&P 500 hourly contracts
+    config:
+      price_floor_cents: 45   # Min YES price to consider
+      price_ceiling_cents: 55 # Max YES price to consider
+      take_profit_cents: 8    # Exit with profit at +8c
+      stop_loss_cents: 5      # Exit with loss at -5c
+      min_volume: 100         # Minimum market volume
+      min_score: 30           # Minimum opportunity score
+
+  - name: momentum
+    enabled: true             # ENABLED for multi-strategy test
+    markets:
+      - platform: kalshi
+        series: "*"           # Scan all markets
+    config:
+      lookback_periods: 5
+      momentum_threshold: 0.03
+      take_profit_cents: 10
+      stop_loss_cents: 6
+      min_volume: 200
+      reversal_threshold: 0.02
+
+  - name: combinatorial_arbitrage
+    enabled: true             # ENABLED - $40M alpha strategy
+    markets:
+      - platform: kalshi
+        series: "*"           # Scan ALL markets for arb
+    config:
+      min_profit_cents: 2     # Min guaranteed profit
+      max_exposure_per_arb: 100
+      min_liquidity: 50
+      max_spread_cents: 5
+      max_legs: 5
+      confidence_threshold: 0.8
+
+  - name: cross_platform_arbitrage
+    enabled: true             # ENABLED - Polymarket intelligence
+    markets:
+      - platform: kalshi
+        series: "*"           # Trade on Kalshi
+      - platform: polymarket
+        series: "*"           # Data source only (read-only)
+    config:
+      # Price difference threshold to trigger signal
+      price_diff_threshold_cents: 5
+      # Market matching configuration
+      min_match_score: 0.6    # Minimum fuzzy match confidence (0-1)
+      max_expiry_diff_days: 7 # Max days between expiry dates for match
+      # Volume filters
+      min_polymarket_volume: 10000  # Min Polymarket 24h volume in dollars
+      min_kalshi_volume: 100        # Min Kalshi volume
+      # Volume momentum confirmation
+      use_volume_confirmation: true
+      volume_momentum_threshold: 1.5  # 50% volume increase = momentum
+      # Risk management
+      take_profit_cents: 5    # Exit when price converges 5c
+      stop_loss_cents: 3      # Tight stop for cross-platform plays
+      min_score: 40           # Higher bar for cross-platform signals
+
+risk:
+  max_position_size: 50       # Max dollars per trade
+  daily_loss_limit: 100       # Stop trading after this daily loss
+  kelly_fraction: 0.5         # Use half-Kelly for safety

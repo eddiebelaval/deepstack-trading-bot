@@ -1,0 +1,44 @@
+# Aggressive Profile
+# Higher risk configuration for experienced traders
+# Best for: Larger accounts, high conviction, active monitoring
+
+name: aggressive
+description: Higher returns focus. Larger positions, multiple strategies active.
+
+risk:
+  max_position_size: 100       # $100 max per trade (double default)
+  daily_loss_limit: 200        # $200 daily max loss
+  kelly_fraction: 0.75         # Three-quarter Kelly
+
+strategies:
+  - name: mean_reversion
+    enabled: true
+    markets:
+      - platform: kalshi
+        series: INXD
+      - platform: kalshi
+        series: INXH          # Also trade daily S&P contracts
+    config:
+      # Wider range captures more opportunities
+      price_floor_cents: 42
+      price_ceiling_cents: 58
+      take_profit_cents: 10     # Let winners run
+      stop_loss_cents: 6        # Slightly wider stops
+      min_volume: 50            # Lower volume threshold
+      min_score: 25             # Accept more opportunities
+
+  - name: momentum
+    enabled: true               # Momentum enabled for additional alpha
+    markets:
+      - platform: kalshi
+        series: INXD
+      - platform: kalshi
+        series: INXH
+    config:
+      lookback_periods: 5
+      momentum_threshold: 0.03  # Lower threshold for more signals
+      take_profit_cents: 12
+      stop_loss_cents: 7
+      min_volume: 100
+      min_score: 30
+      reversal_threshold: 0.02

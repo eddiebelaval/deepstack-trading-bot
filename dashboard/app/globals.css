@@ -1,0 +1,611 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --terminal-black: #0D0208;
+  --terminal-green: #00FF41;
+  --terminal-green-dim: #00AA2B;
+  --terminal-green-bright: #39FF14;
+
+  /* Amber for secondary info (warnings, medium priority) */
+  --terminal-amber: #FFBF00;
+  --terminal-amber-bright: #FFD700;
+  --terminal-amber-dim: #CC9900;
+
+  /* Cyan for tertiary info (timestamps, labels) */
+  --terminal-cyan: #00FFFF;
+  --terminal-cyan-dim: #00AAAA;
+
+  /* Red for errors/losses */
+  --terminal-red: #FF0000;
+  --terminal-red-bright: #FF3333;
+
+  --crt-curve: 6px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'JetBrains Mono', monospace;
+  background: #000;
+  color: var(--terminal-green);
+  overflow-x: hidden;
+}
+
+/* CRT Terminal Effects - ENHANCED */
+.terminal {
+  position: relative;
+  background: radial-gradient(ellipse at center, #0D0208 0%, #000000 100%);
+  color: var(--terminal-green);
+  font-family: 'JetBrains Mono', monospace;
+
+  /* CRT screen curvature illusion with edge vignette */
+  border-radius: var(--crt-curve);
+  box-shadow:
+    inset 0 0 120px rgba(0, 255, 65, 0.04),
+    inset 20px 0 80px rgba(0, 0, 0, 0.95),
+    inset -20px 0 80px rgba(0, 0, 0, 0.95),
+    inset 0 20px 80px rgba(0, 0, 0, 0.95),
+    inset 0 -20px 80px rgba(0, 0, 0, 0.95),
+    0 0 100px rgba(0, 0, 0, 0.9),
+    0 0 50px rgba(0, 255, 65, 0.06);
+}
+
+/* Scanlines overlay - Enhanced with subtle movement */
+.terminal::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0.15),
+      rgba(0, 0, 0, 0.15) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+  background-size: 100% 4px;
+  pointer-events: none;
+  z-index: 10;
+  animation: scanlines-move 8s linear infinite, screen-flicker 0.15s infinite;
+  border-radius: var(--crt-curve);
+  opacity: 0.75;
+}
+
+/* Animated scanline - Subtle */
+.terminal::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(
+    transparent,
+    rgba(0, 255, 65, 0.15),
+    rgba(0, 255, 65, 0.25),
+    rgba(0, 255, 65, 0.15),
+    transparent
+  );
+  pointer-events: none;
+  z-index: 11;
+  animation: scanline 10s linear infinite;
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
+  filter: blur(1px);
+}
+
+/* CRT Glow Effect - Subtle phosphor glow */
+.terminal-glow {
+  text-shadow:
+    0 0 2px rgba(0, 255, 65, 0.8),
+    0 0 4px rgba(0, 255, 65, 0.4);
+  transition: text-shadow 0.2s ease-out;
+}
+
+.terminal-glow-bright {
+  text-shadow:
+    0 0 2px rgba(0, 255, 65, 1),
+    0 0 5px rgba(0, 255, 65, 0.6),
+    0 0 8px rgba(0, 255, 65, 0.3);
+}
+
+/* Slightly brighter glow for charts */
+.terminal-glow-intense {
+  text-shadow:
+    0 0 3px rgba(0, 255, 65, 1),
+    0 0 6px rgba(0, 255, 65, 0.5),
+    0 0 10px rgba(0, 255, 65, 0.2);
+}
+
+/* Blinking cursor - Enhanced */
+.cursor {
+  animation: cursor-blink 1s step-end infinite;
+  text-shadow:
+    0 0 5px var(--terminal-green),
+    0 0 10px var(--terminal-green);
+}
+
+/* Subtle phosphor pulse effect */
+@keyframes phosphor-pulse {
+  0%, 100% {
+    text-shadow:
+      0 0 2px rgba(0, 255, 65, 1),
+      0 0 5px rgba(0, 255, 65, 0.5);
+  }
+  50% {
+    text-shadow:
+      0 0 3px rgba(0, 255, 65, 1),
+      0 0 7px rgba(0, 255, 65, 0.6);
+  }
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes screen-flicker {
+  0% { opacity: 0.75; }
+  5% { opacity: 0.73; }
+  10% { opacity: 0.75; }
+  15% { opacity: 0.72; }
+  20% { opacity: 0.75; }
+  50% { opacity: 0.75; }
+  55% { opacity: 0.74; }
+  100% { opacity: 0.75; }
+}
+
+@keyframes scanlines-move {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(4px); }
+}
+
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(100vh);
+    opacity: 0;
+  }
+}
+
+/* ASCII Box Drawing - Enhanced with glow on hover */
+.ascii-border {
+  border-color: var(--terminal-green);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.ascii-border:hover {
+  border-color: var(--terminal-green-bright);
+  box-shadow:
+    0 0 10px rgba(0, 255, 65, 0.3),
+    inset 0 0 10px rgba(0, 255, 65, 0.1);
+}
+
+/* Scrollbar styling - Enhanced */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--terminal-black);
+  border: 1px solid rgba(0, 255, 65, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--terminal-green-dim);
+  border-radius: 0;
+  box-shadow: inset 0 0 5px rgba(0, 255, 65, 0.5);
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--terminal-green);
+  box-shadow:
+    inset 0 0 8px rgba(0, 255, 65, 0.8),
+    0 0 5px rgba(0, 255, 65, 0.5);
+}
+
+/* Status indicators - Enhanced */
+.status-live {
+  animation: live-pulse 1.2s ease-in-out infinite;
+  text-shadow:
+    0 0 5px var(--terminal-green-bright),
+    0 0 10px var(--terminal-green-bright),
+    0 0 20px var(--terminal-green),
+    0 0 30px var(--terminal-green),
+    0 0 40px rgba(0, 255, 65, 0.5);
+  font-weight: bold;
+  letter-spacing: 0.1em;
+}
+
+.status-active {
+  color: var(--terminal-green);
+  text-shadow:
+    0 0 3px rgba(0, 255, 65, 0.8),
+    0 0 6px rgba(0, 255, 65, 0.4);
+}
+
+.status-inactive {
+  color: var(--terminal-green-dim);
+  opacity: 0.6;
+}
+
+.status-error {
+  color: #FF0000;
+  text-shadow:
+    0 0 3px #FF0000,
+    0 0 8px #FF0000,
+    0 0 15px rgba(255, 0, 0, 0.6);
+  animation: error-pulse 1s ease-in-out infinite;
+}
+
+/* Pulsing animations */
+@keyframes live-pulse {
+  0%, 100% {
+    opacity: 1;
+    text-shadow:
+      0 0 5px var(--terminal-green-bright),
+      0 0 10px var(--terminal-green-bright),
+      0 0 20px var(--terminal-green),
+      0 0 30px var(--terminal-green),
+      0 0 40px rgba(0, 255, 65, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    text-shadow:
+      0 0 8px var(--terminal-green-bright),
+      0 0 16px var(--terminal-green-bright),
+      0 0 30px var(--terminal-green),
+      0 0 50px var(--terminal-green),
+      0 0 70px rgba(0, 255, 65, 0.7);
+    transform: scale(1.02);
+  }
+}
+
+@keyframes error-pulse {
+  0%, 100% {
+    text-shadow:
+      0 0 3px #FF0000,
+      0 0 8px #FF0000,
+      0 0 15px rgba(255, 0, 0, 0.6),
+      0 0 30px rgba(255, 0, 0, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    text-shadow:
+      0 0 5px #FF0000,
+      0 0 12px #FF0000,
+      0 0 25px rgba(255, 0, 0, 0.8),
+      0 0 40px rgba(255, 0, 0, 0.6),
+      0 0 60px rgba(255, 0, 0, 0.4);
+    transform: scale(1.05);
+  }
+}
+
+/* Typewriter effect for loading states */
+@keyframes typewriter {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+.typewriter {
+  overflow: hidden;
+  border-right: 2px solid var(--terminal-green);
+  white-space: nowrap;
+  animation:
+    typewriter 2s steps(40) 1s forwards,
+    cursor-blink 0.5s step-end infinite;
+}
+
+/* Scan line hover effect - DISABLED (too distracting) */
+.scan-hover {
+  /* No effect */
+}
+
+/* Card hover effects - Subtle */
+.card-hover {
+  transition: border-color 0.2s ease;
+}
+
+.card-hover:hover {
+  border-color: var(--terminal-green-bright);
+}
+
+/* Utility classes */
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.text-terminal {
+  color: var(--terminal-green);
+}
+
+.text-terminal-dim {
+  color: var(--terminal-green-dim);
+}
+
+.bg-terminal {
+  background: var(--terminal-black);
+}
+
+/* Numbers with tabular layout */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Smooth fade-in for new elements */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fade-in 0.4s ease-out;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.animate-cursor-blink {
+  animation: cursor-blink 1s step-end infinite;
+}
+
+/* Chart glow effect - Intensified */
+.chart-glow {
+  filter:
+    drop-shadow(0 0 3px rgba(0, 255, 65, 0.8))
+    drop-shadow(0 0 8px rgba(0, 255, 65, 0.6))
+    drop-shadow(0 0 12px rgba(0, 255, 65, 0.4));
+}
+
+/* Glow pulse animation for charts */
+@keyframes glow-pulse {
+  0%, 100% {
+    filter:
+      drop-shadow(0 0 3px rgba(0, 255, 65, 0.8))
+      drop-shadow(0 0 8px rgba(0, 255, 65, 0.6))
+      drop-shadow(0 0 12px rgba(0, 255, 65, 0.4));
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 4px rgba(0, 255, 65, 0.9))
+      drop-shadow(0 0 10px rgba(0, 255, 65, 0.7))
+      drop-shadow(0 0 15px rgba(0, 255, 65, 0.5));
+  }
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+/* Phosphor text effect - adds blur to simulate CRT phosphor persistence */
+.phosphor-text {
+  text-shadow:
+    0 0 1px rgba(0, 255, 65, 1),
+    0 0 2px rgba(0, 255, 65, 0.9),
+    1px 0 2px rgba(0, 255, 65, 0.5),
+    -1px 0 2px rgba(0, 255, 65, 0.5),
+    0 1px 2px rgba(0, 255, 65, 0.3);
+}
+
+/* Data value hover effect */
+.data-hover {
+  transition: all 0.2s ease;
+  cursor: default;
+}
+
+.data-hover:hover {
+  color: var(--terminal-green-bright);
+  text-shadow:
+    0 0 5px rgba(0, 255, 65, 1),
+    0 0 10px rgba(0, 255, 65, 0.8),
+    0 0 20px rgba(0, 255, 65, 0.5);
+  transform: scale(1.05);
+}
+
+/* ========================================
+   VISUAL HIERARCHY SYSTEM
+   ======================================== */
+
+/* TIER 1: Primary - Bright Green (most important: balance, P&L) */
+.hierarchy-primary {
+  color: var(--terminal-green-bright);
+  text-shadow:
+    0 0 4px rgba(0, 255, 65, 1),
+    0 0 10px rgba(0, 255, 65, 0.8),
+    0 0 20px rgba(0, 255, 65, 0.5);
+  font-weight: 700;
+}
+
+/* TIER 2: Amber - Secondary (warnings, attention items) */
+.hierarchy-secondary {
+  color: var(--terminal-amber);
+  text-shadow:
+    0 0 3px rgba(255, 191, 0, 0.9),
+    0 0 8px rgba(255, 191, 0, 0.6),
+    0 0 15px rgba(255, 191, 0, 0.3);
+}
+
+.amber-glow {
+  color: var(--terminal-amber);
+  text-shadow:
+    0 0 2px rgba(255, 191, 0, 0.8),
+    0 0 4px rgba(255, 191, 0, 0.4);
+}
+
+.amber-glow-bright {
+  color: var(--terminal-amber-bright);
+  text-shadow:
+    0 0 2px rgba(255, 215, 0, 1),
+    0 0 5px rgba(255, 215, 0, 0.5);
+}
+
+@keyframes amber-pulse {
+  0%, 100% {
+    text-shadow:
+      0 0 4px rgba(255, 191, 0, 1),
+      0 0 10px rgba(255, 191, 0, 0.7),
+      0 0 18px rgba(255, 191, 0, 0.4);
+  }
+  50% {
+    text-shadow:
+      0 0 6px rgba(255, 215, 0, 1),
+      0 0 14px rgba(255, 215, 0, 0.9),
+      0 0 25px rgba(255, 215, 0, 0.6);
+  }
+}
+
+/* TIER 3: Cyan - Tertiary (timestamps, counts, info) */
+.hierarchy-tertiary {
+  color: var(--terminal-cyan);
+  text-shadow:
+    0 0 2px rgba(0, 255, 255, 0.8),
+    0 0 6px rgba(0, 255, 255, 0.4);
+}
+
+.cyan-glow {
+  color: var(--terminal-cyan);
+  text-shadow:
+    0 0 2px rgba(0, 255, 255, 0.6),
+    0 0 4px rgba(0, 255, 255, 0.3);
+}
+
+/* TIER 4: Dim Green - Labels, descriptions */
+.hierarchy-label {
+  color: var(--terminal-green-dim);
+  opacity: 0.8;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ERROR STATE: Red with pulse */
+.hierarchy-error {
+  color: var(--terminal-red);
+  text-shadow:
+    0 0 4px rgba(255, 0, 0, 1),
+    0 0 10px rgba(255, 0, 0, 0.7),
+    0 0 18px rgba(255, 0, 0, 0.4);
+  animation: error-pulse 1s ease-in-out infinite;
+}
+
+/* SUCCESS STATE: Bright green with extra glow */
+.hierarchy-success {
+  color: var(--terminal-green-bright);
+  text-shadow:
+    0 0 5px rgba(0, 255, 65, 1),
+    0 0 12px rgba(0, 255, 65, 0.8),
+    0 0 22px rgba(0, 255, 65, 0.5);
+}
+
+/* QUICK GLANCE SECTION - Extra prominent */
+.quick-glance {
+  background: rgba(0, 255, 65, 0.05);
+  border: 2px solid var(--terminal-green);
+  border-radius: 4px;
+  padding: 1rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.quick-glance::before {
+  content: "QUICK GLANCE";
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  font-size: 9px;
+  color: var(--terminal-amber);
+  letter-spacing: 0.1em;
+}
+
+.quick-glance-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--terminal-green-bright);
+  text-shadow:
+    0 0 6px rgba(0, 255, 65, 1),
+    0 0 15px rgba(0, 255, 65, 0.8),
+    0 0 30px rgba(0, 255, 65, 0.5);
+  line-height: 1;
+}
+
+/* Section dividers with color coding */
+.section-primary {
+  border-left: 3px solid var(--terminal-green);
+  padding-left: 12px;
+}
+
+.section-secondary {
+  border-left: 3px solid var(--terminal-amber);
+  padding-left: 12px;
+}
+
+.section-tertiary {
+  border-left: 3px solid var(--terminal-cyan);
+  padding-left: 12px;
+}
+
+/* Badge styles */
+.badge-green {
+  background: rgba(0, 255, 65, 0.2);
+  border: 1px solid var(--terminal-green);
+  color: var(--terminal-green);
+  padding: 2px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.badge-amber {
+  background: rgba(255, 191, 0, 0.2);
+  border: 1px solid var(--terminal-amber);
+  color: var(--terminal-amber);
+  padding: 2px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.badge-cyan {
+  background: rgba(0, 255, 255, 0.15);
+  border: 1px solid var(--terminal-cyan);
+  color: var(--terminal-cyan);
+  padding: 2px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.badge-red {
+  background: rgba(255, 0, 0, 0.2);
+  border: 1px solid var(--terminal-red);
+  color: var(--terminal-red);
+  padding: 2px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+}

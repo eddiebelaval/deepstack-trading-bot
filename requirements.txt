@@ -1,0 +1,22 @@
+# Kalshi Trading Bot Dependencies
+
+# HTTP client
+httpx>=0.25.0
+
+# RSA cryptography for API authentication
+cryptography>=41.0.0
+
+# Configuration management
+pydantic>=2.0.0
+
+# YAML configuration files
+PyYAML>=6.0
+
+# Timezone handling
+pytz>=2023.3
+
+# Environment variable loading
+python-dotenv>=1.0.0
+
+# Note: This bot also requires DeepStack for risk management
+# DeepStack path is configured in deepstack_integration.py

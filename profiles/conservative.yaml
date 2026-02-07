@@ -1,0 +1,36 @@
+# Conservative Profile
+# Risk-averse configuration for capital preservation
+# Best for: New accounts, learning, low-risk tolerance
+
+name: conservative
+description: Capital preservation focused. Smaller positions, tighter stops.
+
+risk:
+  max_position_size: 25        # $25 max per trade (half default)
+  daily_loss_limit: 50         # $50 daily max loss
+  kelly_fraction: 0.25         # Quarter Kelly - very conservative
+
+strategies:
+  - name: mean_reversion
+    enabled: true
+    markets:
+      - platform: kalshi
+        series: INXD
+    config:
+      # Tighter price range for higher quality setups
+      price_floor_cents: 47
+      price_ceiling_cents: 53
+      take_profit_cents: 6      # Take smaller profits
+      stop_loss_cents: 4        # Tighter stops
+      min_volume: 200           # Higher volume requirement
+      min_score: 40             # Higher quality threshold
+
+  - name: momentum
+    enabled: false              # Disabled - momentum is higher risk
+    markets:
+      - platform: kalshi
+        series: INXD
+    config:
+      momentum_threshold: 0.05
+      take_profit_cents: 8
+      stop_loss_cents: 5
