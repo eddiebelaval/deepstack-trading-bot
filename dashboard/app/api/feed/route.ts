@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getRecentLogs, createLogEntry } from '@/lib/db-postgres';
-import { LogEntry } from '@/lib/types';
+import { CreateLogEntrySchema, validateRequest } from '@/lib/validation';
 
 export async function GET() {
   try {
@@ -8,20 +8,29 @@ export async function GET() {
     return NextResponse.json({ logs });
   } catch (error) {
     console.error('Error fetching logs:', error);
-    return NextResponse.json({ logs: [] });
+    return NextResponse.json(
+      { error: 'Failed to fetch logs' },
+      { status: 503 }
+    );
   }
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const entry: Omit<LogEntry, 'id'> = {
-      timestamp: body.timestamp || new Date().toISOString(),
-      level: body.level || 'INFO',
-      strategy: body.strategy || null,
-      message: body.message,
-    };
-    await createLogEntry(entry);
+    const validation = validateRequest(CreateLogEntrySchema, body);
+
+    if (!validation.success) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+
+    const { level, strategy, message, timestamp } = validation.data;
+    await createLogEntry({
+      timestamp: timestamp || new Date().toISOString(),
+      level: level as 'INFO' | 'WARNING' | 'ERROR' | 'DEBUG',
+      strategy: strategy ?? null,
+      message,
+    });
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
     console.error('Error creating log entry:', error);

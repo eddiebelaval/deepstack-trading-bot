@@ -24,7 +24,9 @@ function LoginForm() {
 
       if (response.ok) {
         const from = searchParams.get('from') || '/';
-        router.push(from);
+        // Prevent open redirect — only allow relative paths on this origin
+        const safePath = from.startsWith('/') && !from.startsWith('//') ? from : '/';
+        router.push(safePath);
       } else {
         const data = await response.json();
         setError(data.error || 'Authentication failed');

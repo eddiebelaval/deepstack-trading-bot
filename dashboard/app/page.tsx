@@ -28,6 +28,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [prevTradeCount, setPrevTradeCount] = useState(0);
+  const [lastSuccessfulFetch, setLastSuccessfulFetch] = useState<number>(Date.now());
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Mobile sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -50,9 +52,16 @@ export default function Dashboard() {
       if (response.ok) {
         const data = await response.json();
         setDashboardState(data);
+        setLastSuccessfulFetch(Date.now());
+        setFetchError(null);
+      } else if (response.status === 503) {
+        setFetchError('Database unavailable');
+      } else {
+        setFetchError(`API error (${response.status})`);
       }
     } catch (error) {
       console.error('Failed to fetch status:', error);
+      setFetchError('Connection lost');
     }
   };
 
@@ -82,7 +91,7 @@ export default function Dashboard() {
     }
   };
 
-  // Send a command to the bot via the command queue
+  // Send a command to the bot via the command queue, then poll for acknowledgment
   const sendCommand = useCallback(async (command: string, params?: Record<string, unknown>) => {
     try {
       const response = await fetch('/api/commands', {
@@ -91,8 +100,37 @@ export default function Dashboard() {
         body: JSON.stringify({ command, params }),
       });
       if (response.ok) {
-        addToast('info', `Command sent: ${command}`);
-        // Refresh config after a short delay to reflect the change
+        const { command: cmd } = await response.json();
+        addToast('info', `Command queued: ${command}`);
+
+        // Poll for acknowledgment (3 checks, 2s apart)
+        if (cmd?.id) {
+          let acknowledged = false;
+          for (let i = 0; i < 3 && !acknowledged; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+              const statusRes = await fetch(`/api/commands?limit=5`);
+              if (statusRes.ok) {
+                const { commands } = await statusRes.json();
+                const match = commands?.find((c: { id: string; status: string }) => c.id === cmd.id);
+                if (match && match.status !== 'pending') {
+                  acknowledged = true;
+                  if (match.status === 'executed') {
+                    addToast('success', `Bot executed: ${command}`);
+                  } else if (match.status === 'failed') {
+                    addToast('warning', `Bot rejected: ${command}`);
+                  } else {
+                    addToast('info', `Bot acknowledged: ${command}`);
+                  }
+                }
+              }
+            } catch { /* polling failure is non-critical */ }
+          }
+          if (!acknowledged) {
+            addToast('warning', `Command pending — bot may be offline: ${command}`);
+          }
+        }
+
         setTimeout(fetchConfig, 1000);
       } else {
         const data = await response.json();
@@ -210,6 +248,15 @@ export default function Dashboard() {
           <div className="hidden md:block">
             <Header />
           </div>
+
+        {/* Staleness / Error Banner */}
+        {(fetchError || Date.now() - lastSuccessfulFetch > 30_000) && (
+          <div className="mb-3 px-3 py-2 border rounded text-xs font-mono border-terminal-amber/60 bg-terminal-amber/10 text-terminal-amber">
+            {fetchError
+              ? `DATA FEED ERROR: ${fetchError} — showing last known state`
+              : `DATA STALE — last update ${Math.round((Date.now() - lastSuccessfulFetch) / 1000)}s ago`}
+          </div>
+        )}
 
         {/* Hero Performance Panel */}
         <div className="mb-4 md:mb-6">

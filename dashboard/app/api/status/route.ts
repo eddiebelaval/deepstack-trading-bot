@@ -66,7 +66,10 @@ export async function GET() {
     return NextResponse.json(state);
   } catch (error) {
     console.error('Error reading dashboard state:', error);
-    return NextResponse.json(DEFAULT_STATE);
+    return NextResponse.json(
+      { error: 'Database unavailable', fallback: DEFAULT_STATE },
+      { status: 503 }
+    );
   }
 }
 

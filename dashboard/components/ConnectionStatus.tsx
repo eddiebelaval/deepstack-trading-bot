@@ -2,13 +2,19 @@
 
 import { useEffect, useState } from 'react';
 
-type ConnectionState = 'connected' | 'degraded' | 'disconnected';
+type ConnectionState = 'checking' | 'connected' | 'degraded' | 'disconnected';
 
 interface ConnectionStatusProps {
   className?: string;
 }
 
 const STATUS_CONFIG = {
+  checking: {
+    color: 'text-terminal-dim',
+    dotColor: 'bg-terminal-dim',
+    shadow: '',
+    label: 'CHECKING',
+  },
   connected: {
     color: 'text-terminal-green',
     dotColor: 'bg-terminal-green',
@@ -33,7 +39,7 @@ const LATENCY_THRESHOLD_MS = 500;
 const CHECK_INTERVAL_MS = 10000;
 
 export default function ConnectionStatus({ className = '' }: ConnectionStatusProps): JSX.Element {
-  const [status, setStatus] = useState<ConnectionState>('connected');
+  const [status, setStatus] = useState<ConnectionState>('checking');
   const [latency, setLatency] = useState<number>(0);
 
   useEffect(() => {

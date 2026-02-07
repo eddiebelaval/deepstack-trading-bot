@@ -1,25 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createHmac, timingSafeEqual } from 'crypto';
-
-function getAuthSecret(): string {
-  return process.env.AUTH_SECRET || 'deepstack-dev-secret-change-in-production';
-}
-
-function getDashboardPassword(): string {
-  return process.env.DASHBOARD_PASSWORD || '';
-}
-
-function signToken(payload: string): string {
-  return createHmac('sha256', getAuthSecret()).update(payload).digest('hex');
-}
-
-function safeCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
-}
+import { getAuthSecret, getDashboardPassword, signToken, safeCompare } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
   try {
+    // Fail fast if secret is not configured
+    getAuthSecret();
+
     const { password } = await request.json();
     const expectedPassword = getDashboardPassword();
 
@@ -37,8 +23,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create a signed token
-    const token = signToken('authenticated');
+    const token = await signToken();
 
     const response = NextResponse.json({ success: true });
     response.cookies.set('deepstack_auth', token, {
@@ -50,12 +35,22 @@ export async function POST(request: NextRequest) {
     });
 
     return response;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('AUTH_SECRET')) {
+      console.error('Auth misconfiguration:', error.message);
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
+  // Verify the user is actually authenticated before allowing logout
+  const authToken = request.cookies.get('deepstack_auth')?.value;
+  if (!authToken) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+
   const response = NextResponse.json({ success: true });
   response.cookies.delete('deepstack_auth');
   return response;
