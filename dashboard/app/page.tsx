@@ -36,6 +36,11 @@ export default function Dashboard() {
   // Mobile sidebar state
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Pending local overrides — prevents polling from reverting optimistic updates.
+  // Map of strategy name -> { enabled, timestamp }. Entries expire after 10 seconds
+  // (by then the Supabase write has persisted and server state is correct).
+  const [pendingToggles, setPendingToggles] = useState<Record<string, { enabled: boolean; at: number }>>({});
+
   // Modal states
   const [showOpportunities, setShowOpportunities] = useState(false);
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
@@ -56,6 +61,25 @@ export default function Dashboard() {
       const response = await fetch('/api/status');
       if (response.ok) {
         const data = await response.json();
+
+        // Merge server state with pending local overrides so polling
+        // doesn't revert optimistic updates (toggles, config changes).
+        const now = Date.now();
+        const OVERRIDE_TTL_MS = 10_000;
+        const stillPending: Record<string, { enabled: boolean; at: number }> = {};
+
+        if (data.strategies && Object.keys(pendingToggles).length > 0) {
+          data.strategies = data.strategies.map((s: Strategy) => {
+            const override = pendingToggles[s.name];
+            if (override && (now - override.at) < OVERRIDE_TTL_MS) {
+              stillPending[s.name] = override;
+              return { ...s, enabled: override.enabled };
+            }
+            return s;
+          });
+          setPendingToggles(stillPending);
+        }
+
         setDashboardState(data);
         setLastSuccessfulFetch(Date.now());
         setFetchError(null);
@@ -222,7 +246,7 @@ export default function Dashboard() {
         botConfig={botConfig}
         onCommand={sendCommand}
         onStrategyToggle={(name, enabled) => {
-          // Optimistic update — reflect toggle instantly in UI
+          // 1. Optimistic update — reflect toggle instantly in UI
           if (dashboardState) {
             setDashboardState({
               ...dashboardState,
@@ -231,7 +255,9 @@ export default function Dashboard() {
               ),
             });
           }
-          // Persist to Supabase so polling doesn't revert the toggle
+          // 2. Register pending override so polling preserves this value
+          setPendingToggles(prev => ({ ...prev, [name]: { enabled, at: Date.now() } }));
+          // 3. Persist to Supabase
           fetch('/api/strategies/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -368,7 +394,7 @@ export default function Dashboard() {
         strategy={selectedStrategy}
         onToggle={(name, enabled) => {
           sendCommand('toggle_strategy', { strategy: name, enabled });
-          // Optimistic update
+          // 1. Optimistic update — reflect toggle instantly in UI
           if (dashboardState) {
             setDashboardState({
               ...dashboardState,
@@ -377,7 +403,9 @@ export default function Dashboard() {
               ),
             });
           }
-          // Persist to Supabase so polling doesn't revert the toggle
+          // 2. Register pending override so polling preserves this value
+          setPendingToggles(prev => ({ ...prev, [name]: { enabled, at: Date.now() } }));
+          // 3. Persist to Supabase
           fetch('/api/strategies/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
