@@ -5,10 +5,19 @@ Plugin architecture for trading strategies. Each strategy implements the
 base Strategy interface and can be dynamically loaded and configured.
 
 Available Strategies:
+    Original (stock-market-style):
     - MeanReversionStrategy: Buy near 50c, profit from reversion to mean
     - MomentumStrategy: Follow trends in price direction
     - CombinatorialArbitrageStrategy: Exploit pricing inconsistencies in related markets
     - CrossPlatformArbitrageStrategy: Compare Polymarket vs Kalshi prices
+
+    Prediction-Market-Native:
+    - HighProbabilityBondsStrategy: Buy 93-98c contracts, hold to settlement
+    - CalibrationEdgeStrategy: Exploit favorite-longshot bias
+    - WeatherAggregationStrategy: Trade weather markets via model consensus
+    - NewsSentimentFadeStrategy: Fade overreactions to breaking news
+    - CorrelatedEventArbitrageStrategy: Trade logical relationship mispricings
+    - DomainSpecializationStrategy: Multi-signal domain expertise framework
 
 Example:
     >>> from strategies import load_strategy
@@ -47,6 +56,12 @@ from .cross_platform_arbitrage import (
     CrossPlatformArbitrageStrategy,
     CrossPlatformSignal,
 )
+from .high_probability_bonds import HighProbabilityBondsStrategy
+from .calibration_edge import CalibrationEdgeStrategy
+from .weather_aggregation import WeatherAggregationStrategy
+from .news_sentiment_fade import NewsSentimentFadeStrategy
+from .correlated_event_arbitrage import CorrelatedEventArbitrageStrategy
+from .domain_specialization import DomainSpecializationStrategy
 
 # Strategy registry - maps name to class
 STRATEGY_REGISTRY = {
@@ -54,6 +69,12 @@ STRATEGY_REGISTRY = {
     "momentum": MomentumStrategy,
     "combinatorial_arbitrage": CombinatorialArbitrageStrategy,
     "cross_platform_arbitrage": CrossPlatformArbitrageStrategy,
+    "high_probability_bonds": HighProbabilityBondsStrategy,
+    "calibration_edge": CalibrationEdgeStrategy,
+    "weather_aggregation": WeatherAggregationStrategy,
+    "news_sentiment_fade": NewsSentimentFadeStrategy,
+    "correlated_event_arbitrage": CorrelatedEventArbitrageStrategy,
+    "domain_specialization": DomainSpecializationStrategy,
 }
 
 
@@ -104,11 +125,18 @@ __all__ = [
     "TradingOpportunity",
     "ExitSignal",
     "StrategyConfig",
-    # Strategy implementations
+    # Original strategy implementations
     "MeanReversionStrategy",
     "MomentumStrategy",
     "CombinatorialArbitrageStrategy",
     "CrossPlatformArbitrageStrategy",
+    # Prediction-market-native strategies
+    "HighProbabilityBondsStrategy",
+    "CalibrationEdgeStrategy",
+    "WeatherAggregationStrategy",
+    "NewsSentimentFadeStrategy",
+    "CorrelatedEventArbitrageStrategy",
+    "DomainSpecializationStrategy",
     # Combinatorial arbitrage components (for advanced usage)
     "MarketRelationshipGraph",
     "ArbitrageScanner",

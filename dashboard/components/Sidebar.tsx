@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { DashboardState, Strategy, BotConfig } from '@/lib/types';
+import { getStrategyMeta, CATEGORY_LABELS, CATEGORY_ICONS, StrategyCategory } from '@/lib/strategy-meta';
 import RiskControls from './RiskControls';
 
 interface SidebarProps {
@@ -32,6 +33,7 @@ const POLL_INTERVALS = [
 export default function Sidebar({ dashboardState, botConfig, onCommand, onStrategyToggle, isOpen, onClose }: SidebarProps): JSX.Element {
   const [showRiskControls, setShowRiskControls] = useState(false);
   const [showForceCloseConfirm, setShowForceCloseConfirm] = useState(false);
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
 
   const botRunState: BotRunState = (botConfig?.mode as BotRunState) || 'stopped';
   const balance = dashboardState?.account?.balance_cents ?? 0;
@@ -58,10 +60,16 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
   }
 
   function getStrategyDisplayName(name: string): string {
-    return name
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+    return getStrategyMeta(name).shortName;
+  }
+
+  function groupStrategiesByCategory(strategies: Strategy[]): Record<StrategyCategory, Strategy[]> {
+    const groups: Record<StrategyCategory, Strategy[]> = { original: [], prediction_market: [] };
+    for (const s of strategies) {
+      const meta = getStrategyMeta(s.name);
+      groups[meta.category].push(s);
+    }
+    return groups;
   }
 
   function getStrategyStatus(strategy: Strategy): { icon: string; color: string; dotColor: string } {
@@ -287,61 +295,130 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
       </div>
 
       {/* Strategy Toggles */}
-      <div className="p-4 border-b border-terminal-green/30">
-        <div className="text-[10px] text-terminal-dim mb-3 tracking-[0.15em] uppercase">Strategies</div>
-        <div className="space-y-2">
-          {strategies.map((strategy) => (
-            <div
-              key={strategy.name}
-              className={`w-full p-3 border text-left transition-all duration-200 rounded-lg ${
-                strategy.enabled
-                  ? 'border-terminal-amber/40 bg-terminal-amber/[0.06] hover:bg-terminal-amber/[0.10]'
-                  : 'border-terminal-dim/15 bg-terminal-bg-panel/50 hover:bg-terminal-bg-panel hover:border-terminal-dim/25'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className={`text-[11px] font-bold tracking-wide transition-colors ${strategy.enabled ? 'text-terminal-amber' : 'text-terminal-dim/60'}`}>
-                  {getStrategyDisplayName(strategy.name).slice(0, 14)}
-                </span>
+      <div className="border-b border-terminal-green/30">
+        {(() => {
+          const grouped = groupStrategiesByCategory(strategies);
+          const categories: StrategyCategory[] = ['original', 'prediction_market'];
+          const catTheme: Record<StrategyCategory, { accent: string; accentDim: string; bg: string; border: string; glow: string; dot: string }> = {
+            original: {
+              accent: 'text-terminal-green',
+              accentDim: 'text-terminal-green/60',
+              bg: 'bg-terminal-green',
+              border: 'border-terminal-green',
+              glow: 'shadow-[0_0_8px_rgba(0,255,65,0.15)]',
+              dot: 'bg-terminal-green',
+            },
+            prediction_market: {
+              accent: 'text-terminal-cyan',
+              accentDim: 'text-terminal-cyan/60',
+              bg: 'bg-terminal-cyan',
+              border: 'border-terminal-cyan',
+              glow: 'shadow-[0_0_8px_rgba(0,255,255,0.15)]',
+              dot: 'bg-terminal-cyan',
+            },
+          };
+          return categories.map((cat) => {
+            const group = grouped[cat];
+            if (group.length === 0) return null;
+            const theme = catTheme[cat];
+            const activeCount = group.filter(s => s.enabled).length;
+            const isCollapsed = collapsedCategories[cat] ?? false;
+            return (
+              <div key={cat}>
+                {/* Category Header — clickable to collapse */}
                 <button
-                  onClick={() => handleStrategyToggle(strategy.name, strategy.enabled)}
-                  className={`w-10 h-5 rounded-full relative transition-all duration-200 border ${
-                    strategy.enabled
-                      ? 'bg-terminal-amber/25 border-terminal-amber/40 shadow-[0_0_8px_rgba(255,191,0,0.2)]'
-                      : 'bg-terminal-bg border-terminal-dim/60 shadow-[inset_0_1px_3px_rgba(0,0,0,0.4)]'
+                  onClick={() => setCollapsedCategories(prev => ({ ...prev, [cat]: !prev[cat] }))}
+                  className={`w-full flex items-center gap-2 px-4 py-3 transition-all duration-200 hover:bg-white/[0.02] ${
+                    cat === 'prediction_market' ? 'border-t border-terminal-dim/20' : ''
                   }`}
                 >
-                  <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-all duration-200 ${
-                    strategy.enabled
-                      ? 'right-0.5 bg-terminal-amber shadow-[0_0_6px_rgba(255,191,0,0.5)]'
-                      : 'left-0.5 bg-terminal-dim/80 border-2 border-terminal-dim'
-                  }`} />
+                  {/* Icon badge */}
+                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${theme.bg}/15 ${theme.accent} border ${theme.border}/30`}>
+                    {CATEGORY_ICONS[cat]}
+                  </span>
+                  {/* Label */}
+                  <span className={`text-[10px] font-bold tracking-[0.15em] ${theme.accent}`}>
+                    {CATEGORY_LABELS[cat]}
+                  </span>
+                  <div className="flex-1" />
+                  {/* Active count badge */}
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                    activeCount > 0
+                      ? `${theme.bg}/15 ${theme.accent}`
+                      : 'bg-terminal-dim/10 text-terminal-dim/50'
+                  }`}>
+                    {activeCount}/{group.length} ON
+                  </span>
+                  {/* Collapse chevron */}
+                  <svg className={`w-3 h-3 text-terminal-dim/40 transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
                 </button>
+
+                {/* Strategy list */}
+                {!isCollapsed && (
+                  <div className="px-3 pb-3 space-y-1">
+                    {group.map((strategy) => {
+                      const status = getStrategyStatus(strategy);
+                      return (
+                        <div
+                          key={strategy.name}
+                          className={`w-full p-2 text-left transition-all duration-200 rounded border-l-2 ${
+                            strategy.enabled
+                              ? `${theme.border}/60 bg-white/[0.03] hover:bg-white/[0.05]`
+                              : 'border-[#2a2a3d] bg-[#0e0e16] hover:bg-[#141420] hover:border-[#3a3a50]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              {/* Status dot */}
+                              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${strategy.enabled ? status.dotColor : 'bg-[#2a2a3d]'}`} />
+                              {/* Name */}
+                              <span className={`text-[11px] font-bold tracking-wide truncate transition-colors ${
+                                strategy.enabled ? theme.accent : 'text-[#4a4a60]'
+                              }`}>
+                                {getStrategyDisplayName(strategy.name)}
+                              </span>
+                              {/* OFF label for disabled strategies */}
+                              {!strategy.enabled && (
+                                <span className="text-[8px] font-bold text-[#3a3a50] tracking-[0.1em] flex-shrink-0">OFF</span>
+                              )}
+                            </div>
+                            {/* Toggle switch */}
+                            <button
+                              onClick={() => handleStrategyToggle(strategy.name, strategy.enabled)}
+                              className={`w-9 h-5 rounded-full relative transition-all duration-300 border flex-shrink-0 ml-2 ${
+                                strategy.enabled
+                                  ? `${theme.bg}/20 ${theme.border}/50 ${theme.glow}`
+                                  : 'bg-[#141420] border-[#2a2a3d] shadow-[inset_0_1px_3px_rgba(0,0,0,0.5)] hover:border-[#3a3a50]'
+                              }`}
+                            >
+                              <div className={`absolute top-[3px] w-3.5 h-3.5 rounded-full transition-all duration-300 ${
+                                strategy.enabled
+                                  ? `right-[3px] ${theme.dot} shadow-[0_0_6px_currentColor]`
+                                  : 'left-[3px] bg-[#3a3a50] border border-[#50506a]'
+                              }`} />
+                            </button>
+                          </div>
+                          {/* Stats row — only show when enabled */}
+                          {strategy.enabled && (
+                            <div className="flex items-center gap-3 mt-1 ml-3.5 text-[9px]">
+                              <span className={`font-mono ${status.color}`}>{status.icon}</span>
+                              <span className="text-terminal-dim/30">|</span>
+                              <span className="text-terminal-cyan">{strategy.active_positions} pos</span>
+                              <span className="text-terminal-dim/30">|</span>
+                              <span className="text-terminal-amber">{strategy.opportunities_found} opp</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              <div className="flex items-center gap-3 text-[10px]">
-                {(() => {
-                  const status = getStrategyStatus(strategy);
-                  return (
-                    <div className="flex items-center gap-1.5">
-                      <div className={`w-1.5 h-1.5 rounded-full ${status.dotColor}`} />
-                      <span className={`font-mono ${strategy.enabled ? status.color : 'text-terminal-dim/40'}`}>
-                        {status.icon}
-                      </span>
-                    </div>
-                  );
-                })()}
-                <span className="text-terminal-dim/30">|</span>
-                <span className={strategy.enabled ? 'text-terminal-cyan' : 'text-terminal-dim/40'}>
-                  {strategy.active_positions} pos
-                </span>
-                <span className="text-terminal-dim/30">|</span>
-                <span className={strategy.enabled ? 'text-terminal-amber' : 'text-terminal-dim/40'}>
-                  {strategy.opportunities_found} opp
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
+            );
+          });
+        })()}
       </div>
 
       {/* Risk Controls (collapsible) */}

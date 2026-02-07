@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react';
 import Modal from './Modal';
 import Sparkline from './Sparkline';
 import { Strategy, Trade } from '@/lib/types';
+import { getStrategyMeta, CATEGORY_LABELS } from '@/lib/strategy-meta';
 
 interface StrategyDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   strategy: Strategy | null;
+  onToggle?: (name: string, enabled: boolean) => void;
 }
 
 interface StrategyStats {
@@ -27,7 +29,7 @@ interface StrategyStats {
   pnlHistory: number[];
 }
 
-export default function StrategyDetailModal({ isOpen, onClose, strategy }: StrategyDetailModalProps): JSX.Element | null {
+export default function StrategyDetailModal({ isOpen, onClose, strategy, onToggle }: StrategyDetailModalProps): JSX.Element | null {
   const [stats, setStats] = useState<StrategyStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -55,6 +57,8 @@ export default function StrategyDetailModal({ isOpen, onClose, strategy }: Strat
 
   if (!strategy) return null;
 
+  const meta = getStrategyMeta(strategy.name);
+
   const formatCents = (cents: number) => {
     const sign = cents >= 0 ? '+' : '';
     return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
@@ -64,26 +68,61 @@ export default function StrategyDetailModal({ isOpen, onClose, strategy }: Strat
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={strategy.name}
+      title={meta.displayName}
       subtitle="STRATEGY DETAIL"
       size="lg"
     >
-      {/* Status Banner */}
-      <div className={`flex items-center justify-between p-3 mb-4 border ${
+      {/* Status Banner with Toggle */}
+      <div className={`flex items-center justify-between p-3 mb-4 border rounded ${
         strategy.enabled
           ? 'border-terminal-green bg-terminal-green bg-opacity-10'
           : 'border-terminal-red bg-terminal-red bg-opacity-10'
       }`}>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span className={`w-2 h-2 rounded-full ${
             strategy.enabled ? 'bg-terminal-green animate-pulse' : 'bg-terminal-red'
           }`} />
           <span className={strategy.enabled ? 'text-terminal-green' : 'text-terminal-red'}>
             {strategy.enabled ? 'ACTIVE' : 'DISABLED'}
           </span>
+          <span className="text-terminal-dim/30">|</span>
+          <span className="text-terminal-amber text-sm">
+            {strategy.opportunities_found} OPPS
+          </span>
         </div>
-        <div className="text-terminal-amber">
-          {strategy.opportunities_found} OPPS FOUND
+        {onToggle && (
+          <button
+            onClick={() => onToggle(strategy.name, !strategy.enabled)}
+            className={`px-4 py-1.5 text-xs font-bold border rounded transition-all duration-200 ${
+              strategy.enabled
+                ? 'border-terminal-red/60 text-terminal-red hover:bg-terminal-red/15'
+                : 'border-terminal-green/60 text-terminal-green hover:bg-terminal-green/15'
+            }`}
+          >
+            {strategy.enabled ? 'DISABLE' : 'ENABLE'}
+          </button>
+        )}
+      </div>
+
+      {/* Strategy Info */}
+      <div className="border border-terminal-green/30 rounded p-3 mb-4 bg-terminal-bg-panel/30">
+        <div className="flex items-center gap-3 mb-2">
+          <span className={`text-[9px] font-bold tracking-[0.2em] px-2 py-0.5 rounded border ${
+            meta.category === 'prediction_market'
+              ? 'text-terminal-cyan border-terminal-cyan/30 bg-terminal-cyan/10'
+              : 'text-terminal-green border-terminal-green/30 bg-terminal-green/10'
+          }`}>
+            {CATEGORY_LABELS[meta.category]}
+          </span>
+          <span className="text-[10px] text-terminal-amber font-bold tracking-wider">
+            {meta.edgeType.toUpperCase()} EDGE
+          </span>
+        </div>
+        <p className="text-sm text-terminal-dim leading-relaxed">
+          {meta.description}
+        </p>
+        <div className="mt-2 text-[10px] text-terminal-dim/60">
+          Expected win rate: {(meta.expectedWinRate * 100).toFixed(0)}%
         </div>
       </div>
 

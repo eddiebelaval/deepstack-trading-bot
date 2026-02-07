@@ -3,7 +3,7 @@
 # This is the main configuration file for the trading bot.
 # Settings here override environment variables.
 #
-# Available profiles: conservative, aggressive, scalper
+# Available profiles: conservative, aggressive, scalper, prediction_market
 # Or set profile: null to use settings below directly.
 
 profile: null  # Load a profile from profiles/ directory
@@ -71,6 +71,86 @@ strategies:
       take_profit_cents: 5    # Exit when price converges 5c
       stop_loss_cents: 3      # Tight stop for cross-platform plays
       min_score: 40           # Higher bar for cross-platform signals
+
+  # === Prediction Market Native Strategies (disabled by default) ===
+
+  - name: high_probability_bonds
+    enabled: false            # Buy 93-98c contracts, hold to settlement
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      min_probability_cents: 93
+      max_probability_cents: 98
+      min_volume: 500
+      max_hours_to_expiry: 72
+      stop_loss_cents: 8
+      take_profit_cents: 2
+      min_score: 30
+
+  - name: calibration_edge
+    enabled: false            # Exploit favorite-longshot bias
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      min_edge_cents: 3
+      favorite_threshold_cents: 70
+      longshot_threshold_cents: 30
+      take_profit_cents: 6
+      stop_loss_cents: 4
+
+  - name: weather_aggregation
+    enabled: false            # Trade weather markets via model consensus
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      min_edge_cents: 5
+      min_model_consensus: 0.7
+      target_cities: ["new_york", "chicago"]
+      max_hours_to_settlement: 48
+      take_profit_cents: 7
+      stop_loss_cents: 5
+
+  - name: news_sentiment_fade
+    enabled: false            # Fade overreactions (needs ANTHROPIC_API_KEY)
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      spike_threshold_cents: 10
+      spike_window_minutes: 5
+      min_volume_surge: 2.0
+      llm_overreaction_threshold: 0.6
+      max_hold_hours: 4
+      enable_llm: true
+      take_profit_cents: 6
+      stop_loss_cents: 4
+
+  - name: correlated_event_arbitrage
+    enabled: false            # Trade logical relationship mispricings
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      min_implication_edge_cents: 3
+      min_match_confidence: 0.7
+      max_legs: 3
+      relationship_types: ["implication", "complement", "subset"]
+      take_profit_cents: 5
+      stop_loss_cents: 4
+
+  - name: domain_specialization
+    enabled: false            # Multi-signal domain expertise (needs tuning)
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      domain: crypto_price
+      min_signal_strength: 0.6
+      take_profit_cents: 8
+      stop_loss_cents: 5
 
 risk:
   max_position_size: 50       # Max dollars per trade

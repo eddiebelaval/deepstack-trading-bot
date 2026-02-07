@@ -1,0 +1,86 @@
+# Prediction Market Profile
+# Focused on prediction-market-native edge sources.
+# Conservative risk: quarter-Kelly, tight position limits.
+# Best for: Kalshi prediction markets (weather, politics, events)
+
+name: prediction_market
+description: Prediction-market-native strategies with conservative risk management.
+
+risk:
+  max_position_size: 30        # $30 max per trade
+  daily_loss_limit: 75         # $75 daily max loss
+  kelly_fraction: 0.25         # Quarter Kelly for binary market safety
+  max_position_pct: 3.0        # 3% of balance per position
+  max_total_exposure_pct: 15.0 # 15% total exposure circuit breaker
+
+strategies:
+  - name: high_probability_bonds
+    enabled: true
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      min_probability_cents: 93
+      max_probability_cents: 98
+      min_volume: 500
+      max_hours_to_expiry: 72
+      stop_loss_cents: 8
+      take_profit_cents: 2
+
+  - name: calibration_edge
+    enabled: true
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      min_edge_cents: 3
+      favorite_threshold_cents: 70
+      longshot_threshold_cents: 30
+      take_profit_cents: 6
+      stop_loss_cents: 4
+      min_volume: 200
+
+  - name: weather_aggregation
+    enabled: true
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      min_edge_cents: 5
+      min_model_consensus: 0.7
+      target_cities: ["new_york", "chicago"]
+      max_hours_to_settlement: 48
+      take_profit_cents: 7
+      stop_loss_cents: 5
+
+  - name: correlated_event_arbitrage
+    enabled: true
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      min_implication_edge_cents: 3
+      min_match_confidence: 0.7
+      max_legs: 3
+      take_profit_cents: 5
+      stop_loss_cents: 4
+
+  # Disabled: needs ANTHROPIC_API_KEY configured
+  - name: news_sentiment_fade
+    enabled: false
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      spike_threshold_cents: 10
+      enable_llm: true
+
+  # Disabled: needs per-domain tuning before live trading
+  - name: domain_specialization
+    enabled: false
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      domain: crypto_price
+      min_signal_strength: 0.6
