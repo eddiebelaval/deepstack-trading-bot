@@ -326,7 +326,7 @@ class AuthenticatedKalshiClient:
         response = await self._request("GET", "/portfolio/balance")
         return {
             "balance": response.get("balance", 0) / 100,  # Convert cents to dollars
-            "available": response.get("available_balance", 0) / 100,
+            "available": response.get("balance", 0) / 100,  # Kalshi v2 API uses "balance" for available cash
             "portfolio_value": response.get("portfolio_value", 0) / 100,
         }
 
