@@ -372,16 +372,16 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 min-w-0 flex-1">
                               {/* Status dot */}
-                              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${strategy.enabled ? status.dotColor : 'bg-[#2a2a3d]'}`} />
+                              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${strategy.enabled ? status.dotColor : 'bg-[#4a4a65]'}`} />
                               {/* Name */}
                               <span className={`text-[11px] font-bold tracking-wide truncate transition-colors ${
-                                strategy.enabled ? theme.accent : 'text-[#4a4a60]'
+                                strategy.enabled ? theme.accent : 'text-[#5a5a75]'
                               }`}>
                                 {getStrategyDisplayName(strategy.name)}
                               </span>
                               {/* OFF label for disabled strategies */}
                               {!strategy.enabled && (
-                                <span className="text-[8px] font-bold text-[#3a3a50] tracking-[0.1em] flex-shrink-0">OFF</span>
+                                <span className="text-[8px] font-bold text-[#5a5a75] tracking-[0.1em] flex-shrink-0">OFF</span>
                               )}
                             </div>
                             {/* Toggle switch */}
@@ -390,13 +390,13 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
                               className={`w-9 h-5 rounded-full relative transition-all duration-300 border flex-shrink-0 ml-2 ${
                                 strategy.enabled
                                   ? `${theme.bg}/20 ${theme.border}/50 ${theme.glow}`
-                                  : 'bg-[#141420] border-[#2a2a3d] shadow-[inset_0_1px_3px_rgba(0,0,0,0.5)] hover:border-[#3a3a50]'
+                                  : 'bg-[#1a1a2e] border-[#3a3a55] shadow-[inset_0_1px_3px_rgba(0,0,0,0.3)] hover:border-[#55557a]'
                               }`}
                             >
                               <div className={`absolute top-[3px] w-3.5 h-3.5 rounded-full transition-all duration-300 ${
                                 strategy.enabled
                                   ? `right-[3px] ${theme.dot} shadow-[0_0_6px_currentColor]`
-                                  : 'left-[3px] bg-[#3a3a50] border border-[#50506a]'
+                                  : 'left-[3px] bg-[#5a5a75] border border-[#6a6a88]'
                               }`} />
                             </button>
                           </div>
