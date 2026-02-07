@@ -40,77 +40,14 @@ const COLORS = {
   },
 };
 
-// Generate mock historical data
-function generateMockData(timeframe: TimeFrame): DataPoint[] {
-  const data: DataPoint[] = [];
-  const now = new Date();
-  let points: number;
-  let intervalMs: number;
-  let dateFormat: Intl.DateTimeFormatOptions;
-
-  switch (timeframe) {
-    case '1D':
-      points = 48; // Every 30 min
-      intervalMs = 30 * 60 * 1000;
-      dateFormat = { hour: '2-digit', minute: '2-digit' };
-      break;
-    case '1W':
-      points = 7 * 12; // Every 2 hours
-      intervalMs = 2 * 60 * 60 * 1000;
-      dateFormat = { weekday: 'short', hour: '2-digit' };
-      break;
-    case '1M':
-      points = 30;
-      intervalMs = 24 * 60 * 60 * 1000;
-      dateFormat = { month: 'short', day: 'numeric' };
-      break;
-    case '3M':
-      points = 90;
-      intervalMs = 24 * 60 * 60 * 1000;
-      dateFormat = { month: 'short', day: 'numeric' };
-      break;
-    case '1Y':
-      points = 52;
-      intervalMs = 7 * 24 * 60 * 60 * 1000;
-      dateFormat = { month: 'short', day: 'numeric' };
-      break;
-    case 'ALL':
-      points = 120;
-      intervalMs = 7 * 24 * 60 * 60 * 1000;
-      dateFormat = { month: 'short', year: '2-digit' };
-      break;
-    default:
-      points = 30;
-      intervalMs = 24 * 60 * 60 * 1000;
-      dateFormat = { month: 'short', day: 'numeric' };
-  }
-
-  // Generate realistic P&L curve with volatility
-  let runningPnl = 0;
-  const volatility = timeframe === '1D' ? 1.5 : timeframe === '1W' ? 3 : 8;
-  const trend = Math.random() > 0.4 ? 0.2 : -0.15; // Randomize trend direction
-
-  for (let i = points - 1; i >= 0; i--) {
-    const timestamp = new Date(now.getTime() - i * intervalMs);
-    const change = (Math.random() - 0.5) * volatility + trend;
-    runningPnl += change;
-
-    data.push({
-      timestamp: timestamp.toISOString(),
-      value: Math.round(runningPnl * 100) / 100,
-      label: timestamp.toLocaleDateString('en-US', dateFormat),
-    });
-  }
-
-  return data;
-}
+// Empty data — shown when no real trading data exists
 
 export default function PerformanceHero({ data }: PerformanceHeroProps) {
   const [timeframe, setTimeframe] = useState<TimeFrame>('1M');
   const [chartData, setChartData] = useState<DataPoint[]>([]);
 
   useEffect(() => {
-    setChartData(data || generateMockData(timeframe));
+    setChartData(data || []);
   }, [data, timeframe]);
 
   // Calculate stats - Robinhood style: compare END vs START
@@ -154,6 +91,38 @@ export default function PerformanceHero({ data }: PerformanceHeroProps) {
     }
     return null;
   };
+
+  if (chartData.length === 0) {
+    return (
+      <div className="panel panel-hero p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-xs text-terminal-dim mb-1 tracking-wider">PORTFOLIO PERFORMANCE</div>
+            <div className="text-4xl font-bold tabular-nums text-terminal-dim/40">---</div>
+          </div>
+          <div className="flex gap-1 bg-terminal-bg rounded-lg p-1">
+            {timeframes.map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setTimeframe(tf)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                  timeframe === tf ? 'bg-white/10 text-white/60 border border-white/20' : 'text-terminal-dim hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="h-72 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-terminal-dim/40 text-sm mb-2">NO TRADING DATA</div>
+            <div className="text-terminal-dim/30 text-xs">Start the bot to begin collecting performance data</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="panel panel-hero p-6">

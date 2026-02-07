@@ -19,12 +19,8 @@ function formatPercentage(pct: number): string {
   return `${sign}${pct.toFixed(2)}%`;
 }
 
-function generateTrendData(targetValue: number, variance: number, trendFactor: number): number[] {
-  return Array.from({ length: 10 }, (_, i) => {
-    const randomVariance = (Math.random() - 0.5) * variance;
-    const trend = (i / 9) * trendFactor;
-    return targetValue + trend + randomVariance;
-  });
+function generateFlatTrend(targetValue: number): number[] {
+  return Array.from({ length: 10 }, () => targetValue);
 }
 
 function getPnlColorClass(pnlCents: number, isBright: boolean): string {
@@ -48,14 +44,12 @@ export default function AccountMetricsCard({ metrics, balanceHistory, pnlHistory
 
   const balanceTrend = useMemo(() => {
     if (balanceHistory && balanceHistory.length > 1) return balanceHistory;
-    const base = safeMetrics.balance_cents;
-    return generateTrendData(base * 0.95, base * 0.02, base * 0.03);
+    return generateFlatTrend(safeMetrics.balance_cents);
   }, [balanceHistory, safeMetrics.balance_cents]);
 
   const pnlTrend = useMemo(() => {
     if (pnlHistory && pnlHistory.length > 1) return pnlHistory;
-    const current = safeMetrics.daily_pnl_cents;
-    return generateTrendData(0, Math.abs(current * 0.3), current);
+    return generateFlatTrend(safeMetrics.daily_pnl_cents);
   }, [pnlHistory, safeMetrics.daily_pnl_cents]);
 
   const pnlColor = safeMetrics.daily_pnl_cents >= 0 ? '#FFBF00' : '#FF4444';

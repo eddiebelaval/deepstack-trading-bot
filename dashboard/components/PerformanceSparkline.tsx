@@ -18,37 +18,11 @@ interface PerformanceSparklineProps {
   data?: DataPoint[];
 }
 
-// Generate mock historical data
-function generateMockData(): DataPoint[] {
-  const data: DataPoint[] = [];
-  const now = new Date();
-  const points = 24; // Last 24 hours
-  const intervalMs = 60 * 60 * 1000; // 1 hour
-
-  let runningPnl = 0;
-  const volatility = 2;
-  const trend = Math.random() > 0.4 ? 0.3 : -0.2;
-
-  for (let i = points - 1; i >= 0; i--) {
-    const timestamp = new Date(now.getTime() - i * intervalMs);
-    const change = (Math.random() - 0.5) * volatility + trend;
-    runningPnl += change;
-
-    data.push({
-      timestamp: timestamp.toISOString(),
-      value: Math.round(runningPnl * 100) / 100,
-      label: timestamp.toLocaleTimeString('en-US', { hour: '2-digit' }),
-    });
-  }
-
-  return data;
-}
-
 export default function PerformanceSparkline({ data }: PerformanceSparklineProps) {
   const [chartData, setChartData] = useState<DataPoint[]>([]);
 
   useEffect(() => {
-    setChartData(data || generateMockData());
+    setChartData(data || []);
   }, [data]);
 
   const stats = useMemo(() => {
@@ -90,45 +64,59 @@ export default function PerformanceSparkline({ data }: PerformanceSparklineProps
         </div>
       </div>
 
-      {/* Main metric */}
-      <div className="flex items-center justify-between mb-2">
-        <span
-          className="text-3xl font-bold tabular-nums"
-          style={{ color, textShadow: `0 0 12px ${colorDim}` }}
-        >
-          {stats.current >= 0 ? '+' : ''}{stats.current.toFixed(2)}%
-        </span>
-        <span
-          className="text-sm font-medium"
-          style={{ color: stats.isProfit ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)' }}
-        >
-          {stats.change >= 0 ? '+' : ''}{stats.change.toFixed(2)}%
-        </span>
-      </div>
+      {chartData.length === 0 ? (
+        <>
+          {/* Empty metric */}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-3xl font-bold tabular-nums text-terminal-dim/40">---</span>
+          </div>
+          <div className="flex-1 min-h-[60px] flex items-center justify-center">
+            <div className="text-terminal-dim/40 text-xs">NO DATA</div>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Main metric */}
+          <div className="flex items-center justify-between mb-2">
+            <span
+              className="text-3xl font-bold tabular-nums"
+              style={{ color, textShadow: `0 0 12px ${colorDim}` }}
+            >
+              {stats.current >= 0 ? '+' : ''}{stats.current.toFixed(2)}%
+            </span>
+            <span
+              className="text-sm font-medium"
+              style={{ color: stats.isProfit ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)' }}
+            >
+              {stats.change >= 0 ? '+' : ''}{stats.change.toFixed(2)}%
+            </span>
+          </div>
 
-      {/* Sparkline */}
-      <div className="flex-1 min-h-[60px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="sparklineGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={color} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <Tooltip content={<CustomTooltip />} />
-            <Area
-              type="monotone"
-              dataKey="value"
-              stroke={color}
-              strokeWidth={2}
-              fill="url(#sparklineGradient)"
-              dot={false}
-              style={{ filter: `drop-shadow(0 0 4px ${colorDim})` }}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
+          {/* Sparkline */}
+          <div className="flex-1 min-h-[60px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="sparklineGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+                    <stop offset="100%" stopColor={color} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <Tooltip content={<CustomTooltip />} />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke={color}
+                  strokeWidth={2}
+                  fill="url(#sparklineGradient)"
+                  dot={false}
+                  style={{ filter: `drop-shadow(0 0 4px ${colorDim})` }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
 
       {/* Stats row */}
       <div className="border-t border-terminal-green/30 mt-2 pt-2 grid grid-cols-2 gap-2 text-center">

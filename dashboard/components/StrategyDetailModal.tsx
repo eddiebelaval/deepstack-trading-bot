@@ -45,10 +45,10 @@ export default function StrategyDetailModal({ isOpen, onClose, strategy }: Strat
         const data = await response.json();
         setStats(data);
       } else {
-        setStats(getMockStats(strategyName));
+        setStats(getEmptyStats());
       }
     } catch {
-      setStats(getMockStats(strategyName));
+      setStats(getEmptyStats());
     }
     setLoading(false);
   };
@@ -223,31 +223,20 @@ function MiniStat({ label, value, color }: { label: string; value: string; color
   );
 }
 
-function getMockStats(strategyName: string): StrategyStats {
-  const baseWins = strategyName === 'MOMENTUM' ? 12 : strategyName === 'MEAN_REVERSION' ? 8 : 5;
-  const baseLosses = strategyName === 'MOMENTUM' ? 6 : strategyName === 'MEAN_REVERSION' ? 4 : 3;
-
+function getEmptyStats(): StrategyStats {
   return {
-    totalTrades: baseWins + baseLosses,
-    wins: baseWins,
-    losses: baseLosses,
-    winRate: (baseWins / (baseWins + baseLosses)) * 100,
-    totalPnl: baseWins * 350 - baseLosses * 200,
-    avgWin: 350,
-    avgLoss: -200,
-    bestTrade: 780,
-    worstTrade: -450,
-    currentStreak: 3,
-    streakType: 'win',
-    recentTrades: [
-      { id: '1', market_ticker: 'INXD-5350', side: 'YES', action: 'BUY', contracts: 5, pnl_cents: 425, status: 'filled', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), strategy: strategyName, entry_price_cents: 45, fill_price_cents: null, exit_price_cents: 54, order_id: null, exit_order_id: null, reasoning: null, exit_reason: null, session_date: null, metadata: null },
-      { id: '2', market_ticker: 'INXD-5375', side: 'NO', action: 'BUY', contracts: 3, pnl_cents: -180, status: 'filled', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), strategy: strategyName, entry_price_cents: 55, fill_price_cents: null, exit_price_cents: 49, order_id: null, exit_order_id: null, reasoning: null, exit_reason: null, session_date: null, metadata: null },
-      { id: '3', market_ticker: 'INXD-5400', side: 'YES', action: 'BUY', contracts: 4, pnl_cents: 320, status: 'filled', created_at: new Date().toISOString(), updated_at: new Date().toISOString(), strategy: strategyName, entry_price_cents: 38, fill_price_cents: null, exit_price_cents: 46, order_id: null, exit_order_id: null, reasoning: null, exit_reason: null, session_date: null, metadata: null },
-    ],
-    pnlHistory: Array.from({ length: 20 }, (_, i) => {
-      const trend = i * 50;
-      const variance = (Math.random() - 0.4) * 300;
-      return trend + variance;
-    }),
+    totalTrades: 0,
+    wins: 0,
+    losses: 0,
+    winRate: 0,
+    totalPnl: 0,
+    avgWin: 0,
+    avgLoss: 0,
+    bestTrade: 0,
+    worstTrade: 0,
+    currentStreak: 0,
+    streakType: 'none',
+    recentTrades: [],
+    pnlHistory: [],
   };
 }

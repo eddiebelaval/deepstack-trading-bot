@@ -7,11 +7,11 @@ import { DashboardStateSchema } from '@/lib/validation';
 const DEFAULT_STATE: DashboardState = {
   timestamp: new Date().toISOString(),
   account: {
-    balance_cents: 10000, // $100 starting balance
+    balance_cents: 0,
     daily_pnl_cents: 0,
     daily_pnl_percentage: 0,
     total_positions: 0,
-    available_balance_cents: 10000,
+    available_balance_cents: 0,
   },
   risk: {
     daily_loss_limit_cents: 10000,
