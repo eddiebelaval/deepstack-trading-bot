@@ -423,13 +423,46 @@ class KalshiTradingBot:
         logger.debug("Trading cycle complete")
 
     async def _update_state(self) -> None:
-        """Update account balance and position state."""
+        """Update account balance and position state, then push to dashboard."""
         # Get current balance
         balance = await self.client.get_balance()
         self.risk.update_balance(balance["available"])
 
         # Sync positions with exchange
         await self._sync_positions()
+
+        # Push state to Supabase for dashboard (fire-and-forget)
+        if self.dashboard:
+            balance_cents = int(balance["balance"] * 100)
+            available_cents = int(balance["available"] * 100)
+            daily_stats = self.risk.get_daily_stats()
+            daily_pnl_cents = int(daily_stats["daily_pnl"] * 100)
+
+            # Build strategy info
+            strategies = []
+            if self.strategy_manager:
+                for name, state in self.strategy_manager._strategies.items():
+                    strategies.append({
+                        "name": name,
+                        "enabled": state.enabled,
+                        "active_positions": len(state.positions),
+                        "opportunities_found": state.scan_count,
+                        "last_scan": state.last_scan_time.isoformat() if state.last_scan_time else None,
+                        "status": "active" if state.enabled else "inactive",
+                    })
+
+            await self.dashboard.push_state(
+                balance_cents=balance_cents,
+                available_balance_cents=available_cents,
+                daily_pnl_cents=daily_pnl_cents,
+                total_positions=len(self.open_positions),
+                strategies=strategies,
+                risk_config={
+                    "daily_loss_limit": self.config.daily_loss_limit,
+                    "max_position_size": self.config.max_position_size,
+                    "kelly_fraction": self.config.kelly_fraction,
+                },
+            )
 
     async def _sync_positions(self) -> None:
         """Sync local position tracking with exchange."""
