@@ -39,25 +39,19 @@ export default function OpportunitiesModal({ isOpen, onClose }: OpportunitiesMod
       const response = await fetch('/api/opportunities');
       if (response.ok) {
         const data = await response.json();
-        // Use real data if available, otherwise fall back to mock
-        if (data.opportunities && data.opportunities.length > 0) {
-          setOpportunities(data.opportunities.map((opp: Record<string, unknown>) => ({
-            ...opp,
-            // Map DB field names to component field names
-            current_price: Number(opp.current_price_cents) || 0,
-            target_price: Number(opp.target_price_cents) || 0,
-            expected_profit_pct: Number(opp.expected_profit_pct) || 0,
-            confidence: Number(opp.confidence) || 0,
-            detected_at: opp.created_at,
-          })));
-        } else {
-          setOpportunities(getMockOpportunities());
-        }
+        setOpportunities((data.opportunities || []).map((opp: Record<string, unknown>) => ({
+          ...opp,
+          current_price: Number(opp.current_price_cents) || 0,
+          target_price: Number(opp.target_price_cents) || 0,
+          expected_profit_pct: Number(opp.expected_profit_pct) || 0,
+          confidence: Number(opp.confidence) || 0,
+          detected_at: opp.created_at,
+        })));
       } else {
-        setOpportunities(getMockOpportunities());
+        setOpportunities([]);
       }
     } catch {
-      setOpportunities(getMockOpportunities());
+      setOpportunities([]);
     }
     setLoading(false);
   };
@@ -180,59 +174,3 @@ export default function OpportunitiesModal({ isOpen, onClose }: OpportunitiesMod
   );
 }
 
-function getMockOpportunities(): Opportunity[] {
-  return [
-    {
-      id: '1',
-      market: 'INXD-26JAN27-5350',
-      strategy: 'MOMENTUM',
-      side: 'YES',
-      current_price: 42,
-      target_price: 55,
-      expected_profit_pct: 31.0,
-      confidence: 0.78,
-      detected_at: new Date(Date.now() - 300000).toISOString(),
-      status: 'active',
-      reasoning: 'Price below fair value based on recent S&P movement. RSI oversold at 28.',
-    },
-    {
-      id: '2',
-      market: 'INXD-26JAN27-5375',
-      strategy: 'MEAN_REVERSION',
-      side: 'NO',
-      current_price: 67,
-      target_price: 50,
-      expected_profit_pct: 34.0,
-      confidence: 0.82,
-      detected_at: new Date(Date.now() - 600000).toISOString(),
-      status: 'active',
-      reasoning: 'Overbought condition detected. Historical reversion rate 73% within 2 hours.',
-    },
-    {
-      id: '3',
-      market: 'INXD-26JAN27-5325',
-      strategy: 'ARBITRAGE',
-      side: 'YES',
-      current_price: 38,
-      target_price: 45,
-      expected_profit_pct: 18.4,
-      confidence: 0.91,
-      detected_at: new Date(Date.now() - 1200000).toISOString(),
-      status: 'taken',
-      reasoning: 'Cross-platform spread detected: Polymarket 46c vs Kalshi 38c.',
-    },
-    {
-      id: '4',
-      market: 'INXD-26JAN27-5400',
-      strategy: 'MOMENTUM',
-      side: 'YES',
-      current_price: 23,
-      target_price: 35,
-      expected_profit_pct: 52.2,
-      confidence: 0.65,
-      detected_at: new Date(Date.now() - 1800000).toISOString(),
-      status: 'expired',
-      reasoning: 'Strong upward momentum but low liquidity. Position size limited.',
-    },
-  ];
-}
