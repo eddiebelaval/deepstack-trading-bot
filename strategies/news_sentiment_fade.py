@@ -376,7 +376,7 @@ class NewsSentimentFadeStrategy(Strategy):
             urgency=0.0,
         )
 
-    def get_historical_stats(self) -> Dict[str, float]:
+    def _get_prior_stats(self) -> Dict[str, float]:
         return {
             "win_rate": 0.55,
             "avg_win_cents": 6.0,

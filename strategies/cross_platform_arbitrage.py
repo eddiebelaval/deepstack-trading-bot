@@ -631,9 +631,9 @@ class CrossPlatformArbitrageStrategy(Strategy):
             urgency=0.0,
         )
 
-    def get_historical_stats(self) -> Dict[str, float]:
+    def _get_prior_stats(self) -> Dict[str, float]:
         """
-        Get assumed statistics for Kelly calculation.
+        Get hardcoded prior statistics for Kelly calculation.
 
         Cross-platform arbitrage stats are based on:
         - Market matching accuracy

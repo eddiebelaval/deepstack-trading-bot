@@ -80,6 +80,27 @@ class RiskConfig(BaseModel):
     )
 
 
+class LearningConfig(BaseModel):
+    """Learning loop configuration."""
+
+    prior_strength: int = Field(
+        default=20,
+        description="Bayesian prior strength (k parameter)",
+        ge=1,
+        le=100,
+    )
+    decay_half_life: float = Field(
+        default=30.0,
+        description="Days until trade weight halves",
+        ge=1.0,
+        le=365.0,
+    )
+    auto_disable: bool = Field(
+        default=False,
+        description="Auto-disable critical strategies",
+    )
+
+
 class YAMLConfig(BaseModel):
     """Full YAML configuration structure."""
 
@@ -94,6 +115,10 @@ class YAMLConfig(BaseModel):
     risk: RiskConfig = Field(
         default_factory=RiskConfig,
         description="Risk management settings",
+    )
+    learning: LearningConfig = Field(
+        default_factory=LearningConfig,
+        description="Learning loop settings",
     )
 
 
@@ -207,6 +232,24 @@ class KalshiConfig(BaseModel):
         description="Path to SQLite trade journal database",
     )
 
+    # Learning Loop
+    learning_prior_strength: int = Field(
+        default=20,
+        description="How many trades the prior is 'worth' in Bayesian blending (k parameter)",
+        ge=1,
+        le=100,
+    )
+    learning_decay_half_life: float = Field(
+        default=30.0,
+        description="Days until a trade's weight halves in the decay function",
+        ge=1.0,
+        le=365.0,
+    )
+    learning_auto_disable: bool = Field(
+        default=False,
+        description="Auto-disable strategies that reach critical health (off by default — flag only)",
+    )
+
     @field_validator("private_key_path")
     @classmethod
     def expand_key_path(cls, v: str) -> str:
@@ -306,6 +349,12 @@ def load_config(
                 config_dict["daily_loss_limit"] = yaml_config.risk.daily_loss_limit
                 config_dict["kelly_fraction"] = yaml_config.risk.kelly_fraction
                 config_dict["min_position_size"] = yaml_config.risk.min_position_size
+
+            # Apply learning settings from YAML
+            if yaml_config.learning:
+                config_dict["learning_prior_strength"] = yaml_config.learning.prior_strength
+                config_dict["learning_decay_half_life"] = yaml_config.learning.decay_half_life
+                config_dict["learning_auto_disable"] = yaml_config.learning.auto_disable
 
         except Exception as e:
             logger.warning(f"Failed to load YAML config: {e}")

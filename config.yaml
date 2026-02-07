@@ -156,3 +156,8 @@ risk:
   max_position_size: 50       # Max dollars per trade
   daily_loss_limit: 100       # Stop trading after this daily loss
   kelly_fraction: 0.5         # Use half-Kelly for safety
+
+learning:
+  prior_strength: 20          # Bayesian k: trades needed to equal prior weight
+  decay_half_life: 30.0       # Days until trade weight halves
+  auto_disable: false         # Flag unhealthy strategies, don't auto-kill
