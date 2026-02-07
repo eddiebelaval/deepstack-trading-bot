@@ -131,7 +131,7 @@ def is_market_tradeable(
     Returns:
         True if market is tradeable
     """
-    if market.get("status") != "open":
+    if market.get("status") not in ("open", "active"):
         return False
 
     volume = market.get("volume", 0) or market.get("volume_24h", 0)

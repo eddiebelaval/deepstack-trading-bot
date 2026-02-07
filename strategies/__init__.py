@@ -19,6 +19,11 @@ Available Strategies:
     - CorrelatedEventArbitrageStrategy: Trade logical relationship mispricings
     - DomainSpecializationStrategy: Multi-signal domain expertise framework
 
+    New Strategies:
+    - CryptoIntradayStrategy: Short-timeframe crypto trading with external price feeds
+    - BearMacroStrategy: Economic indicator trading using FRED data
+    - MarketMakingStrategy: Non-directional spread capture with inventory management
+
 Example:
     >>> from strategies import load_strategy
     >>> strategy = load_strategy("mean_reversion", config)
@@ -62,6 +67,9 @@ from .weather_aggregation import WeatherAggregationStrategy
 from .news_sentiment_fade import NewsSentimentFadeStrategy
 from .correlated_event_arbitrage import CorrelatedEventArbitrageStrategy
 from .domain_specialization import DomainSpecializationStrategy
+from .crypto_intraday import CryptoIntradayStrategy
+from .bear_macro import BearMacroStrategy
+from .market_making import MarketMakingStrategy
 
 # Strategy registry - maps name to class
 STRATEGY_REGISTRY = {
@@ -75,6 +83,9 @@ STRATEGY_REGISTRY = {
     "news_sentiment_fade": NewsSentimentFadeStrategy,
     "correlated_event_arbitrage": CorrelatedEventArbitrageStrategy,
     "domain_specialization": DomainSpecializationStrategy,
+    "crypto_intraday": CryptoIntradayStrategy,
+    "bear_macro": BearMacroStrategy,
+    "market_making": MarketMakingStrategy,
 }
 
 
@@ -137,6 +148,10 @@ __all__ = [
     "NewsSentimentFadeStrategy",
     "CorrelatedEventArbitrageStrategy",
     "DomainSpecializationStrategy",
+    # New strategies
+    "CryptoIntradayStrategy",
+    "BearMacroStrategy",
+    "MarketMakingStrategy",
     # Combinatorial arbitrage components (for advanced usage)
     "MarketRelationshipGraph",
     "ArbitrageScanner",

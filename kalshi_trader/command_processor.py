@@ -367,7 +367,7 @@ class CommandProcessor:
 
         # Get market data to determine price
         market = await self.bot.client.get_market(ticker)
-        if not market or market.get("status") != "open":
+        if not market or market.get("status") not in ("open", "active"):
             return {"error": f"Market {ticker} not open"}
 
         price = market.get("yes_ask", 50) if side == "yes" else market.get("no_ask", 50)

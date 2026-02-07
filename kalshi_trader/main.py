@@ -568,7 +568,7 @@ class KalshiTradingBot:
                 # Get current market price
                 market = await self.client.get_market(ticker)
 
-                if market.get("status") != "open":
+                if market.get("status") not in ("open", "active"):
                     logger.info(f"Market {ticker} no longer open, removing from tracking")
                     del self.open_positions[ticker]
                     continue

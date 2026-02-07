@@ -863,7 +863,7 @@ class CombinatorialArbitrageStrategy(Strategy):
 
         for market in markets:
             # Skip non-open markets
-            if market.get("status") != "open":
+            if market.get("status") not in ("open", "active"):
                 continue
 
             # Parse close time
@@ -1168,7 +1168,7 @@ def find_related_markets(markets: List[Dict]) -> List[MarketSet]:
     graph = MarketRelationshipGraph()
 
     for market in markets:
-        if market.get("status") != "open":
+        if market.get("status") not in ("open", "active"):
             continue
 
         outcome = MarketOutcome(

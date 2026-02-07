@@ -5,11 +5,15 @@ Provides async interfaces to external data sources:
 - WeatherDataProvider: NWS + Open-Meteo weather forecasts
 - NewsDataProvider: RSS feed aggregation (NYT, BBC, Reuters)
 - LLMProvider: Claude Sonnet for strategy-level analysis
+- CryptoPriceFeed: Real-time BTC/ETH/SOL prices from CoinGecko
+- FredDataProvider: Economic indicators from FRED (Fed rate, CPI, GDP, unemployment)
 """
 
 from .weather import WeatherDataProvider, WeatherForecast
 from .news import NewsDataProvider, NewsEvent
 from .llm import LLMProvider
+from .crypto import CryptoPriceFeed
+from .fred import FredDataProvider
 
 __all__ = [
     "WeatherDataProvider",
@@ -17,4 +21,6 @@ __all__ = [
     "NewsDataProvider",
     "NewsEvent",
     "LLMProvider",
+    "CryptoPriceFeed",
+    "FredDataProvider",
 ]
