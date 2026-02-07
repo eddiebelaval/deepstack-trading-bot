@@ -1,12 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import {
-  RadialBarChart,
-  RadialBar,
-  ResponsiveContainer,
-  PolarAngleAxis,
-} from 'recharts';
 
 interface WinRateGaugeProps {
   winRate?: number;
@@ -31,15 +25,6 @@ export default function WinRateGauge({
     return () => clearTimeout(timer);
   }, [winRate]);
 
-  // Use AMBER for great performance (60%+), GREEN for OK, RED for poor
-  const data = [
-    {
-      name: 'Win Rate',
-      value: animatedRate,
-      fill: animatedRate >= 60 ? '#FFBF00' : animatedRate >= 40 ? '#00FF41' : '#FF0000',
-    },
-  ];
-
   const getWinRateClass = (rate: number) => {
     if (rate >= 60) return 'text-terminal-amber-bright amber-glow';
     if (rate >= 40) return 'text-terminal-green terminal-glow';
@@ -47,75 +32,60 @@ export default function WinRateGauge({
   };
 
   return (
-    <div className="border border-terminal-green p-4 h-full card-hover scan-hover transition-all duration-300 hover:shadow-terminal-glow-strong">
+    <div className="panel p-4 h-full flex flex-col">
       {/* Header */}
-      <div className="border-b border-terminal-green pb-2 mb-4 transition-all duration-300">
+      <div className="border-b border-terminal-green/30 pb-2 mb-3">
         <div className="text-xs text-terminal-dim mb-1">STATISTICS</div>
-        <div className="text-lg font-bold terminal-glow tracking-wide transition-all duration-300 hover:terminal-glow-bright">
+        <div className="text-base font-bold terminal-glow tracking-wide">
           WIN RATE
         </div>
       </div>
 
-      {/* Gauge */}
-      <div className="h-40 relative">
-        <ResponsiveContainer width="100%" height="100%">
-          <RadialBarChart
-            cx="50%"
-            cy="50%"
-            innerRadius="60%"
-            outerRadius="90%"
-            barSize={12}
-            data={data}
-            startAngle={180}
-            endAngle={0}
-          >
-            <PolarAngleAxis
-              type="number"
-              domain={[0, 100]}
-              angleAxisId={0}
-              tick={false}
-            />
-            <RadialBar
-              background={{ fill: '#33330020' }}
-              dataKey="value"
-              cornerRadius={6}
+      {/* Main metric - big prominent number */}
+      <div className="flex-1 flex flex-col items-center justify-center">
+        <div className={`text-4xl font-bold tabular-nums ${getWinRateClass(winRate)}`}>
+          {winRate.toFixed(0)}%
+        </div>
+        {/* Progress bar instead of radial gauge */}
+        <div className="w-full mt-3 px-2">
+          <div className="w-full h-2 bg-terminal-green/20 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-500"
               style={{
-                filter: animatedRate >= 60
-                  ? 'drop-shadow(0 0 8px #FFD700) drop-shadow(0 0 12px rgba(255, 215, 0, 0.6))'
+                width: `${animatedRate}%`,
+                backgroundColor: animatedRate >= 60 ? '#FFBF00' : animatedRate >= 40 ? '#00FF41' : '#FF0000',
+                boxShadow: animatedRate >= 60
+                  ? '0 0 8px #FFBF00'
                   : animatedRate >= 40
-                    ? 'drop-shadow(0 0 6px #00FF41) drop-shadow(0 0 10px rgba(0, 255, 65, 0.5))'
-                    : 'drop-shadow(0 0 6px #FF0000) drop-shadow(0 0 10px rgba(255, 0, 0, 0.6))',
+                    ? '0 0 6px #00FF41'
+                    : '0 0 6px #FF0000',
               }}
             />
-          </RadialBarChart>
-        </ResponsiveContainer>
-
-        {/* Center text */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <div className={`text-5xl font-bold tabular-nums ${getWinRateClass(winRate)}`}>
-            {winRate.toFixed(0)}%
           </div>
-          <div className="text-sm text-terminal-dim mt-2 tracking-widest">WIN RATE</div>
+          <div className="flex justify-between text-xs text-terminal-dim mt-1">
+            <span>0%</span>
+            <span>100%</span>
+          </div>
         </div>
       </div>
 
-      {/* Stats - Cyan for meta, Amber for wins, Red for losses */}
-      <div className="border-t border-terminal-green mt-3 pt-4 grid grid-cols-3 gap-4 text-center">
-        <div className="data-hover hover:bg-terminal-green hover:bg-opacity-5 p-2 -m-2 rounded transition-all duration-200">
-          <div className="text-sm text-terminal-cyan-dim tracking-wider mb-2">TOTAL</div>
-          <div className="text-2xl font-bold text-terminal-cyan cyan-glow tabular-nums">
+      {/* Stats - compact row */}
+      <div className="border-t border-terminal-green mt-3 pt-3 grid grid-cols-3 gap-2 text-center">
+        <div>
+          <div className="text-xs text-terminal-cyan-dim tracking-wider mb-1">TOTAL</div>
+          <div className="text-lg font-bold text-terminal-cyan tabular-nums">
             {totalTrades}
           </div>
         </div>
-        <div className="data-hover hover:bg-terminal-green hover:bg-opacity-5 p-2 -m-2 rounded transition-all duration-200">
-          <div className="text-sm text-terminal-amber-dim tracking-wider mb-2">WINS</div>
-          <div className="text-2xl font-bold text-terminal-amber-bright amber-glow tabular-nums">
+        <div>
+          <div className="text-xs text-terminal-amber-dim tracking-wider mb-1">WINS</div>
+          <div className="text-lg font-bold text-terminal-amber-bright tabular-nums">
             {wins}
           </div>
         </div>
-        <div className="data-hover hover:bg-terminal-green hover:bg-opacity-5 p-2 -m-2 rounded transition-all duration-200">
-          <div className="text-sm text-terminal-red-dim tracking-wider mb-2">LOSSES</div>
-          <div className={`text-2xl font-bold tabular-nums ${losses > 0 ? 'text-terminal-red-bright status-error' : 'text-terminal-green terminal-glow'}`}>
+        <div>
+          <div className="text-xs text-terminal-red-dim tracking-wider mb-1">LOSSES</div>
+          <div className={`text-lg font-bold tabular-nums ${losses > 0 ? 'text-terminal-red-bright' : 'text-terminal-green'}`}>
             {losses}
           </div>
         </div>

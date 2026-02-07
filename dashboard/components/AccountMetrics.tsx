@@ -61,50 +61,50 @@ export default function AccountMetricsCard({ metrics, balanceHistory, pnlHistory
   const pnlColor = safeMetrics.daily_pnl_cents >= 0 ? '#FFBF00' : '#FF4444';
 
   return (
-    <div className="border border-terminal-green p-4">
+    <div className="border border-terminal-green p-4 h-full flex flex-col">
       {/* Header */}
-      <div className="border-b border-terminal-green pb-2 mb-4">
+      <div className="border-b border-terminal-green pb-2 mb-3">
         <div className="text-xs text-terminal-dim mb-1">ACCOUNT</div>
         <div className="text-lg font-bold terminal-glow tracking-wide">
           BALANCE & P/L
         </div>
       </div>
 
-      {/* Metrics Grid */}
-      <div className="space-y-5">
+      {/* Metrics */}
+      <div className="space-y-3 flex-1">
         {/* Balance */}
-        <div className="flex justify-between items-center gap-4">
-          <span className="text-sm text-terminal-dim tracking-wider">BALANCE:</span>
-          <div className="flex items-center gap-3">
+        <div className="flex justify-between items-center">
+          <span className="text-xs text-terminal-dim tracking-wider">BALANCE:</span>
+          <div className="flex items-center gap-2">
             <Sparkline
               data={balanceTrend}
-              width={50}
-              height={18}
+              width={40}
+              height={16}
               color="#00FF41"
               showDot={true}
             />
-            <span className="text-3xl font-bold tabular-nums terminal-glow-bright">
+            <span className="text-2xl font-bold tabular-nums terminal-glow-bright">
               {formatCents(safeMetrics.balance_cents)}
             </span>
           </div>
         </div>
 
         {/* Daily P/L */}
-        <div className="flex justify-between items-center gap-4">
-          <span className="text-sm text-terminal-amber-dim tracking-wider">DAILY P/L:</span>
-          <div className="flex items-center gap-3">
+        <div className="flex justify-between items-center">
+          <span className="text-xs text-terminal-amber-dim tracking-wider">DAILY P/L:</span>
+          <div className="flex items-center gap-2">
             <Sparkline
               data={pnlTrend}
-              width={50}
-              height={18}
+              width={40}
+              height={16}
               color={pnlColor}
               showDot={true}
             />
             <div className="text-right">
-              <div className={`text-2xl font-bold tabular-nums ${getPnlColorClass(safeMetrics.daily_pnl_cents, true)}`}>
+              <div className={`text-xl font-bold tabular-nums ${getPnlColorClass(safeMetrics.daily_pnl_cents, true)}`}>
                 {safeMetrics.daily_pnl_cents >= 0 ? '+' : ''}{formatCents(safeMetrics.daily_pnl_cents)}
               </div>
-              <div className={`text-sm tabular-nums mt-1 ${getPnlColorClass(safeMetrics.daily_pnl_cents, false)}`}>
+              <div className={`text-xs tabular-nums ${getPnlColorClass(safeMetrics.daily_pnl_cents, false)}`}>
                 {formatPercentage(safeMetrics.daily_pnl_percentage)}
               </div>
             </div>
@@ -112,17 +112,17 @@ export default function AccountMetricsCard({ metrics, balanceHistory, pnlHistory
         </div>
 
         {/* Secondary Metrics */}
-        <div className="border-t border-terminal-green pt-5">
-          <div className="grid grid-cols-2 gap-6">
+        <div className="border-t border-terminal-green pt-3 mt-auto">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className="text-sm text-terminal-cyan-dim tracking-wider mb-2">POSITIONS</div>
-              <div className="text-xl font-bold tabular-nums text-terminal-cyan">
+              <div className="text-xs text-terminal-cyan-dim tracking-wider mb-1">POSITIONS</div>
+              <div className="text-lg font-bold tabular-nums text-terminal-cyan">
                 {safeMetrics.total_positions.toString().padStart(2, '0')}
               </div>
             </div>
             <div>
-              <div className="text-sm text-terminal-cyan-dim tracking-wider mb-2">AVAILABLE</div>
-              <div className="text-xl font-bold tabular-nums text-terminal-cyan">
+              <div className="text-xs text-terminal-cyan-dim tracking-wider mb-1">AVAILABLE</div>
+              <div className="text-lg font-bold tabular-nums text-terminal-cyan">
                 {formatCents(safeMetrics.available_balance_cents)}
               </div>
             </div>

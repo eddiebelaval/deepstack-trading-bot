@@ -65,7 +65,7 @@ export default function LiveFeed() {
   };
 
   return (
-    <div className="border border-terminal-green p-4 h-full flex flex-col card-hover transition-all duration-300 hover:shadow-terminal-glow">
+    <div className="panel p-4 h-full flex flex-col">
       {/* Header */}
       <div className="border-b border-terminal-green pb-2 mb-3 transition-all duration-300">
         <div className="flex items-center justify-between">

@@ -13,14 +13,14 @@ export default function ShortcutsHelp({ isOpen, onClose, soundEnabled }: Shortcu
 
   return (
     <div
-      className="fixed inset-0 bg-black bg-opacity-80 z-50 flex items-center justify-center"
+      className="fixed inset-0 bg-terminal-bg/90 backdrop-blur-sm z-50 flex items-center justify-center"
       onClick={onClose}
     >
       <div
-        className="bg-terminal-black border border-terminal-green p-6 max-w-sm"
+        className="bg-terminal-bg-panel border border-terminal-green/50 p-6 max-w-sm rounded-lg"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-terminal-green pb-2 mb-4">
+        <div className="border-b border-terminal-green/30 pb-2 mb-4">
           <div className="text-xs text-terminal-dim mb-1">SYSTEM</div>
           <div className="text-lg font-bold terminal-glow tracking-wide">
             KEYBOARD SHORTCUTS
@@ -36,7 +36,7 @@ export default function ShortcutsHelp({ isOpen, onClose, soundEnabled }: Shortcu
           ))}
         </div>
 
-        <div className="mt-4 pt-4 border-t border-terminal-green">
+        <div className="mt-4 pt-4 border-t border-terminal-green/30">
           <div className="flex justify-between text-xs">
             <span className="text-terminal-dim">SOUND:</span>
             <span className={soundEnabled ? 'text-terminal-green' : 'text-terminal-red'}>

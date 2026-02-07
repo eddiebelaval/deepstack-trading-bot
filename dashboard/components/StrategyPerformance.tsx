@@ -37,7 +37,7 @@ const CustomTooltip = ({ active, payload }: {active?: boolean; payload?: Array<{
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-terminal-black border border-terminal-amber p-2 text-xs font-mono">
+      <div className="bg-terminal-bg-panel border border-terminal-amber/50 p-2 text-xs font-mono rounded">
         <div className="text-terminal-green-bright font-bold mb-1">{data.name}</div>
         <div className="text-terminal-cyan-dim">Trades: <span className="text-terminal-cyan">{data.trades}</span></div>
         <div className="text-terminal-cyan-dim">Win Rate: <span className="text-terminal-cyan">{data.winRate}%</span></div>

@@ -44,8 +44,10 @@ export default function OpportunitiesModal({ isOpen, onClose }: OpportunitiesMod
           setOpportunities(data.opportunities.map((opp: Record<string, unknown>) => ({
             ...opp,
             // Map DB field names to component field names
-            current_price: opp.current_price_cents,
-            target_price: opp.target_price_cents,
+            current_price: Number(opp.current_price_cents) || 0,
+            target_price: Number(opp.target_price_cents) || 0,
+            expected_profit_pct: Number(opp.expected_profit_pct) || 0,
+            confidence: Number(opp.confidence) || 0,
             detected_at: opp.created_at,
           })));
         } else {
@@ -60,25 +62,23 @@ export default function OpportunitiesModal({ isOpen, onClose }: OpportunitiesMod
     setLoading(false);
   };
 
-  const filteredOpps = opportunities.filter(opp => {
-    if (filter === 'all') return true;
-    return opp.status === filter;
-  });
+  const filteredOpps = filter === 'all'
+    ? opportunities
+    : opportunities.filter(opp => opp.status === filter);
 
-  const getStatusColor = (status: string) => {
+  function getStatusColor(status: string): string {
     switch (status) {
       case 'active': return 'text-terminal-green';
       case 'taken': return 'text-terminal-amber';
-      case 'expired': return 'text-terminal-dim';
       default: return 'text-terminal-dim';
     }
-  };
+  }
 
-  const getConfidenceColor = (confidence: number) => {
+  function getConfidenceColor(confidence: number): string {
     if (confidence >= 0.8) return 'text-terminal-green-bright';
     if (confidence >= 0.6) return 'text-terminal-amber';
     return 'text-terminal-red';
-  };
+  }
 
   return (
     <Modal
@@ -152,13 +152,13 @@ export default function OpportunitiesModal({ isOpen, onClose }: OpportunitiesMod
                 <div>
                   <div className="text-terminal-dim text-xs">EXP PROFIT</div>
                   <div className="text-terminal-amber-bright tabular-nums">
-                    +{opp.expected_profit_pct.toFixed(1)}%
+                    +{(Number(opp.expected_profit_pct) || 0).toFixed(1)}%
                   </div>
                 </div>
                 <div>
                   <div className="text-terminal-dim text-xs">CONFIDENCE</div>
-                  <div className={`tabular-nums ${getConfidenceColor(opp.confidence)}`}>
-                    {(opp.confidence * 100).toFixed(0)}%
+                  <div className={`tabular-nums ${getConfidenceColor(Number(opp.confidence) || 0)}`}>
+                    {((Number(opp.confidence) || 0) * 100).toFixed(0)}%
                   </div>
                 </div>
               </div>

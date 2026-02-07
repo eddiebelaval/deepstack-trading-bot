@@ -50,7 +50,7 @@ interface TooltipPayload {
 const CustomTooltip = ({ active, payload, label }: {active?: boolean; payload?: TooltipPayload[]; label?: string}) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-terminal-black border border-terminal-green p-2 text-xs font-mono">
+      <div className="bg-terminal-bg-panel border border-terminal-green/50 p-2 text-xs font-mono rounded">
         <div className="text-terminal-green-bright font-bold mb-1">{label}</div>
         {payload.map((entry, index) => (
           <div key={index} className="text-terminal-dim">
@@ -74,89 +74,69 @@ export default function TradeActivity({ data, onOpportunitiesClick }: TradeActiv
   const totalOpps = chartData.reduce((sum, d) => sum + d.opportunities, 0);
 
   return (
-    <div className="border border-terminal-green p-4 h-full card-hover scan-hover transition-all duration-300 hover:shadow-terminal-glow-strong">
+    <div className="panel p-4 h-full flex flex-col">
       {/* Header */}
-      <div className="border-b border-terminal-green pb-2 mb-4 transition-all duration-300">
+      <div className="border-b border-terminal-green/30 pb-2 mb-3">
         <div className="text-xs text-terminal-dim mb-1">ACTIVITY</div>
-        <div className="text-lg font-bold terminal-glow tracking-wide transition-all duration-300 hover:terminal-glow-bright">
-          TRADES & SCANS (12H)
+        <div className="text-base font-bold terminal-glow tracking-wide">
+          TRADES & SCANS
         </div>
       </div>
 
-      {/* Chart */}
-      <div className="h-48 chart-glow animate-glow-pulse">
+      {/* Chart - compact, no axis labels */}
+      <div className="h-24 chart-glow">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+          <ComposedChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
             <CartesianGrid
               strokeDasharray="3 3"
-              stroke="#00550040"
+              stroke="#00550030"
               vertical={false}
             />
-            <XAxis
-              dataKey="hour"
-              tick={{ fill: '#00AA2B', fontSize: 12 }}
-              axisLine={{ stroke: '#00550060' }}
-              tickLine={{ stroke: '#00550060' }}
-            />
-            <YAxis
-              yAxisId="left"
-              tick={{ fill: '#00AA2B', fontSize: 12 }}
-              axisLine={{ stroke: '#00550060' }}
-              tickLine={{ stroke: '#00550060' }}
-            />
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              tick={{ fill: '#00AA2B', fontSize: 12 }}
-              axisLine={{ stroke: '#00550060' }}
-              tickLine={{ stroke: '#00550060' }}
-            />
+            <XAxis dataKey="hour" hide />
+            <YAxis yAxisId="left" hide />
+            <YAxis yAxisId="right" orientation="right" hide />
             <Tooltip content={<CustomTooltip />} />
             <Bar
               yAxisId="left"
               dataKey="trades"
               fill="#00FF41"
               fillOpacity={0.7}
-              radius={[3, 3, 0, 0]}
+              radius={[2, 2, 0, 0]}
               name="Trades"
-              style={{
-                filter: 'drop-shadow(0 0 3px #00FF41)',
-              }}
+              style={{ filter: 'drop-shadow(0 0 2px #00FF41)' }}
             />
             <Line
               yAxisId="right"
               type="monotone"
               dataKey="opportunities"
               stroke="#FFBF00"
-              strokeWidth={3}
+              strokeWidth={2}
               dot={false}
               name="Opportunities"
-              style={{
-                filter: 'drop-shadow(0 0 4px #FFBF00) drop-shadow(0 0 8px rgba(255, 191, 0, 0.5))',
-              }}
+              style={{ filter: 'drop-shadow(0 0 3px #FFBF00)' }}
             />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Stats */}
-      <div className="border-t border-terminal-green mt-4 pt-4 grid grid-cols-3 gap-4 text-xs">
-        <div className="data-hover hover:bg-terminal-green hover:bg-opacity-5 p-2 -m-2 rounded transition-all duration-200">
-          <div className="text-terminal-dim tracking-wider mb-2">TRADES</div>
-          <div className="text-terminal-green-bright font-bold text-2xl terminal-glow tabular-nums">{totalTrades}</div>
+      {/* Stats - compact */}
+      <div className="border-t border-terminal-green mt-2 pt-3 grid grid-cols-3 gap-2 text-center">
+        <div>
+          <div className="text-xs text-terminal-dim tracking-wider mb-1">TRADES</div>
+          <div className="text-lg font-bold text-terminal-green-bright tabular-nums">{totalTrades}</div>
         </div>
         <button
           onClick={onOpportunitiesClick}
-          className="data-hover hover:bg-terminal-amber hover:bg-opacity-5 p-2 -m-2 rounded transition-all duration-200 text-left cursor-pointer group"
+          className="text-center cursor-pointer group"
         >
-          <div className="text-terminal-amber-dim tracking-wider mb-2 group-hover:text-terminal-amber transition-colors">
-            OPPS FOUND <span className="text-terminal-dim group-hover:text-terminal-amber">[+]</span>
+          <div className="text-xs text-terminal-amber-dim tracking-wider mb-1 group-hover:text-terminal-amber">
+            OPPS [+]
           </div>
-          <div className="text-terminal-amber font-bold text-2xl amber-glow tabular-nums">{totalOpps}</div>
+          <div className="text-lg font-bold text-terminal-amber tabular-nums">{totalOpps}</div>
         </button>
-        <div className="data-hover hover:bg-terminal-green hover:bg-opacity-5 p-2 -m-2 rounded transition-all duration-200">
-          <div className="text-terminal-dim tracking-wider mb-2">EXEC RATE</div>
-          <div className="text-terminal-green font-bold text-2xl terminal-glow tabular-nums">
+        <div>
+          <div className="text-xs text-terminal-dim tracking-wider mb-1">EXEC</div>
+          <div className="text-lg font-bold text-terminal-green tabular-nums">
             {totalOpps > 0 ? ((totalTrades / totalOpps) * 100).toFixed(0) : 0}%
           </div>
         </div>

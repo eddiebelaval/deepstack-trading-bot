@@ -45,15 +45,15 @@ export default function Modal({
 
   return (
     <div
-      className="fixed inset-0 bg-black bg-opacity-85 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-terminal-bg/90 backdrop-blur-sm z-50 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className={`bg-terminal-black border border-terminal-green ${SIZE_CLASSES[size]} w-full max-h-[85vh] flex flex-col`}
+        className={`bg-terminal-bg-panel border border-terminal-green/50 rounded-lg ${SIZE_CLASSES[size]} w-full max-h-[85vh] flex flex-col`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="border-b border-terminal-green p-4 flex-shrink-0">
+        <div className="border-b border-terminal-green/30 p-4 flex-shrink-0">
           <div className="flex justify-between items-start">
             <div>
               {subtitle && (
@@ -78,7 +78,7 @@ export default function Modal({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-terminal-green p-3 flex-shrink-0">
+        <div className="border-t border-terminal-green/30 p-3 flex-shrink-0 bg-terminal-bg/30">
           <div className="text-xs text-terminal-dim text-center">
             [ESC] or click outside to close
           </div>

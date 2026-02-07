@@ -5,11 +5,10 @@ import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import StrategyCard from '@/components/StrategyCard';
 import LiveFeed from '@/components/LiveFeed';
-import AccountMetricsCard from '@/components/AccountMetrics';
 import RiskMetricsCard from '@/components/RiskMetrics';
 import TradeJournal from '@/components/TradeJournal';
 import PnLChart from '@/components/PnLChart';
-import StrategyPerformance from '@/components/StrategyPerformance';
+import PerformanceHero from '@/components/PerformanceHero';
 import TradeActivity from '@/components/TradeActivity';
 import WinRateGauge from '@/components/WinRateGauge';
 import ConnectionStatus from '@/components/ConnectionStatus';
@@ -212,6 +211,11 @@ export default function Dashboard() {
             <Header />
           </div>
 
+        {/* Hero Performance Panel */}
+        <div className="mb-4 md:mb-6">
+          <PerformanceHero />
+        </div>
+
         {/* Strategy Status Cards */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
           {dashboardState.strategies.map((strategy) => (
@@ -223,9 +227,8 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Account & Risk Metrics + Win Rate */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-6">
-          <AccountMetricsCard metrics={dashboardState.account} />
+        {/* Metrics Row */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
           <RiskMetricsCard metrics={dashboardState.risk} />
           <WinRateGauge
             winRate={trades.length > 0 ? (trades.filter(t => (t.pnl_cents ?? 0) > 0).length / trades.length) * 100 : 0}
@@ -239,12 +242,11 @@ export default function Dashboard() {
         {/* Charts Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 mb-4 md:mb-6">
           <PnLChart />
-          <StrategyPerformance />
+          <LiveFeed />
         </div>
 
-        {/* Live Feed + Trade Journal - Side by Side */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 mb-4 md:mb-6">
-          <LiveFeed />
+        {/* Trade Journal - Full Width */}
+        <div className="mb-4 md:mb-6">
           <TradeJournal trades={trades} onTradeClick={(trade) => setSelectedTrade(trade)} />
         </div>
 

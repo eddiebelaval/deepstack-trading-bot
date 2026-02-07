@@ -41,13 +41,13 @@ export default function StrategyCard({ strategy, onClick }: StrategyCardProps) {
   return (
     <button
       onClick={onClick}
-      className="border border-terminal-green p-2 md:p-4 flex flex-col h-full card-hover scan-hover transition-all duration-300 hover:shadow-terminal-glow text-left w-full cursor-pointer group overflow-hidden"
+      className="panel p-2 md:p-4 flex flex-col h-full text-left w-full cursor-pointer group overflow-hidden"
     >
       {/* Header */}
-      <div className="border-b border-terminal-green pb-2 mb-2 md:mb-3 transition-all duration-300 w-full">
+      <div className="border-b border-terminal-green/30 pb-2 mb-2 md:mb-3 w-full">
         <div className="flex justify-between items-center">
           <div className="text-[9px] md:text-xs text-terminal-dim mb-1">STRATEGY</div>
-          <div className="text-[9px] md:text-xs text-terminal-dim group-hover:text-terminal-green transition-colors">[DETAILS]</div>
+          <div className="text-[9px] md:text-xs text-terminal-dim group-hover:text-terminal-green transition-colors">[+]</div>
         </div>
         <div className="text-xs md:text-lg font-bold terminal-glow tracking-wide uppercase transition-all duration-300 group-hover:terminal-glow-bright truncate">
           {strategy.name.replace(/_/g, ' ')}

@@ -10,8 +10,11 @@ const config: Config = {
     extend: {
       colors: {
         terminal: {
-          // Base
-          black: "#0D0208",
+          // Base backgrounds - deeper, richer
+          black: "#060609",
+          bg: "#0a0a0f",
+          "bg-elevated": "#12121a",
+          "bg-panel": "#16161f",
 
           // Green hierarchy (primary)
           green: "#00FF41",

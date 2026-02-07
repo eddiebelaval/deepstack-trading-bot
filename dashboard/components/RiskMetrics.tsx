@@ -31,33 +31,33 @@ export default function RiskMetricsCard({ metrics }: RiskMetricsProps) {
   const riskBarWidth = Math.min(safeMetrics.risk_percentage, 100);
 
   return (
-    <div className="border border-terminal-green p-4">
+    <div className="panel p-4 h-full flex flex-col">
       {/* Header */}
-      <div className="border-b border-terminal-green pb-2 mb-4">
+      <div className="border-b border-terminal-green/30 pb-2 mb-3">
         <div className="text-xs text-terminal-dim mb-1">RISK MANAGEMENT</div>
-        <div className="text-lg font-bold terminal-glow tracking-wide">
+        <div className="text-base font-bold terminal-glow tracking-wide">
           LIMITS & EXPOSURE
         </div>
       </div>
 
       {/* Metrics */}
-      <div className="space-y-5">
+      <div className="space-y-3 flex-1">
         {/* Daily Loss Limit */}
         <div>
-          <div className="flex justify-between text-sm mb-3 tracking-wider">
+          <div className="flex justify-between text-xs mb-2 tracking-wider">
             <span className="text-terminal-dim">DAILY LOSS LIMIT</span>
             <span className={`font-bold ${getRiskClass(safeMetrics.risk_percentage)}`}>
               {safeMetrics.risk_percentage.toFixed(0)}% USED
             </span>
           </div>
-          <div className="flex justify-between text-base tabular-nums mb-3">
+          <div className="flex justify-between text-sm tabular-nums mb-2">
             <span className="text-terminal-green">{formatCents(safeMetrics.daily_loss_used_cents)}</span>
             <span className="text-terminal-dim">
               / {formatCents(safeMetrics.daily_loss_limit_cents)}
             </span>
           </div>
           {/* Progress bar */}
-          <div className="w-full h-3 border border-terminal-green relative">
+          <div className="w-full h-2 border border-terminal-green relative">
             <div
               className={`h-full ${getRiskClass(safeMetrics.risk_percentage)} bg-current transition-all duration-500`}
               style={{ width: `${riskBarWidth}%` }}
@@ -65,30 +65,28 @@ export default function RiskMetricsCard({ metrics }: RiskMetricsProps) {
           </div>
         </div>
 
-        {/* Kelly Fraction - CYAN for config info */}
-        <div className="flex justify-between items-baseline pt-4 border-t border-terminal-green gap-4">
-          <span className="text-sm text-terminal-cyan-dim tracking-wider">KELLY FRACTION:</span>
-          <span className="text-xl font-bold tabular-nums text-terminal-cyan">
-            {safeMetrics.kelly_fraction.toFixed(2)}
-          </span>
-        </div>
-
-        {/* Max Position Size - CYAN for config info */}
-        <div className="flex justify-between items-baseline gap-4">
-          <span className="text-sm text-terminal-cyan-dim tracking-wider">MAX POSITION:</span>
-          <span className="text-xl font-bold tabular-nums text-terminal-cyan">
-            {formatCents(safeMetrics.max_position_size_cents)}
-          </span>
-        </div>
-
-        {/* Positions at Risk - AMBER for attention */}
-        <div className="flex justify-between items-baseline gap-4">
-          <span className="text-sm text-terminal-amber-dim tracking-wider">AT RISK:</span>
-          <span className={`text-xl font-bold tabular-nums ${
-            safeMetrics.positions_at_risk > 0 ? 'text-terminal-amber amber-glow' : 'text-terminal-green'
-          }`}>
-            {safeMetrics.positions_at_risk.toString().padStart(2, '0')}
-          </span>
+        {/* Secondary metrics - compact grid */}
+        <div className="border-t border-terminal-green pt-3 mt-auto space-y-2">
+          <div className="flex justify-between items-baseline">
+            <span className="text-xs text-terminal-cyan-dim tracking-wider">KELLY:</span>
+            <span className="text-lg font-bold tabular-nums text-terminal-cyan">
+              {safeMetrics.kelly_fraction.toFixed(2)}
+            </span>
+          </div>
+          <div className="flex justify-between items-baseline">
+            <span className="text-xs text-terminal-cyan-dim tracking-wider">MAX POS:</span>
+            <span className="text-lg font-bold tabular-nums text-terminal-cyan">
+              {formatCents(safeMetrics.max_position_size_cents)}
+            </span>
+          </div>
+          <div className="flex justify-between items-baseline">
+            <span className="text-xs text-terminal-amber-dim tracking-wider">AT RISK:</span>
+            <span className={`text-lg font-bold tabular-nums ${
+              safeMetrics.positions_at_risk > 0 ? 'text-terminal-amber' : 'text-terminal-green'
+            }`}>
+              {safeMetrics.positions_at_risk.toString().padStart(2, '0')}
+            </span>
+          </div>
         </div>
       </div>
     </div>

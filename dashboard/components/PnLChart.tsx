@@ -47,7 +47,7 @@ const CustomTooltip = ({ active, payload, label }: {active?: boolean; payload?: 
   if (active && payload && payload.length) {
     const value = payload[0].value;
     return (
-      <div className="bg-terminal-black border border-terminal-amber p-2 text-xs">
+      <div className="bg-terminal-bg-panel border border-terminal-amber/50 p-2 text-xs rounded">
         <div className="text-terminal-cyan-dim">{label}</div>
         <div className={`font-bold ${value >= 0 ? 'text-terminal-amber-bright' : 'text-terminal-red-bright'}`}>
           {value >= 0 ? '+' : ''}{value}c
@@ -71,7 +71,7 @@ export default function PnLChart({ data }: PnLChartProps) {
   const domain = [Math.min(minValue - 5, -10), Math.max(maxValue + 5, 10)];
 
   return (
-    <div className="border border-terminal-green p-4 h-full card-hover transition-all duration-300 hover:shadow-terminal-glow-strong">
+    <div className="panel p-4 h-full">
       {/* Header */}
       <div className="border-b border-terminal-green pb-2 mb-4 transition-all duration-300">
         <div className="text-xs text-terminal-dim mb-1">PERFORMANCE</div>

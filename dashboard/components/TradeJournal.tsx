@@ -45,7 +45,7 @@ export default function TradeJournal({ trades, onTradeClick }: TradeJournalProps
   };
 
   return (
-    <div className="border border-terminal-green p-4">
+    <div className="panel p-4">
       {/* Header */}
       <div className="border-b border-terminal-green pb-2 mb-4">
         <div className="text-xs text-terminal-dim mb-1">TRADE JOURNAL</div>

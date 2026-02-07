@@ -37,7 +37,7 @@ function Toast({ toast, onDismiss }: ToastProps): JSX.Element {
 
   return (
     <div
-      className={`bg-terminal-black border ${config.border} px-4 py-2 flex items-center gap-3 text-sm font-mono animate-fade-in`}
+      className={`bg-terminal-bg-panel border ${config.border} px-4 py-2 flex items-center gap-3 text-sm font-mono animate-fade-in rounded-lg`}
       style={{ animation: 'fade-in 0.3s ease-out' }}
     >
       <span className={`${config.iconColor} font-bold`}>{config.icon}</span>
