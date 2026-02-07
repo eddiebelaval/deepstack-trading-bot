@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import MarketStatus from '@/components/MarketStatus';
 
 interface HeaderProps {
   onLogout?: () => void;
@@ -58,6 +59,7 @@ export default function Header({ onLogout, lastHeartbeat, botMode }: HeaderProps
             {isLive ? (botMode?.toUpperCase() || 'LIVE') : 'OFFLINE'}
           </span>
         </div>
+        <MarketStatus />
         <div className="tabular-nums text-terminal-cyan transition-all duration-300">
           {currentTime}
         </div>

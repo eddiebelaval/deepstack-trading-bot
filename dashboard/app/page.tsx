@@ -20,6 +20,7 @@ import StrategyDetailModal from '@/components/StrategyDetailModal';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useSessionTimeout } from '@/hooks/useSessionTimeout';
+import MarketStatus from '@/components/MarketStatus';
 import { DashboardState, Trade, Strategy, BotConfig } from '@/lib/types';
 
 export default function Dashboard() {
@@ -250,7 +251,8 @@ export default function Dashboard() {
             </button>
             <div className="flex-1 flex items-center justify-between">
               <span className="text-sm font-bold terminal-glow tracking-wider">DEEPSTACK</span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                <MarketStatus compact />
                 <span className={`inline-block w-2 h-2 rounded-full ${botConfig?.last_heartbeat && (Date.now() - new Date(botConfig.last_heartbeat).getTime()) < 120_000 ? 'bg-terminal-green animate-pulse' : 'bg-terminal-red'}`} />
                 <span className="text-[10px] text-terminal-dim uppercase">
                   {(botConfig?.mode as string) || 'stopped'}
