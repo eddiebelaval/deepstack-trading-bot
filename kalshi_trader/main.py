@@ -202,6 +202,20 @@ class KalshiTradingBot:
         self.dashboard = DashboardSync()
         await self.dashboard.connect()
 
+        # 6b. Restore strategy enabled states from Supabase (persists user toggles across restarts)
+        if self.strategy_manager:
+            overrides = await self.dashboard.get_strategy_overrides()
+            restored = 0
+            for name, enabled in overrides.items():
+                if name in self.strategy_manager._strategies:
+                    state = self.strategy_manager._strategies[name]
+                    if state.enabled != enabled:
+                        state.enabled = enabled
+                        restored += 1
+                        logger.info(f"Restored strategy '{name}' enabled={enabled} from dashboard")
+            if restored:
+                logger.info(f"Restored {restored} strategy toggle(s) from Supabase")
+
         # 7. Initialize command processor (Supabase polling)
         self.command_processor = CommandProcessor(self)
         await self.command_processor.connect()

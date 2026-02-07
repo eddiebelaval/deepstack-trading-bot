@@ -94,6 +94,28 @@ class DashboardSync:
             await self._client.aclose()
             self._client = None
 
+    async def get_strategy_overrides(self) -> Dict[str, bool]:
+        """Read strategy enabled states from Supabase to restore user toggles across restarts."""
+        if not self._client or not self._available:
+            return {}
+
+        try:
+            response = await self._client.get(
+                self._rest_url("strategy_status"),
+                params={"select": "name,enabled"},
+            )
+            if response.status_code == 200:
+                rows = response.json()
+                overrides = {row["name"]: row["enabled"] for row in rows}
+                logger.info(f"Restored strategy overrides from Supabase: {len(overrides)} strategies")
+                return overrides
+            else:
+                logger.debug(f"Failed to read strategy overrides: {response.status_code}")
+                return {}
+        except Exception as e:
+            logger.debug(f"Could not restore strategy overrides: {e}")
+            return {}
+
     async def _post(self, table: str, data: Dict[str, Any]) -> bool:
         """Fire-and-forget POST to Supabase PostgREST."""
         if not self._client or not self._supabase_url:
@@ -122,6 +144,21 @@ class DashboardSync:
             return False
         except Exception as e:
             logger.debug(f"Dashboard sync error on {table}: {e}")
+            return False
+
+    async def _patch(self, table: str, filters: str, data: Dict[str, Any]) -> bool:
+        """Fire-and-forget PATCH to Supabase PostgREST."""
+        if not self._client or not self._supabase_url:
+            return False
+
+        try:
+            response = await self._client.patch(
+                f"{self._rest_url(table)}?{filters}",
+                json=data,
+            )
+            return response.status_code in (200, 204)
+        except Exception as e:
+            logger.debug(f"Dashboard sync patch error on {table}: {e}")
             return False
 
     async def _upsert(self, table: str, data: Dict[str, Any], on_conflict: str = "") -> bool:
