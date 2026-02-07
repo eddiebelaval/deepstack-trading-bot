@@ -242,7 +242,7 @@ class CommandProcessor:
         return {"mode": "running"}
 
     async def _handle_toggle_strategy(self, params: dict) -> dict:
-        """Enable or disable a strategy."""
+        """Enable or disable a strategy, persisting to Supabase immediately."""
         strategy_name = params.get("strategy", "")
         enabled = params.get("enabled", True)
 
@@ -254,6 +254,15 @@ class CommandProcessor:
             return {"error": f"Unknown strategy: {strategy_name}"}
 
         strategies[strategy_name].enabled = enabled
+
+        # Persist toggle to Supabase so it survives restarts
+        if self.bot.dashboard:
+            await self.bot.dashboard._patch(
+                "strategy_status",
+                f"name=eq.{strategy_name}",
+                {"enabled": enabled},
+            )
+
         return {"strategy": strategy_name, "enabled": enabled}
 
     async def _handle_update_risk(self, params: dict) -> dict:
