@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import {
   ComposedChart,
   Bar,
@@ -46,12 +45,7 @@ const CustomTooltip = ({ active, payload, label }: {active?: boolean; payload?: 
 };
 
 export default function TradeActivity({ data, onOpportunitiesClick }: TradeActivityProps) {
-  const [chartData, setChartData] = useState<ActivityData[]>([]);
-
-  useEffect(() => {
-    setChartData(data || []);
-  }, [data]);
-
+  const chartData = data || [];
   const totalTrades = chartData.reduce((sum, d) => sum + d.trades, 0);
   const totalOpps = chartData.reduce((sum, d) => sum + d.opportunities, 0);
 
@@ -70,43 +64,40 @@ export default function TradeActivity({ data, onOpportunitiesClick }: TradeActiv
           <div className="text-terminal-dim/40 text-sm">NO ACTIVITY DATA</div>
         </div>
       ) : (
-        <>
-          {/* Chart - compact, no axis labels */}
-          <div className="h-24 chart-glow">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="#00550030"
-                  vertical={false}
-                />
-                <XAxis dataKey="hour" hide />
-                <YAxis yAxisId="left" hide />
-                <YAxis yAxisId="right" orientation="right" hide />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar
-                  yAxisId="left"
-                  dataKey="trades"
-                  fill="#00FF41"
-                  fillOpacity={0.7}
-                  radius={[2, 2, 0, 0]}
-                  name="Trades"
-                  style={{ filter: 'drop-shadow(0 0 2px #00FF41)' }}
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="opportunities"
-                  stroke="#FFBF00"
-                  strokeWidth={2}
-                  dot={false}
-                  name="Opportunities"
-                  style={{ filter: 'drop-shadow(0 0 3px #FFBF00)' }}
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-        </>
+        <div className="h-24 chart-glow">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="#00550030"
+                vertical={false}
+              />
+              <XAxis dataKey="hour" hide />
+              <YAxis yAxisId="left" hide />
+              <YAxis yAxisId="right" orientation="right" hide />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar
+                yAxisId="left"
+                dataKey="trades"
+                fill="#00FF41"
+                fillOpacity={0.7}
+                radius={[2, 2, 0, 0]}
+                name="Trades"
+                style={{ filter: 'drop-shadow(0 0 2px #00FF41)' }}
+              />
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey="opportunities"
+                stroke="#FFBF00"
+                strokeWidth={2}
+                dot={false}
+                name="Opportunities"
+                style={{ filter: 'drop-shadow(0 0 3px #FFBF00)' }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
       )}
 
       {/* Stats - compact */}

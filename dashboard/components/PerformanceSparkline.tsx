@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   AreaChart,
   Area,
@@ -19,11 +19,7 @@ interface PerformanceSparklineProps {
 }
 
 export default function PerformanceSparkline({ data }: PerformanceSparklineProps) {
-  const [chartData, setChartData] = useState<DataPoint[]>([]);
-
-  useEffect(() => {
-    setChartData(data || []);
-  }, [data]);
+  const chartData = data || [];
 
   const stats = useMemo(() => {
     if (chartData.length === 0) return { current: 0, start: 0, change: 0, isProfit: true };

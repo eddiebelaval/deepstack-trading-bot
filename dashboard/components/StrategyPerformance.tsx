@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -43,11 +42,7 @@ const CustomTooltip = ({ active, payload }: {active?: boolean; payload?: Array<{
 };
 
 export default function StrategyPerformance({ data }: StrategyPerformanceProps) {
-  const [chartData, setChartData] = useState<StrategyData[]>([]);
-
-  useEffect(() => {
-    setChartData(data || []);
-  }, [data]);
+  const chartData = data || [];
 
   return (
     <div className="border border-terminal-green p-4 h-full card-hover scan-hover transition-all duration-300 hover:shadow-terminal-glow-strong">

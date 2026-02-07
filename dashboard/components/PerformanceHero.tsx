@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
   AreaChart,
   Area,
@@ -27,32 +27,22 @@ interface PerformanceHeroProps {
 // Colors matching Robinhood/DeepStack style
 const COLORS = {
   profit: {
-    line: '#22c55e',      // Green
-    fillTop: 'rgba(34, 197, 94, 0.3)',
-    fillBottom: 'rgba(34, 197, 94, 0.02)',
+    line: '#22c55e',
     glow: 'rgba(34, 197, 94, 0.5)',
   },
   loss: {
-    line: '#ef4444',      // Red
-    fillTop: 'rgba(239, 68, 68, 0.3)',
-    fillBottom: 'rgba(239, 68, 68, 0.02)',
+    line: '#ef4444',
     glow: 'rgba(239, 68, 68, 0.5)',
   },
 };
 
-// Empty data — shown when no real trading data exists
-
 export default function PerformanceHero({ data }: PerformanceHeroProps) {
   const [timeframe, setTimeframe] = useState<TimeFrame>('1M');
-  const [chartData, setChartData] = useState<DataPoint[]>([]);
-
-  useEffect(() => {
-    setChartData(data || []);
-  }, [data, timeframe]);
+  const chartData = data || [];
 
   // Calculate stats - Robinhood style: compare END vs START
   const stats = useMemo(() => {
-    if (chartData.length === 0) return { current: 0, start: 0, high: 0, low: 0, change: 0, changePercent: 0, isProfit: true };
+    if (chartData.length === 0) return { current: 0, start: 0, high: 0, low: 0, change: 0, isProfit: true };
 
     const values = chartData.map(d => d.value);
     const current = values[values.length - 1] || 0;
@@ -60,10 +50,9 @@ export default function PerformanceHero({ data }: PerformanceHeroProps) {
     const high = Math.max(...values);
     const low = Math.min(...values);
     const change = current - start;
-    const changePercent = start !== 0 ? (change / Math.abs(start)) * 100 : change;
-    const isProfit = current >= start; // KEY: Are we UP or DOWN from start?
+    const isProfit = current >= start;
 
-    return { current, start, high, low, change, changePercent, isProfit };
+    return { current, start, high, low, change, isProfit };
   }, [chartData]);
 
   // Get colors based on profit/loss for the period

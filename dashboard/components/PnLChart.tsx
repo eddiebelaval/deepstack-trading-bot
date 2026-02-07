@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import {
   AreaChart,
   Area,
@@ -22,8 +22,6 @@ interface PnLChartProps {
   data?: PnLDataPoint[];
 }
 
-// No mock data — empty state when no real data exists
-
 const CustomTooltip = ({ active, payload, label }: {active?: boolean; payload?: Array<{value: number}>; label?: string}) => {
   if (active && payload && payload.length) {
     const value = payload[0].value;
@@ -40,15 +38,14 @@ const CustomTooltip = ({ active, payload, label }: {active?: boolean; payload?: 
 };
 
 export default function PnLChart({ data }: PnLChartProps) {
-  const [chartData, setChartData] = useState<PnLDataPoint[]>([]);
+  const chartData = data || [];
 
-  useEffect(() => {
-    setChartData(data || []);
-  }, [data]);
-
-  const minValue = chartData.length > 0 ? Math.min(...chartData.map(d => d.cumulative)) : 0;
-  const maxValue = chartData.length > 0 ? Math.max(...chartData.map(d => d.cumulative)) : 0;
-  const domain = [Math.min(minValue - 5, -10), Math.max(maxValue + 5, 10)];
+  const { minValue, maxValue, currentValue, domain } = useMemo(() => {
+    const min = chartData.length > 0 ? Math.min(...chartData.map(d => d.cumulative)) : 0;
+    const max = chartData.length > 0 ? Math.max(...chartData.map(d => d.cumulative)) : 0;
+    const current = chartData[chartData.length - 1]?.cumulative ?? 0;
+    return { minValue: min, maxValue: max, currentValue: current, domain: [Math.min(min - 5, -10), Math.max(max + 5, 10)] };
+  }, [chartData]);
 
   return (
     <div className="panel p-4 h-full">
@@ -73,10 +70,6 @@ export default function PnLChart({ data }: PnLChartProps) {
                   <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#00FF41" stopOpacity={0.4} />
                     <stop offset="95%" stopColor="#00FF41" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="pnlGradientNeg" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#FF0000" stopOpacity={0} />
-                    <stop offset="95%" stopColor="#FF0000" stopOpacity={0.4} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid
@@ -138,9 +131,8 @@ export default function PnLChart({ data }: PnLChartProps) {
             </div>
             <div className="hover:bg-terminal-amber hover:bg-opacity-5 p-2 -m-2 rounded transition-all duration-200">
               <div className="text-terminal-cyan-dim tracking-wider mb-1.5">CURRENT</div>
-              <div className={`font-bold text-base ${chartData[chartData.length - 1]?.cumulative >= 0 ? 'text-terminal-amber-bright amber-glow' : 'text-terminal-red-bright'}`}>
-                {chartData[chartData.length - 1]?.cumulative >= 0 ? '+' : ''}
-                {chartData[chartData.length - 1]?.cumulative || 0}c
+              <div className={`font-bold text-base ${currentValue >= 0 ? 'text-terminal-amber-bright amber-glow' : 'text-terminal-red-bright'}`}>
+                {currentValue >= 0 ? '+' : ''}{currentValue}c
               </div>
             </div>
           </div>

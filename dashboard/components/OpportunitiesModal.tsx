@@ -146,13 +146,13 @@ export default function OpportunitiesModal({ isOpen, onClose }: OpportunitiesMod
                 <div>
                   <div className="text-terminal-dim text-xs">EXP PROFIT</div>
                   <div className="text-terminal-amber-bright tabular-nums">
-                    +{(Number(opp.expected_profit_pct) || 0).toFixed(1)}%
+                    +{opp.expected_profit_pct.toFixed(1)}%
                   </div>
                 </div>
                 <div>
                   <div className="text-terminal-dim text-xs">CONFIDENCE</div>
-                  <div className={`tabular-nums ${getConfidenceColor(Number(opp.confidence) || 0)}`}>
-                    {((Number(opp.confidence) || 0) * 100).toFixed(0)}%
+                  <div className={`tabular-nums ${getConfidenceColor(opp.confidence)}`}>
+                    {(opp.confidence * 100).toFixed(0)}%
                   </div>
                 </div>
               </div>
