@@ -170,6 +170,7 @@ class Strategy(ABC):
         self.stop_loss = config.get("stop_loss_cents", 5)
         self.min_volume = config.get("min_volume", 100)
         self.min_score = config.get("min_score", 30.0)
+        self._performance_tracker = None  # Set by main.py to enable learning loop
 
     @property
     @abstractmethod
@@ -250,14 +251,27 @@ class Strategy(ABC):
 
     def get_historical_stats(self) -> Dict[str, float]:
         """
-        Get assumed/historical statistics for position sizing.
+        Get statistics for position sizing (Kelly Criterion).
 
-        Used by Kelly Criterion calculator. Override to provide
-        strategy-specific statistics.
+        Routes through PerformanceTracker when attached (returns
+        Bayesian-blended stats). Falls back to _get_prior_stats()
+        when no tracker is available.
+        """
+        if self._performance_tracker is not None:
+            return self._performance_tracker.get_blended_stats(self.name)
+        return self._get_prior_stats()
+
+    def _get_prior_stats(self) -> Dict[str, float]:
+        """
+        Get hardcoded prior statistics for this strategy.
+
+        Override in subclasses to provide strategy-specific priors.
+        These values seed the Bayesian blend when the learning loop
+        is active.
 
         Returns:
             Dict with:
-                - win_rate: Historical/assumed win rate (0-1)
+                - win_rate: Assumed win rate (0-1)
                 - avg_win_cents: Average winning trade in cents
                 - avg_loss_cents: Average losing trade in cents (positive)
         """

@@ -209,7 +209,7 @@ class HighProbabilityBondsStrategy(Strategy):
             urgency=0.0,
         )
 
-    def get_historical_stats(self) -> Dict[str, float]:
+    def _get_prior_stats(self) -> Dict[str, float]:
         return {
             "win_rate": 0.97,
             "avg_win_cents": 4.0,

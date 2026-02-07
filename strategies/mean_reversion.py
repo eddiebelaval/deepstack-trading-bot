@@ -350,9 +350,9 @@ class MeanReversionStrategy(Strategy):
             urgency=0.0,
         )
 
-    def get_historical_stats(self) -> Dict[str, float]:
+    def _get_prior_stats(self) -> Dict[str, float]:
         """
-        Get assumed historical statistics for Kelly calculation.
+        Get hardcoded prior statistics for Kelly calculation.
 
         These are tuned for positive expected value with the
         8c take profit / 5c stop loss configuration.

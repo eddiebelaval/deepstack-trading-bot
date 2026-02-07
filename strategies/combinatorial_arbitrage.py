@@ -1108,9 +1108,9 @@ class CombinatorialArbitrageStrategy(Strategy):
             # We received total_cost, will pay 100 at settlement
             return total_cost - 100
 
-    def get_historical_stats(self) -> Dict[str, float]:
+    def _get_prior_stats(self) -> Dict[str, float]:
         """
-        Get assumed statistics for Kelly calculation.
+        Get hardcoded prior statistics for Kelly calculation.
 
         For arbitrage:
         - Win rate: Near 100% (fails only on execution issues)

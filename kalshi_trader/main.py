@@ -34,6 +34,7 @@ from .dashboard_sync import DashboardSync
 from .kalshi_client import AuthenticatedKalshiClient
 from .deepstack_integration import DeepStackIntegration
 from .journal import TradeJournal
+from .performance_tracker import PerformanceTracker
 from .exceptions import (
     KalshiTradingError,
     DailyLossLimitHit,
@@ -97,6 +98,7 @@ class KalshiTradingBot:
         self.client: Optional[AuthenticatedKalshiClient] = None
         self.risk: Optional[DeepStackIntegration] = None
         self.journal: Optional[TradeJournal] = None
+        self.performance_tracker: Optional[PerformanceTracker] = None
         self.dashboard: Optional[DashboardSync] = None
         self.command_processor: Optional[CommandProcessor] = None
 
@@ -187,6 +189,15 @@ class KalshiTradingBot:
         # 5. Initialize journal
         self.journal = TradeJournal(self.config.journal_db_path)
 
+        # 5b. Initialize learning loop (same DB as journal)
+        self.performance_tracker = PerformanceTracker(
+            db_path=self.config.journal_db_path,
+            prior_strength=getattr(self.config, 'learning_prior_strength', 20),
+            decay_half_life_days=getattr(self.config, 'learning_decay_half_life', 30.0),
+            auto_disable=getattr(self.config, 'learning_auto_disable', False),
+        )
+        self._register_strategy_priors()
+
         # 6. Initialize dashboard sync (Supabase, fire-and-forget)
         self.dashboard = DashboardSync()
         await self.dashboard.connect()
@@ -274,6 +285,31 @@ class KalshiTradingBot:
         await self.strategy_manager.initialize()
         logger.info(f"StrategyManager initialized: {self.strategy_manager}")
 
+    def _register_strategy_priors(self) -> None:
+        """Register priors and attach tracker to all active strategies."""
+        if not self.performance_tracker:
+            return
+
+        # Multi-strategy mode
+        if self.strategy_manager:
+            for name, state in self.strategy_manager._strategies.items():
+                strategy = state.strategy
+                prior_stats = strategy._get_prior_stats()
+                self.performance_tracker.register_prior(name, prior_stats)
+                strategy._performance_tracker = self.performance_tracker
+                logger.info(
+                    f"Learning loop attached: {name} | "
+                    f"prior WR={prior_stats['win_rate']:.0%}"
+                )
+            return
+
+        # Legacy single strategy (new strategies package)
+        if self.strategy and hasattr(self.strategy, '_get_prior_stats'):
+            prior_stats = self.strategy._get_prior_stats()
+            self.performance_tracker.register_prior(self.strategy.name, prior_stats)
+            self.strategy._performance_tracker = self.performance_tracker
+            logger.info(f"Learning loop attached: {self.strategy.name}")
+
     async def _shutdown(self) -> None:
         """Clean shutdown of all components."""
         logger.info("Shutting down...")
@@ -296,6 +332,10 @@ class KalshiTradingBot:
                 summary = self.journal.generate_daily_summary()
                 logger.info(f"\n{summary}")
                 self.journal.save_daily_summary()
+
+            # Close performance tracker
+            if self.performance_tracker:
+                self.performance_tracker.close()
 
             # Disconnect command processor
             if self.command_processor:
@@ -438,18 +478,31 @@ class KalshiTradingBot:
             daily_stats = self.risk.get_daily_stats()
             daily_pnl_cents = int(daily_stats["daily_pnl"] * 100)
 
-            # Build strategy info
+            # Build strategy info (with learning stats when tracker is active)
             strategies = []
             if self.strategy_manager:
                 for name, state in self.strategy_manager._strategies.items():
-                    strategies.append({
+                    strategy_info = {
                         "name": name,
                         "enabled": state.enabled,
                         "active_positions": len(state.positions),
                         "opportunities_found": state.scan_count,
                         "last_scan": state.last_scan_time.isoformat() if state.last_scan_time else None,
                         "status": "active" if state.enabled else "inactive",
-                    })
+                    }
+
+                    # Add learning stats if tracker is active
+                    if self.performance_tracker:
+                        blended = self.performance_tracker.get_blended_stats(name)
+                        prior = self.performance_tracker.get_prior(name)
+                        if prior:
+                            n = self.performance_tracker._get_effective_trade_count(name)
+                            k = prior.prior_strength
+                            strategy_info["blended_win_rate"] = round(blended["win_rate"], 4)
+                            strategy_info["learning_confidence"] = round(n / (n + k), 4) if (n + k) > 0 else 0
+                            strategy_info["effective_trades"] = round(n, 1)
+
+                    strategies.append(strategy_info)
 
             await self.dashboard.push_state(
                 balance_cents=balance_cents,
@@ -596,6 +649,22 @@ class KalshiTradingBot:
             # Notify strategy manager
             if self.strategy_manager:
                 self.strategy_manager.record_position_close(ticker)
+
+            # Evaluate strategy health after trade closes
+            strategy_name = position.get("strategy", "mean_reversion")
+            if self.performance_tracker:
+                health = self.performance_tracker.evaluate_health(strategy_name)
+                if health.health_status == "critical" and self.performance_tracker.auto_disable:
+                    logger.warning(
+                        f"Strategy {strategy_name} CRITICAL — "
+                        f"auto-disable would trigger (disabled by config)"
+                    )
+                elif health.health_status != "healthy":
+                    logger.warning(
+                        f"Strategy {strategy_name}: {health.health_status} | "
+                        f"blended EV={health.blended_ev_cents:.2f}c, "
+                        f"confidence={health.confidence:.1%}"
+                    )
 
             logger.info(
                 f"Exited {ticker}: {exit_signal.exit_type} | "
