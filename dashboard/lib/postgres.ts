@@ -2,15 +2,24 @@
 // Replaces direct pg connections with PostgREST API calls.
 // Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY env vars.
 
-const SUPABASE_URL = () => process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_KEY = () => process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+function getSupabaseUrl(): string {
+  const url = process.env.SUPABASE_URL;
+  if (!url) throw new Error('SUPABASE_URL environment variable is required');
+  return url;
+}
+
+function getSupabaseKey(): string {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is required');
+  return key;
+}
 
 function restUrl(table: string): string {
-  return `${SUPABASE_URL()}/rest/v1/${table}`;
+  return `${getSupabaseUrl()}/rest/v1/${table}`;
 }
 
 function headers(): Record<string, string> {
-  const key = SUPABASE_KEY();
+  const key = getSupabaseKey();
   return {
     'apikey': key,
     'Authorization': `Bearer ${key}`,

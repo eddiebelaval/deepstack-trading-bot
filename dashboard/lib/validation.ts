@@ -134,17 +134,76 @@ export function validateRequest<T>(
   };
 }
 
-// Bot command schema
+// Bot command schema — per-command param validation
 export const BotCommandTypeSchema = z.enum([
   'start', 'stop', 'pause', 'resume', 'toggle_strategy', 'update_risk',
   'force_close', 'switch_profile', 'set_mode', 'scan_now', 'place_trade',
   'set_poll_interval',
 ]);
 
-export const CreateBotCommandSchema = z.object({
-  command: BotCommandTypeSchema,
-  params: z.record(z.unknown()).optional().default({}),
+// Commands that take no parameters
+const NoParamsCommandSchema = z.object({
+  command: z.enum(['start', 'stop', 'pause', 'resume', 'force_close', 'scan_now']),
+  params: z.object({}).optional().default({}),
 });
+
+// Commands with typed parameters
+const ToggleStrategyCommandSchema = z.object({
+  command: z.literal('toggle_strategy'),
+  params: z.object({
+    strategy: z.string().min(1).max(50),
+    enabled: z.boolean(),
+  }),
+});
+
+const UpdateRiskCommandSchema = z.object({
+  command: z.literal('update_risk'),
+  params: z.object({
+    kelly_fraction: z.number().min(0.1).max(1.0).optional(),
+    max_position_size_cents: z.number().int().min(100).max(50000).optional(),
+    daily_loss_limit_cents: z.number().int().min(1000).max(100000).optional(),
+  }).refine(obj => Object.keys(obj).length > 0, { message: 'At least one risk parameter required' }),
+});
+
+const PlaceTradeCommandSchema = z.object({
+  command: z.literal('place_trade'),
+  params: z.object({
+    ticker: z.string().min(1).max(100),
+    side: z.enum(['yes', 'no', 'YES', 'NO']),
+    contracts: z.number().int().positive().max(100),
+  }),
+});
+
+const SwitchProfileCommandSchema = z.object({
+  command: z.literal('switch_profile'),
+  params: z.object({
+    profile: z.string().min(1).max(50),
+  }),
+});
+
+const SetModeCommandSchema = z.object({
+  command: z.literal('set_mode'),
+  params: z.object({
+    dry_run: z.boolean(),
+  }),
+});
+
+const SetPollIntervalCommandSchema = z.object({
+  command: z.literal('set_poll_interval'),
+  params: z.object({
+    interval_seconds: z.number().int().min(15).max(300),
+  }),
+});
+
+export const CreateBotCommandSchema = z.union([
+  NoParamsCommandSchema,
+  ToggleStrategyCommandSchema,
+  UpdateRiskCommandSchema,
+  PlaceTradeCommandSchema,
+  SwitchProfileCommandSchema,
+  SetModeCommandSchema,
+  SetPollIntervalCommandSchema,
+]);
 
 // Bot config update schema (partial — only allow safe fields)
 export const UpdateBotConfigSchema = z.object({
@@ -155,6 +214,14 @@ export const UpdateBotConfigSchema = z.object({
   kelly_fraction: z.number().min(0.1).max(1.0).optional(),
   profile: z.string().max(50).optional(),
   use_grok: z.boolean().optional(),
+});
+
+// Log entry creation schema
+export const CreateLogEntrySchema = z.object({
+  timestamp: z.string().optional(),
+  level: z.enum(['DEBUG', 'INFO', 'WARNING', 'ERROR']).optional().default('INFO'),
+  strategy: z.string().max(50).nullable().optional(),
+  message: z.string().min(1).max(5000),
 });
 
 // Type exports

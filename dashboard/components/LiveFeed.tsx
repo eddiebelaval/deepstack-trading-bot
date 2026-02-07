@@ -5,6 +5,7 @@ import { LogEntry } from '@/lib/types';
 
 export default function LiveFeed() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [feedError, setFeedError] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,9 +31,13 @@ export default function LiveFeed() {
       if (response.ok) {
         const data = await response.json();
         setLogs(data.logs);
+        setFeedError(false);
+      } else {
+        setFeedError(true);
       }
     } catch (error) {
       console.error('Failed to fetch logs:', error);
+      setFeedError(true);
     }
   };
 
@@ -72,8 +77,8 @@ export default function LiveFeed() {
           <div className="text-lg font-bold terminal-glow tracking-wide transition-all duration-300 hover:terminal-glow-bright">
             LIVE FEED
           </div>
-          <div className="text-xs text-terminal-dim">
-            STREAMING <span className="cursor animate-cursor-blink">_</span>
+          <div className={`text-xs ${feedError ? 'text-terminal-red' : 'text-terminal-dim'}`}>
+            {feedError ? 'DISCONNECTED' : <>STREAMING <span className="cursor animate-cursor-blink">_</span></>}
           </div>
         </div>
       </div>
