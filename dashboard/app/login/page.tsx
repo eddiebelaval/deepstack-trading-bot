@@ -50,16 +50,18 @@ function LoginForm() {
         </div>
 
         <div className="p-6 space-y-6">
-          {/* ASCII art logo */}
-          <pre className="text-terminal-green text-[10px] leading-tight font-mono text-center">
-{`  ____  ____  ____  ____
- ||D |||S |||T |||K ||
- ||__|||__|||__|||__||
- |/__\\|/__\\|/__\\|/__\\|`}
+          {/* ASCII art logo — Claude Code CLI font style */}
+          <pre
+            className="text-terminal-green text-[9px] leading-tight font-mono text-center select-none"
+            style={{ textShadow: '1px 1px 0px rgba(0, 170, 43, 0.25), 2px 2px 4px rgba(0, 0, 0, 0.6)' }}
+          >
+{` ___  ___ ___ ___  ___ _____ _   ___ _  __
+|   \\| __| __| _ \\/ __|_   _/_\\ / __| |/ /
+| |) | _|| _||  _/\\__ \\ | |/ _ \\ (__| ' <
+|___/|___|___|_|  |___/ |_/_/ \\_\\___|_|\\_\\`}
           </pre>
 
           <div className="text-center">
-            <div className="text-xs text-terminal-green terminal-glow tracking-[0.2em]">DEEPSTACK TRADER</div>
             <div className="text-[10px] text-terminal-dim mt-1">Control Plane Authentication</div>
           </div>
 
