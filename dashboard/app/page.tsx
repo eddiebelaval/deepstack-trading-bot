@@ -231,6 +231,12 @@ export default function Dashboard() {
               ),
             });
           }
+          // Persist to Supabase so polling doesn't revert the toggle
+          fetch('/api/strategies/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ strategy: name, enabled }),
+          }).catch(() => {});
         }}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -371,6 +377,12 @@ export default function Dashboard() {
               ),
             });
           }
+          // Persist to Supabase so polling doesn't revert the toggle
+          fetch('/api/strategies/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ strategy: name, enabled }),
+          }).catch(() => {});
         }}
       />
     </div>
