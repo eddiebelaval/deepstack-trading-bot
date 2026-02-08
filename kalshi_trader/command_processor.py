@@ -1,12 +1,13 @@
 """
-Command Processor — Polls Supabase for commands, executes them on the bot.
+Command Processor — Polls for dashboard commands and executes them on the bot.
 
-Uses Supabase PostgREST API via httpx (no new dependencies).
-Designed to run in a fast 3-second loop alongside the 60-second trading loop,
-giving sub-3-second response time to dashboard commands.
+Preferred transport: Postgres (least privilege).
+Legacy fallback: Supabase PostgREST (requires service role; disabled by default).
+Designed to run in a fast 3-second loop alongside the 60-second trading loop.
 """
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -21,6 +22,26 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 TABLE_PREFIX = "deepstack_"
 
+# Prefer direct Postgres access for least privilege.
+DATABASE_URL_BOT = (
+    os.getenv("DATABASE_URL_BOT", "")
+    or os.getenv("DEEPSTACK_DATABASE_URL", "")
+    or ""
+)
+
+ALLOW_LEGACY_POSTGREST = os.getenv("DEEPSTACK_ALLOW_POSTGREST", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+try:
+    import asyncpg  # type: ignore
+except Exception:  # pragma: no cover
+    asyncpg = None
+
+from .command_auth import NonceCache, split_user_params, verify_signed_command
+
 
 class CommandProcessor:
     """
@@ -34,7 +55,10 @@ class CommandProcessor:
     def __init__(self, bot: Any):
         self.bot = bot
         self._client: Optional[httpx.AsyncClient] = None
+        self._pg_pool = None
+        self._transport: str = "disabled"
         self._handlers: Dict[str, Callable] = {}
+        self._nonce_cache = NonceCache()
         self._setup_handlers()
 
     def _get_headers(self) -> dict:
@@ -50,46 +74,81 @@ class CommandProcessor:
 
     async def connect(self) -> None:
         """Initialize HTTP client for Supabase communication."""
+        # Prefer Postgres for least-privilege access.
+        if DATABASE_URL_BOT:
+            if asyncpg is None:
+                logger.warning(
+                    "DATABASE_URL_BOT set but asyncpg is not installed — "
+                    "command processor disabled"
+                )
+                return
+            try:
+                self._pg_pool = await asyncpg.create_pool(DATABASE_URL_BOT, min_size=1, max_size=5, timeout=5.0)
+                # Lightweight test query
+                async with self._pg_pool.acquire() as conn:
+                    await conn.execute("select 1")
+                self._transport = "postgres"
+                logger.info("Command processor connected via Postgres")
+                return
+            except Exception as e:
+                logger.warning(f"Command processor Postgres connection failed: {e}")
+                self._pg_pool = None
+                self._transport = "disabled"
+                return
+
+        # Fallback to Supabase PostgREST (legacy; requires service role).
+        if not ALLOW_LEGACY_POSTGREST:
+            logger.warning(
+                "DATABASE_URL_BOT not set and DEEPSTACK_ALLOW_POSTGREST is not enabled — "
+                "command processor disabled (set DATABASE_URL_BOT or DEEPSTACK_ALLOW_POSTGREST=1)"
+            )
+            self._transport = "disabled"
+            return
+
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            logger.warning(
+                "DATABASE_URL_BOT not set and SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY missing — "
+                "command processor disabled"
+            )
+            self._transport = "disabled"
+            return
+
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0),
             headers=self._get_headers(),
         )
 
-        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-            logger.warning(
-                "SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set — "
-                "command processor disabled"
-            )
-            return
-
-        # Test connection
         try:
             resp = await self._client.get(
                 self._rest_url("bot_config"),
                 params={"id": "eq.1", "select": "id"},
             )
             if resp.status_code == 200:
-                logger.info("Command processor connected to Supabase")
+                self._transport = "postgrest"
+                logger.info("Command processor connected to Supabase (PostgREST)")
             else:
-                logger.warning(
-                    f"Command processor Supabase test returned {resp.status_code}"
-                )
+                logger.warning(f"Command processor Supabase test returned {resp.status_code}")
+                self._transport = "disabled"
         except Exception as e:
             logger.warning(f"Command processor connection test failed: {e}")
+            self._transport = "disabled"
 
     async def disconnect(self) -> None:
         """Close HTTP client."""
         if self._client:
             await self._client.aclose()
             self._client = None
+        if self._pg_pool:
+            await self._pg_pool.close()
+            self._pg_pool = None
+        self._transport = "disabled"
 
     def _setup_handlers(self) -> None:
         """Register command handlers."""
         self._handlers = {
-            "start": self._handle_start,
-            "stop": self._handle_stop,
             "pause": self._handle_pause,
             "resume": self._handle_resume,
+            "shutdown": self._handle_shutdown,
             "toggle_strategy": self._handle_toggle_strategy,
             "update_risk": self._handle_update_risk,
             "force_close": self._handle_force_close,
@@ -102,25 +161,39 @@ class CommandProcessor:
 
     async def poll_and_execute(self) -> None:
         """Poll for pending commands and execute them."""
-        if not self._client or not SUPABASE_URL:
+        if self._transport == "disabled":
             return
 
         try:
-            # Fetch pending commands, oldest first
-            resp = await self._client.get(
-                self._rest_url("bot_commands"),
-                params={
-                    "status": "eq.pending",
-                    "order": "created_at.asc",
-                    "limit": "10",
-                },
-            )
+            if self._transport == "postgres":
+                async with self._pg_pool.acquire() as conn:
+                    commands = await conn.fetch(
+                        """
+                        select id::text as id, command, params, status, created_at
+                        from deepstack_bot_commands
+                        where status = 'pending'
+                        order by created_at asc
+                        limit 10
+                        """
+                    )
+                # asyncpg returns Record; normalize to dict
+                commands = [dict(r) for r in commands]
+            else:
+                # PostgREST legacy
+                resp = await self._client.get(
+                    self._rest_url("bot_commands"),
+                    params={
+                        "status": "eq.pending",
+                        "order": "created_at.asc",
+                        "limit": "10",
+                    },
+                )
 
-            if resp.status_code != 200:
-                logger.debug(f"Command poll returned {resp.status_code}")
-                return
+                if resp.status_code != 200:
+                    logger.debug(f"Command poll returned {resp.status_code}")
+                    return
 
-            commands = resp.json()
+                commands = resp.json()
             for cmd in commands:
                 await self._execute_command(cmd)
 
@@ -133,19 +206,45 @@ class CommandProcessor:
         """Execute a single command and update its status."""
         command_type = cmd.get("command", "")
         command_id = cmd.get("id", "")
-        params = cmd.get("params", {})
+        params = cmd.get("params", {}) or {}
 
-        handler = self._handlers.get(command_type)
+        # Backward-compat aliases:
+        # - start: resume (only affects paused state; cannot resurrect a stopped process)
+        # - stop: shutdown (process exits; supervisor should restart)
+        aliased = command_type
+        if command_type == "start":
+            aliased = "resume"
+        elif command_type == "stop":
+            aliased = "shutdown"
+
+        handler = self._handlers.get(aliased)
         if not handler:
             await self._update_command_status(
                 command_id, "failed", {"error": f"Unknown command: {command_type}"}
             )
             return
 
+        # Verify signature + expiry + replay. Strip meta before handler.
+        vr = verify_signed_command(
+            command=command_type,
+            params=params,
+            fallback_command_id=command_id,
+            nonce_cache=self._nonce_cache,
+        )
+        if not vr.ok:
+            await self._update_command_status(
+                command_id,
+                "failed",
+                {"error": f"unauthorized command: {vr.error}"},
+            )
+            return
+
+        user_params, _meta = split_user_params(params)
+
         logger.info(f"Executing command: {command_type} (id={command_id[:8]})")
 
         try:
-            result = await handler(params)
+            result = await handler(user_params)
             await self._update_command_status(
                 command_id,
                 "executed",
@@ -162,52 +261,78 @@ class CommandProcessor:
         self, command_id: str, status: str, result: dict
     ) -> None:
         """Update command status in Supabase."""
-        if not self._client:
-            return
-
         try:
-            import json
-
-            await self._client.patch(
-                self._rest_url("bot_commands"),
-                params={"id": f"eq.{command_id}"},
-                json={
-                    "status": status,
-                    "result": result,
-                    "executed_at": datetime.now(timezone.utc).isoformat(),
-                },
-            )
+            if self._transport == "postgres":
+                async with self._pg_pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        update deepstack_bot_commands
+                        set status=$1, result=$2::jsonb, executed_at=now()
+                        where id=$3::uuid
+                        """,
+                        status,
+                        json.dumps(result),
+                        command_id,
+                    )
+            elif self._client:
+                await self._client.patch(
+                    self._rest_url("bot_commands"),
+                    params={"id": f"eq.{command_id}"},
+                    json={
+                        "status": status,
+                        "result": result,
+                        "executed_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
         except Exception as e:
             logger.debug(f"Failed to update command status: {e}")
 
     async def send_heartbeat(self) -> None:
         """Update last_heartbeat in bot_config to prove bot is alive."""
-        if not self._client or not SUPABASE_URL:
+        if self._transport == "disabled":
             return
 
         try:
-            await self._client.patch(
-                self._rest_url("bot_config"),
-                params={"id": "eq.1"},
-                json={
-                    "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-                    "mode": "paused" if getattr(self.bot, "_paused", False) else "running",
-                },
-            )
+            if self._transport == "postgres":
+                async with self._pg_pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        update deepstack_bot_config
+                        set last_heartbeat=now(), mode=$1
+                        where id=1
+                        """,
+                        "paused" if getattr(self.bot, "_paused", False) else ("dry_run" if getattr(self.bot, "dry_run", False) else "running"),
+                    )
+            elif self._client:
+                await self._client.patch(
+                    self._rest_url("bot_config"),
+                    params={"id": "eq.1"},
+                    json={
+                        "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+                        "mode": "paused" if getattr(self.bot, "_paused", False) else "running",
+                    },
+                )
         except Exception as e:
             logger.debug(f"Heartbeat failed: {e}")
 
     async def update_mode(self, mode: str) -> None:
         """Update bot mode in config table."""
-        if not self._client or not SUPABASE_URL:
+        if self._transport == "disabled":
             return
 
         try:
-            await self._client.patch(
-                self._rest_url("bot_config"),
-                params={"id": "eq.1"},
-                json={"mode": mode},
-            )
+            if self._transport == "postgres":
+                async with self._pg_pool.acquire() as conn:
+                    await conn.execute(
+                        "update deepstack_bot_config set mode=$1 where id=1",
+                        mode,
+                    )
+            elif self._client:
+                await self._client.patch(
+                    self._rest_url("bot_config"),
+                    params={"id": "eq.1"},
+                    json={"mode": mode},
+                )
         except Exception as e:
             logger.debug(f"Mode update failed: {e}")
 
@@ -215,16 +340,8 @@ class CommandProcessor:
     # Command Handlers
     # ========================================================================
 
-    async def _handle_start(self, params: dict) -> dict:
-        """Start the trading loop (resume from stopped)."""
-        self.bot._running = True
-        self.bot._paused = False
-        self.bot._shutdown_event.clear()
-        await self.update_mode("running")
-        return {"mode": "running"}
-
-    async def _handle_stop(self, params: dict) -> dict:
-        """Stop the bot gracefully."""
+    async def _handle_shutdown(self, params: dict) -> dict:
+        """Shutdown the bot process. Supervisor should restart if desired."""
         await self.bot.stop()
         await self.update_mode("stopped")
         return {"mode": "stopped"}
@@ -276,12 +393,22 @@ class CommandProcessor:
                 self.bot.risk.kelly_sizer.kelly_fraction = kf
             updated["kelly_fraction"] = kf
 
-        if "max_position_size" in params:
+        # Canonical units are cents (dashboard). Convert to dollars in bot config.
+        if "max_position_size_cents" in params:
+            mps = float(params["max_position_size_cents"]) / 100.0
+            self.bot.config.max_position_size = mps
+            updated["max_position_size"] = mps
+        elif "max_position_size" in params:
+            # Legacy dollars
             mps = float(params["max_position_size"])
             self.bot.config.max_position_size = mps
             updated["max_position_size"] = mps
 
-        if "daily_loss_limit" in params:
+        if "daily_loss_limit_cents" in params:
+            dll = float(params["daily_loss_limit_cents"]) / 100.0
+            self.bot.config.daily_loss_limit = dll
+            updated["daily_loss_limit"] = dll
+        elif "daily_loss_limit" in params:
             dll = float(params["daily_loss_limit"])
             self.bot.config.daily_loss_limit = dll
             updated["daily_loss_limit"] = dll
@@ -294,23 +421,52 @@ class CommandProcessor:
         if self.bot.client:
             cancelled = await self.bot.client.cancel_all_orders()
 
-        # Close all tracked positions
-        closed = list(self.bot.open_positions.keys())
-        for ticker in closed:
+        emergency = bool(params.get("emergency", False))
+
+        closed = []
+        failed = []
+        would_close = []
+
+        for ticker in list(self.bot.open_positions.keys()):
             pos = self.bot.open_positions[ticker]
+
+            if getattr(self.bot, "dry_run", False):
+                would_close.append(ticker)
+                continue
+
             try:
-                await self.bot.client.create_limit_order(
+                price_cents = 1
+                if not emergency and self.bot.client:
+                    market = await self.bot.client.get_market(ticker)
+                    if market:
+                        if pos["side"] == "yes":
+                            price_cents = int(market.get("yes_bid", 1) or 1)
+                        else:
+                            price_cents = int(market.get("no_bid", 1) or 1)
+                        price_cents = max(1, min(99, price_cents))
+
+                order = await self.bot.client.create_limit_order(
                     ticker=ticker,
                     side=pos["side"],
                     action="sell",
                     count=pos["contracts"],
-                    price_cents=1 if pos["side"] == "yes" else 99,  # market-like
+                    price_cents=price_cents,
                 )
+                if order:
+                    closed.append(ticker)
+                    # Only delete tracking if we successfully placed the close order.
+                    del self.bot.open_positions[ticker]
             except Exception as e:
-                logger.error(f"Failed to close position {ticker}: {e}")
-            del self.bot.open_positions[ticker]
+                failed.append({"ticker": ticker, "error": str(e)})
 
-        return {"cancelled_orders": cancelled, "closed_positions": closed}
+        result: dict = {"cancelled_orders": cancelled}
+        if would_close:
+            result["dry_run"] = True
+            result["would_close"] = would_close
+        result["closed_positions"] = closed
+        if failed:
+            result["failed"] = failed
+        return result
 
     async def _handle_switch_profile(self, params: dict) -> dict:
         """Reload config from a named profile."""
@@ -394,7 +550,7 @@ class CommandProcessor:
 
     async def _handle_set_poll_interval(self, params: dict) -> dict:
         """Change the trading scan frequency at runtime."""
-        interval = int(params.get("interval", 60))
+        interval = int(params.get("interval_seconds", params.get("interval", 60)))
         interval = max(15, min(300, interval))  # Clamp to 15s-300s
         self.bot.config.poll_interval_seconds = interval
         return {"poll_interval_seconds": interval}

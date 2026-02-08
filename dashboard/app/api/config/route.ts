@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getBotConfig, updateBotConfig } from '@/lib/db-postgres';
 import { UpdateBotConfigSchema, validateRequest } from '@/lib/validation';
 
@@ -15,7 +15,7 @@ export async function GET() {
   }
 }
 
-export async function PATCH(request: NextRequest) {
+export async function PATCH(request: Request) {
   try {
     const body = await request.json();
     const validation = validateRequest(UpdateBotConfigSchema, body);

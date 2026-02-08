@@ -1,100 +1,77 @@
-// Supabase REST API client
-// Replaces direct pg connections with PostgREST API calls.
-// Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY env vars.
+// Postgres client for dashboard server routes.
+//
+// This replaces the previous Supabase PostgREST + service-role approach.
+// Use a least-privilege DB user via DATABASE_URL_DASHBOARD.
+//
+// Notes:
+// - This module is server-only. Do not import from client components.
+// - We intentionally avoid printing connection details in errors.
 
-function getSupabaseUrl(): string {
-  const url = process.env.SUPABASE_URL;
-  if (!url) throw new Error('SUPABASE_URL environment variable is required');
-  return url;
+import { Pool } from 'pg';
+
+let _pool: Pool | null = null;
+
+function getDatabaseUrl(): string {
+  const explicit =
+    process.env.DATABASE_URL_DASHBOARD || process.env.DATABASE_URL || '';
+  if (explicit) return explicit;
+
+  // Fallback to PG* env vars (useful for local scripts like migrations).
+  const db = process.env.PGDATABASE || '';
+  if (!db) return '';
+  const host = process.env.PGHOST || 'localhost';
+  const port = process.env.PGPORT || '5432';
+  const user = process.env.PGUSER || '';
+  const pass = process.env.PGPASSWORD || '';
+
+  const auth =
+    user && pass
+      ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@`
+      : user
+        ? `${encodeURIComponent(user)}@`
+        : '';
+
+  return `postgresql://${auth}${host}:${port}/${db}`;
 }
 
-function getSupabaseKey(): string {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY environment variable is required');
-  return key;
-}
-
-function restUrl(table: string): string {
-  return `${getSupabaseUrl()}/rest/v1/${table}`;
-}
-
-function headers(): Record<string, string> {
-  const key = getSupabaseKey();
-  return {
-    'apikey': key,
-    'Authorization': `Bearer ${key}`,
-    'Content-Type': 'application/json',
-    'Prefer': 'return=representation',
-  };
-}
-
-// Generic GET with query params
-export async function restGet<T>(table: string, params: string = ''): Promise<T[]> {
-  const url = `${restUrl(table)}${params ? `?${params}` : ''}`;
-  const res = await fetch(url, { headers: headers(), cache: 'no-store' });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase GET ${table} failed (${res.status}): ${text}`);
+// For scripts (migrations) that want to construct their own Pool instance.
+export function getPoolConfig(): { connectionString: string } {
+  const connectionString = getDatabaseUrl();
+  if (!connectionString) {
+    throw new Error(
+      'Database URL is required (set DATABASE_URL_DASHBOARD or DATABASE_URL)'
+    );
   }
-  return res.json();
+  return { connectionString };
 }
 
-// Generic POST (insert)
-export async function restInsert<T>(table: string, body: Record<string, unknown>): Promise<T> {
-  const res = await fetch(restUrl(table), {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify(body),
+export function getPool(): Pool {
+  if (_pool) return _pool;
+
+  _pool = new Pool({
+    ...getPoolConfig(),
+    statement_timeout: 10_000,
+    query_timeout: 10_000,
+    connectionTimeoutMillis: 5_000,
+    max: 10,
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase INSERT ${table} failed (${res.status}): ${text}`);
-  }
-  const rows = await res.json();
-  return rows[0];
+
+  return _pool;
 }
 
-// Generic POST with upsert (ON CONFLICT)
-export async function restUpsert<T>(
-  table: string,
-  body: Record<string, unknown>,
-  onConflict: string
-): Promise<T> {
-  const h = headers();
-  h['Prefer'] = 'return=representation,resolution=merge-duplicates';
-  const res = await fetch(`${restUrl(table)}?on_conflict=${onConflict}`, {
-    method: 'POST',
-    headers: h,
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase UPSERT ${table} failed (${res.status}): ${text}`);
-  }
-  const rows = await res.json();
-  return rows[0];
+export async function query<T = unknown>(
+  text: string,
+  params: unknown[] = []
+): Promise<{ rows: T[] }> {
+  const pool = getPool();
+  const res = await pool.query(text, params);
+  return { rows: res.rows as T[] };
 }
 
-// Generic PATCH (update)
-export async function restUpdate<T>(table: string, filter: string, body: Record<string, unknown>): Promise<T | null> {
-  const res = await fetch(`${restUrl(table)}?${filter}`, {
-    method: 'PATCH',
-    headers: headers(),
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Supabase PATCH ${table} failed (${res.status}): ${text}`);
-  }
-  const rows = await res.json();
-  return rows[0] || null;
-}
-
-// Health check via a simple query
 export async function healthCheck(): Promise<boolean> {
   try {
-    const rows = await restGet('deepstack_bot_config', 'select=id&limit=1');
-    return rows.length > 0;
+    await query('select 1 as ok');
+    return true;
   } catch {
     return false;
   }

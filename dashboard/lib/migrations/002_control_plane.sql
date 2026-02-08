@@ -4,6 +4,9 @@
 -- Run this on the id8labs Supabase project.
 -- All tables prefixed with deepstack_ to avoid collision with Homer tables.
 
+-- Required for gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- ============================================================================
 -- TRADES (migrated from 001 with prefix)
 -- ============================================================================

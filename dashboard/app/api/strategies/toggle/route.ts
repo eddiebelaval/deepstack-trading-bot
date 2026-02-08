@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { updateStrategyStatus } from '@/lib/db-postgres';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const { strategy, enabled } = await request.json();
 

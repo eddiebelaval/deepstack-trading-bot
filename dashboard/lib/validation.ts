@@ -136,14 +136,15 @@ export function validateRequest<T>(
 
 // Bot command schema — per-command param validation
 export const BotCommandTypeSchema = z.enum([
-  'start', 'stop', 'pause', 'resume', 'toggle_strategy', 'update_risk',
+  // Note: start/stop are legacy aliases. Prefer pause/resume/shutdown.
+  'start', 'stop', 'shutdown', 'pause', 'resume', 'toggle_strategy', 'update_risk',
   'force_close', 'switch_profile', 'set_mode', 'scan_now', 'place_trade',
   'set_poll_interval',
 ]);
 
 // Commands that take no parameters
 const NoParamsCommandSchema = z.object({
-  command: z.enum(['start', 'stop', 'pause', 'resume', 'force_close', 'scan_now']),
+  command: z.enum(['start', 'stop', 'shutdown', 'pause', 'resume', 'force_close', 'scan_now']),
   params: z.object({}).optional().default({}),
 });
 

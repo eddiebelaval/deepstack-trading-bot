@@ -4,7 +4,16 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { getPoolConfig } from '../lib/postgres';
 
-dotenv.config({ path: path.join(__dirname, '..', '.env.local') });
+// Prefer explicit env, but allow loading a local file for developer convenience.
+// We intentionally do not require secrets to live inside the git repo.
+const defaultEnvPath = path.join(
+  process.env.HOME || '',
+  'Library',
+  'Application Support',
+  'deepstack',
+  'kalshi-trading.dashboard.env.local'
+);
+dotenv.config({ path: process.env.DEEPSTACK_DASHBOARD_ENV_PATH || defaultEnvPath });
 
 async function runMigrations(): Promise<void> {
   const pool = new Pool(getPoolConfig());

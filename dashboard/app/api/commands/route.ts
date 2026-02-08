@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createCommand, getRecentCommands } from '@/lib/db-postgres';
 import { CreateBotCommandSchema, validateRequest } from '@/lib/validation';
 
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const body = await request.json();
     const validation = validateRequest(CreateBotCommandSchema, body);
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const limit = Math.min(parseInt(searchParams.get('limit') || '20', 10), 100);

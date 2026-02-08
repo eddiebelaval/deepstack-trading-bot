@@ -145,6 +145,7 @@ export interface TradingStats {
 export type BotCommandType =
   | 'start'
   | 'stop'
+  | 'shutdown'
   | 'pause'
   | 'resume'
   | 'toggle_strategy'
