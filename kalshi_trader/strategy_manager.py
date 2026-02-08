@@ -249,7 +249,13 @@ class StrategyManager:
                     cache_key = f"markets:{platform}:{series or 'all'}"
                     markets_data = await self._market_cache.get_or_fetch(
                         cache_key,
-                        lambda: market.get_open_markets(series=series),
+                        lambda: market.get_open_markets(
+                            series=series,
+                            limit=int(
+                                market_config.get("limit")
+                                or (1000 if series == "*" else 100)
+                            ),
+                        ),
                         ttl=30.0,  # 30 second TTL for market lists
                     )
 

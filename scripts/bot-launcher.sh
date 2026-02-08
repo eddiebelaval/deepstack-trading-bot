@@ -18,10 +18,12 @@ source "${VENV_DIR}/bin/activate"
 # Change to the bot directory (so relative paths in config.yaml work)
 cd "${BOT_DIR}"
 
-# Load .env if present (run_bot.py does this too, but belt-and-suspenders)
-if [ -f "${BOT_DIR}/.env" ]; then
+# Load env from outside the repo (avoid secrets living next to git).
+DEFAULT_ENV_PATH="${HOME}/Library/Application Support/deepstack/kalshi-trading.env"
+ENV_PATH="${DEEPSTACK_BOT_ENV_PATH:-$DEFAULT_ENV_PATH}"
+if [ -f "${ENV_PATH}" ]; then
     set -a
-    source "${BOT_DIR}/.env"
+    source "${ENV_PATH}"
     set +a
 fi
 

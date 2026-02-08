@@ -12,6 +12,7 @@ Authentication:
 import asyncio
 import base64
 import logging
+import random
 import time
 from collections import deque
 from datetime import datetime, timezone
@@ -252,53 +253,49 @@ class AuthenticatedKalshiClient:
         if not self._client:
             raise KalshiTradingError("Client not connected")
 
-        # Check circuit breaker first
-        if not self._circuit_breaker.is_closed:
-            # Let circuit breaker handle state transitions
+        for attempt in range(self.MAX_RETRIES):
             try:
+                # Circuit breaker wraps the whole request so failures are counted.
                 async with self._circuit_breaker:
-                    pass  # Just checking if we can proceed
+                    await self._rate_limit()
+
+                    headers = self._get_auth_headers(method, path)
+                    response = await self._client.request(
+                        method,
+                        path,
+                        headers=headers,
+                        json=json,
+                        params=params,
+                    )
+
+                    # Handle rate limiting
+                    if response.status_code == 429:
+                        retry_after = int(response.headers.get("Retry-After", 60))
+                        if attempt < self.MAX_RETRIES - 1:
+                            logger.warning(f"Rate limited, waiting {retry_after}s")
+                            await asyncio.sleep(retry_after)
+                            continue
+                        raise KalshiRateLimitError(retry_after_seconds=retry_after)
+
+                    # Handle other errors
+                    if response.status_code >= 400:
+                        error_data = response.json() if response.content else {}
+                        raise KalshiTradingError(
+                            f"API error {response.status_code}: {error_data.get('message', 'Unknown error')}",
+                            details=error_data,
+                        )
+
+                    return response.json()
+
             except CircuitOpenError:
                 raise KalshiTradingError(
                     "API circuit breaker is open - service may be degraded"
                 )
 
-        await self._rate_limit()
-
-        for attempt in range(self.MAX_RETRIES):
-            try:
-                headers = self._get_auth_headers(method, path)
-
-                response = await self._client.request(
-                    method,
-                    path,
-                    headers=headers,
-                    json=json,
-                    params=params,
-                )
-
-                # Handle rate limiting
-                if response.status_code == 429:
-                    retry_after = int(response.headers.get("Retry-After", 60))
-                    if attempt < self.MAX_RETRIES - 1:
-                        logger.warning(f"Rate limited, waiting {retry_after}s")
-                        await asyncio.sleep(retry_after)
-                        continue
-                    raise KalshiRateLimitError(retry_after_seconds=retry_after)
-
-                # Handle other errors
-                if response.status_code >= 400:
-                    error_data = response.json() if response.content else {}
-                    raise KalshiTradingError(
-                        f"API error {response.status_code}: {error_data.get('message', 'Unknown error')}",
-                        details=error_data,
-                    )
-
-                return response.json()
-
             except httpx.TimeoutException:
                 if attempt < self.MAX_RETRIES - 1:
                     delay = self.RETRY_BASE_DELAY * (2 ** attempt)
+                    delay *= random.uniform(0.8, 1.2)
                     logger.warning(f"Request timeout, retrying in {delay}s")
                     await asyncio.sleep(delay)
                     continue
@@ -307,6 +304,7 @@ class AuthenticatedKalshiClient:
             except httpx.RequestError as e:
                 if attempt < self.MAX_RETRIES - 1:
                     delay = self.RETRY_BASE_DELAY * (2 ** attempt)
+                    delay *= random.uniform(0.8, 1.2)
                     logger.warning(f"Request error: {e}, retrying in {delay}s")
                     await asyncio.sleep(delay)
                     continue

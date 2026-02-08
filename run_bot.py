@@ -32,6 +32,7 @@ Optional Environment Variables:
 
 import argparse
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -39,11 +40,13 @@ from pathlib import Path
 project_dir = Path(__file__).parent
 sys.path.insert(0, str(project_dir))
 
-# Load environment variables from .env file if it exists
-env_file = project_dir / ".env"
-if env_file.exists():
+# Load environment variables from an external env file by default.
+# We intentionally avoid keeping secrets inside the git repo.
+default_env_path = Path.home() / "Library" / "Application Support" / "deepstack" / "kalshi-trading.env"
+env_path = Path(os.getenv("DEEPSTACK_BOT_ENV_PATH", str(default_env_path)))
+if env_path.exists():
     from dotenv import load_dotenv
-    load_dotenv(env_file)
+    load_dotenv(env_path)
 
 from kalshi_trader import KalshiTradingBot
 from kalshi_trader.config import load_config, get_strategy_configs, load_profile
@@ -108,6 +111,12 @@ Examples:
         "--dry-run",
         action="store_true",
         help="Scan for opportunities but don't place trades",
+    )
+
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Allow live trading (still requires KALSHI_LIVE_TRADING=1 env var)",
     )
 
     parser.add_argument(
@@ -282,7 +291,21 @@ def main():
     print(f"Journal DB:         [configured]")
     print()
 
+    # Default to dry-run unless explicitly enabled.
+    dry_run = True
+    if args.live:
+        dry_run = False
     if args.dry_run:
+        dry_run = True
+
+    if not dry_run:
+        gate = (os.getenv("KALSHI_LIVE_TRADING", "") or "").lower()
+        if gate not in ("1", "true", "yes", "y", "on"):
+            print("ERROR: Live trading is gated.")
+            print("Set KALSHI_LIVE_TRADING=1 and pass --live to enable execution.")
+            sys.exit(2)
+
+    if dry_run:
         print("DRY RUN MODE - Will scan but not place trades")
         print()
 
@@ -294,7 +317,7 @@ def main():
         config,
         use_strategy_manager=use_multi,
         strategy_configs=strategy_configs,
-        dry_run=args.dry_run,
+        dry_run=dry_run,
     )
     asyncio.run(bot.start())
 

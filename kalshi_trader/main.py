@@ -224,7 +224,7 @@ class KalshiTradingBot:
         await self._sync_positions()
 
         # 9. Update bot config to running
-        await self.command_processor.update_mode("running")
+        await self.command_processor.update_mode("dry_run" if self.dry_run else "running")
         await self.dashboard.push_log("Bot initialized — connected to Kalshi API", strategy="system")
 
         logger.info("All components initialized successfully")
@@ -545,9 +545,14 @@ class KalshiTradingBot:
                 # If not in local tracking, add it
                 if ticker not in self.open_positions:
                     self.open_positions[ticker] = {
+                        "ticker": ticker,
                         "contracts": abs(pos["position"]),
                         "side": "yes" if pos["position"] > 0 else "no",
                         "synced_from_exchange": True,
+                        # We did not originate this position, so we don't know entry/strategy.
+                        # Skip automatic exits until metadata is restored or user force-closes.
+                        "entry_price_unknown": True,
+                        "strategy": "unknown",
                     }
 
         # Remove closed positions
@@ -565,6 +570,10 @@ class KalshiTradingBot:
 
         for ticker, position in list(self.open_positions.items()):
             try:
+                # Safety: if we don't know entry price / strategy metadata, don't run auto exit logic.
+                if position.get("entry_price_unknown"):
+                    continue
+
                 # Get current market price
                 market = await self.client.get_market(ticker)
 
@@ -651,10 +660,15 @@ class KalshiTradingBot:
                 )
 
                 # Record in risk management
+                # Position size should be in dollars-at-risk (roughly entry cost), not contracts.
+                pos_cost = position.get("position_cost_dollars")
+                if pos_cost is None:
+                    entry_price = float(position.get("entry_price", 50))
+                    pos_cost = float(contracts) * (entry_price / 100.0)
                 self.risk.record_trade_result(
                     ticker=ticker,
                     profit_loss_cents=pnl,
-                    position_size_dollars=contracts,
+                    position_size_dollars=float(pos_cost),
                 )
 
             # Remove from tracking
@@ -811,6 +825,18 @@ class KalshiTradingBot:
     ) -> bool:
         """Place a trade and record it."""
         try:
+            # Refuse multi-leg opportunities until an atomic multi-leg executor exists.
+            metadata = getattr(opp, "metadata", {}) or {}
+            all_legs = None
+            if isinstance(metadata, dict):
+                all_legs = metadata.get("all_legs") or metadata.get("legs")
+            if isinstance(all_legs, list) and len(all_legs) > 1:
+                logger.warning(
+                    f"Skipping multi-leg opportunity for {ticker} (strategy={strategy_name}) — "
+                    "multi-leg execution not implemented"
+                )
+                return False
+
             # In dry-run mode, log but don't execute
             if self.dry_run:
                 logger.info(
@@ -841,17 +867,20 @@ class KalshiTradingBot:
             )
 
             # Track position
+            position_cost = float(contracts) * (float(opp.entry_price_cents) / 100.0)
             self.open_positions[ticker] = {
+                "ticker": ticker,
                 "trade_id": trade_id,
                 "order_id": order.get("order_id"),
                 "side": opp.side,
                 "contracts": contracts,
                 "entry_price": opp.entry_price_cents,
                 "strategy": strategy_name,
+                "position_cost_dollars": position_cost,
             }
 
             # Record position open in risk management
-            self.risk.record_position_open(ticker, float(contracts))
+            self.risk.record_position_open(ticker, float(position_cost))
 
             # Notify strategy manager
             if self.strategy_manager:
