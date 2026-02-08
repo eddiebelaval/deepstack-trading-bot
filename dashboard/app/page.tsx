@@ -191,18 +191,27 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Detect new trades and notify
+  // Detect new trades and notify with distinct buy/sell audio
   useEffect(() => {
     if (trades.length > prevTradeCount && prevTradeCount > 0) {
       const newTrade = trades[0];
+      const action = newTrade?.action?.toLowerCase() ?? '';
       const pnl = newTrade?.pnl_cents ?? 0;
-      if (pnl > 0) {
-        addToast('success', `Trade closed: +$${(pnl / 100).toFixed(2)}`);
-        sound.playSuccess();
-      } else if (pnl < 0) {
-        addToast('warning', `Trade closed: -$${(Math.abs(pnl) / 100).toFixed(2)}`);
-        sound.playError();
+      const ticker = newTrade?.market_ticker ?? '';
+
+      if (action === 'buy') {
+        addToast('info', `BUY ${ticker} @ ${newTrade.entry_price_cents}c`);
+        sound.playBuy();
+      } else if (action === 'sell') {
+        const label = pnl > 0
+          ? `SELL ${ticker}: +$${(pnl / 100).toFixed(2)}`
+          : pnl < 0
+            ? `SELL ${ticker}: -$${(Math.abs(pnl) / 100).toFixed(2)}`
+            : `SELL ${ticker}`;
+        addToast(pnl >= 0 ? 'success' : 'warning', label);
+        sound.playSell();
       } else {
+        // Fallback for any other action type
         addToast('info', 'New trade executed');
         sound.playTrade();
       }
@@ -245,6 +254,7 @@ export default function Dashboard() {
         dashboardState={dashboardState}
         botConfig={botConfig}
         onCommand={sendCommand}
+        sound={sound}
         onStrategyToggle={(name, enabled) => {
           // 1. Optimistic update — reflect toggle instantly in UI
           if (dashboardState) {

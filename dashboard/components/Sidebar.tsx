@@ -4,12 +4,14 @@ import { useState } from 'react';
 import { DashboardState, Strategy, BotConfig } from '@/lib/types';
 import { getStrategyMeta, CATEGORY_LABELS, CATEGORY_ICONS, StrategyCategory } from '@/lib/strategy-meta';
 import RiskControls from './RiskControls';
+import type { UseSoundEffectsReturn, VolumeLevel, SoundName } from '@/hooks/useSoundEffects';
 
 interface SidebarProps {
   dashboardState: DashboardState | null;
   botConfig: BotConfig | null;
   onCommand: (command: string, params?: Record<string, unknown>) => void;
   onStrategyToggle?: (strategyName: string, enabled: boolean) => void;
+  sound: UseSoundEffectsReturn;
   isOpen?: boolean;
   onClose?: () => void;
 }
@@ -30,8 +32,9 @@ const POLL_INTERVALS = [
   { label: '120s', value: 120 },
 ];
 
-export default function Sidebar({ dashboardState, botConfig, onCommand, onStrategyToggle, isOpen, onClose }: SidebarProps): JSX.Element {
+export default function Sidebar({ dashboardState, botConfig, onCommand, onStrategyToggle, sound, isOpen, onClose }: SidebarProps): JSX.Element {
   const [showRiskControls, setShowRiskControls] = useState(false);
+  const [showAudioSettings, setShowAudioSettings] = useState(false);
   const [showForceCloseConfirm, setShowForceCloseConfirm] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
 
@@ -445,6 +448,93 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
             botConfig={botConfig}
             onApply={(params) => onCommand('update_risk', params)}
           />
+        )}
+      </div>
+
+      {/* Audio Settings */}
+      <div className="border-t border-terminal-green/30">
+        <button
+          onClick={() => setShowAudioSettings(!showAudioSettings)}
+          className="w-full flex items-center justify-between px-4 py-3 text-[10px] text-terminal-dim tracking-[0.15em] uppercase hover:text-terminal-green transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+            </svg>
+            <span>Audio</span>
+            {sound.enabled && (
+              <span className="w-1.5 h-1.5 rounded-full bg-terminal-green animate-pulse" />
+            )}
+          </div>
+          <svg className={`w-3 h-3 transition-transform ${showAudioSettings ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {showAudioSettings && (
+          <div className="px-4 pb-4 space-y-3">
+            {/* Master Toggle */}
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-terminal-dim tracking-wide">ENABLED</span>
+              <button
+                onClick={() => sound.toggle()}
+                className={`w-9 h-5 rounded-full relative transition-all duration-300 border flex-shrink-0 ${
+                  sound.enabled
+                    ? 'bg-terminal-green/20 border-terminal-green/50 shadow-[0_0_8px_rgba(0,255,65,0.15)]'
+                    : 'bg-[#1a1a2e] border-[#3a3a55] hover:border-[#55557a]'
+                }`}
+              >
+                <div className={`absolute top-[3px] w-3.5 h-3.5 rounded-full transition-all duration-300 ${
+                  sound.enabled
+                    ? 'right-[3px] bg-terminal-green shadow-[0_0_6px_currentColor]'
+                    : 'left-[3px] bg-[#5a5a75] border border-[#6a6a88]'
+                }`} />
+              </button>
+            </div>
+
+            {/* Volume */}
+            <div>
+              <div className="text-[10px] text-terminal-dim tracking-wide mb-1.5">VOLUME</div>
+              <div className="flex gap-1">
+                {(['low', 'medium', 'high'] as VolumeLevel[]).map((level) => (
+                  <button
+                    key={level}
+                    onClick={() => sound.setVolume(level)}
+                    className={`flex-1 py-1.5 text-[10px] font-bold border rounded transition-all ${
+                      sound.volume === level
+                        ? 'border-terminal-cyan bg-terminal-cyan/15 text-terminal-cyan'
+                        : 'border-terminal-dim/20 text-terminal-dim/50 hover:border-terminal-cyan/30 hover:text-terminal-dim/80'
+                    }`}
+                  >
+                    {level.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Sound Previews */}
+            <div>
+              <div className="text-[10px] text-terminal-dim tracking-wide mb-1.5">PREVIEW</div>
+              <div className="grid grid-cols-3 gap-1">
+                {([
+                  { name: 'buy' as SoundName, label: 'BUY', color: 'text-terminal-green border-terminal-green/30 hover:bg-terminal-green/10' },
+                  { name: 'sell' as SoundName, label: 'SELL', color: 'text-terminal-red border-terminal-red/30 hover:bg-terminal-red/10' },
+                  { name: 'success' as SoundName, label: 'WIN', color: 'text-terminal-cyan border-terminal-cyan/30 hover:bg-terminal-cyan/10' },
+                  { name: 'error' as SoundName, label: 'LOSS', color: 'text-terminal-amber border-terminal-amber/30 hover:bg-terminal-amber/10' },
+                  { name: 'notification' as SoundName, label: 'ALERT', color: 'text-terminal-dim border-terminal-dim/30 hover:bg-terminal-dim/10' },
+                  { name: 'trade' as SoundName, label: 'TRADE', color: 'text-terminal-dim border-terminal-dim/30 hover:bg-terminal-dim/10' },
+                ]).map(({ name, label, color }) => (
+                  <button
+                    key={name}
+                    onClick={() => sound.preview(name)}
+                    className={`py-1.5 text-[9px] font-bold border rounded transition-all active:scale-95 ${color}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
