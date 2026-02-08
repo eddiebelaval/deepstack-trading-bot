@@ -32,6 +32,7 @@ export default function StrategyInfoModal({ strategyName, onClose }: StrategyInf
   const [overrides, setOverrides] = useState<StrategyConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const meta = strategyName ? getStrategyMeta(strategyName) : null;
 
@@ -56,6 +57,7 @@ export default function StrategyInfoModal({ strategyName, onClose }: StrategyInf
     if (strategyName) {
       setTab('about');
       setSaveStatus('idle');
+      setShowResetConfirm(false);
       loadConfig(strategyName);
     }
   }, [strategyName, loadConfig]);
@@ -239,18 +241,35 @@ export default function StrategyInfoModal({ strategyName, onClose }: StrategyInf
                    saveStatus === 'saved' ? 'SAVED' :
                    saveStatus === 'error' ? 'FAILED' : 'SAVE CONFIG'}
                 </button>
-                <button
-                  onClick={handleReset}
-                  disabled={saveStatus === 'saving' || !overrides}
-                  className="px-4 py-2.5 text-xs font-bold border border-terminal-dim/30 text-terminal-dim hover:border-terminal-amber/40 hover:text-terminal-amber rounded transition-all disabled:opacity-30"
-                >
-                  RESET
-                </button>
+                {!showResetConfirm ? (
+                  <button
+                    onClick={() => setShowResetConfirm(true)}
+                    disabled={saveStatus === 'saving' || !overrides}
+                    className="px-4 py-2.5 text-xs font-bold border border-terminal-dim/30 text-terminal-dim hover:border-terminal-amber/40 hover:text-terminal-amber rounded transition-all disabled:opacity-30"
+                  >
+                    RESET ALL
+                  </button>
+                ) : (
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => { handleReset(); setShowResetConfirm(false); }}
+                      className="px-3 py-2.5 text-xs font-bold border border-terminal-red bg-terminal-red/15 text-terminal-red rounded transition-all hover:bg-terminal-red/25"
+                    >
+                      CONFIRM
+                    </button>
+                    <button
+                      onClick={() => setShowResetConfirm(false)}
+                      className="px-3 py-2.5 text-xs font-bold border border-terminal-dim/30 text-terminal-dim rounded transition-all"
+                    >
+                      CANCEL
+                    </button>
+                  </div>
+                )}
               </div>
 
               {overrides && Object.keys(overrides).length > 0 && (
                 <div className="text-[9px] text-terminal-amber/60 text-center">
-                  {Object.keys(overrides).length} field{Object.keys(overrides).length !== 1 ? 's' : ''} customized
+                  {Object.keys(overrides).length} field{Object.keys(overrides).length !== 1 ? 's' : ''} customized -- modified fields show defaults below
                 </div>
               )}
             </>
@@ -275,48 +294,74 @@ function ConfigFieldInput({
   modified: boolean;
   onChange: (val: number | boolean | string) => void;
 }) {
+  const isChanged = value !== defaultValue;
+  const defaultHint = defaultValue !== undefined && isChanged;
+
   if (field.type === 'boolean') {
     const checked = typeof value === 'boolean' ? value : !!value;
+    const defaultChecked = typeof defaultValue === 'boolean' ? defaultValue : !!defaultValue;
     return (
-      <div className="flex items-center justify-between py-1">
-        <label className="text-xs text-terminal-green/80 flex items-center gap-2">
-          {field.label}
-          {modified && <span className="w-1.5 h-1.5 rounded-full bg-terminal-amber" />}
-        </label>
-        <button
-          onClick={() => onChange(!checked)}
-          className={`w-9 h-5 rounded-full relative transition-all duration-300 border flex-shrink-0 ${
-            checked
-              ? 'bg-terminal-green/20 border-terminal-green/50'
-              : 'bg-[#1a1a2e] border-[#3a3a55]'
-          }`}
-        >
-          <div className={`absolute top-[3px] w-3.5 h-3.5 rounded-full transition-all duration-300 ${
-            checked
-              ? 'right-[3px] bg-terminal-green shadow-[0_0_6px_currentColor]'
-              : 'left-[3px] bg-[#5a5a75]'
-          }`} />
-        </button>
+      <div className="py-1">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-terminal-green/80 flex items-center gap-2">
+            {field.label}
+            {modified && <span className="w-1.5 h-1.5 rounded-full bg-terminal-amber" />}
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onChange(!checked)}
+              className={`w-9 h-5 rounded-full relative transition-all duration-300 border flex-shrink-0 ${
+                checked
+                  ? 'bg-terminal-green/20 border-terminal-green/50'
+                  : 'bg-[#1a1a2e] border-[#3a3a55]'
+              }`}
+            >
+              <div className={`absolute top-[3px] w-3.5 h-3.5 rounded-full transition-all duration-300 ${
+                checked
+                  ? 'right-[3px] bg-terminal-green shadow-[0_0_6px_currentColor]'
+                  : 'left-[3px] bg-[#5a5a75]'
+              }`} />
+            </button>
+          </div>
+        </div>
+        {defaultHint && (
+          <button
+            onClick={() => onChange(defaultChecked)}
+            className="text-[9px] text-terminal-dim/50 hover:text-terminal-amber mt-0.5 ml-0 transition-colors"
+          >
+            default: {defaultChecked ? 'ON' : 'OFF'} -- click to restore
+          </button>
+        )}
       </div>
     );
   }
 
   if (field.type === 'select' && field.options) {
     return (
-      <div className="flex items-center justify-between py-1">
-        <label className="text-xs text-terminal-green/80 flex items-center gap-2">
-          {field.label}
-          {modified && <span className="w-1.5 h-1.5 rounded-full bg-terminal-amber" />}
-        </label>
-        <select
-          value={String(value ?? '')}
-          onChange={(e) => onChange(isNaN(Number(e.target.value)) ? e.target.value : Number(e.target.value))}
-          className="bg-terminal-bg border border-terminal-green/30 text-terminal-green text-xs rounded px-2 py-1.5 focus:border-terminal-green/60 outline-none"
-        >
-          {field.options.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
+      <div className="py-1">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-terminal-green/80 flex items-center gap-2">
+            {field.label}
+            {modified && <span className="w-1.5 h-1.5 rounded-full bg-terminal-amber" />}
+          </label>
+          <select
+            value={String(value ?? '')}
+            onChange={(e) => onChange(isNaN(Number(e.target.value)) ? e.target.value : Number(e.target.value))}
+            className="bg-terminal-bg border border-terminal-green/30 text-terminal-green text-xs rounded px-2 py-1.5 focus:border-terminal-green/60 outline-none"
+          >
+            {field.options.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
+        {defaultHint && (
+          <button
+            onClick={() => onChange(defaultValue as string | number)}
+            className="text-[9px] text-terminal-dim/50 hover:text-terminal-amber mt-0.5 transition-colors"
+          >
+            default: {defaultValue} -- click to restore
+          </button>
+        )}
       </div>
     );
   }
@@ -324,34 +369,35 @@ function ConfigFieldInput({
   // Number input
   const numValue = typeof value === 'number' ? value : 0;
   return (
-    <div className="flex items-center justify-between py-1 gap-3">
-      <label className="text-xs text-terminal-green/80 flex items-center gap-2 flex-shrink-0">
-        {field.label}
-        {modified && <span className="w-1.5 h-1.5 rounded-full bg-terminal-amber" />}
-      </label>
-      <div className="flex items-center gap-1.5">
-        <input
-          type="number"
-          value={numValue}
-          min={field.min}
-          max={field.max}
-          step={field.step}
-          onChange={(e) => onChange(Number(e.target.value))}
-          className="w-20 bg-terminal-bg border border-terminal-green/30 text-terminal-green text-xs font-mono rounded px-2 py-1.5 text-right focus:border-terminal-green/60 outline-none tabular-nums"
-        />
-        {field.suffix && (
-          <span className="text-[10px] text-terminal-dim w-6">{field.suffix}</span>
-        )}
-        {defaultValue !== undefined && numValue !== defaultValue && (
-          <button
-            onClick={() => onChange(defaultValue as number)}
-            className="text-[9px] text-terminal-dim hover:text-terminal-amber transition-colors"
-            title={`Reset to default: ${defaultValue}`}
-          >
-            [D]
-          </button>
-        )}
+    <div className="py-1">
+      <div className="flex items-center justify-between gap-3">
+        <label className="text-xs text-terminal-green/80 flex items-center gap-2 flex-shrink-0">
+          {field.label}
+          {modified && <span className="w-1.5 h-1.5 rounded-full bg-terminal-amber" />}
+        </label>
+        <div className="flex items-center gap-1.5">
+          <input
+            type="number"
+            value={numValue}
+            min={field.min}
+            max={field.max}
+            step={field.step}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="w-20 bg-terminal-bg border border-terminal-green/30 text-terminal-green text-xs font-mono rounded px-2 py-1.5 text-right focus:border-terminal-green/60 outline-none tabular-nums"
+          />
+          {field.suffix && (
+            <span className="text-[10px] text-terminal-dim w-6">{field.suffix}</span>
+          )}
+        </div>
       </div>
+      {defaultHint && (
+        <button
+          onClick={() => onChange(defaultValue as number)}
+          className="text-[9px] text-terminal-dim/50 hover:text-terminal-amber mt-0.5 transition-colors"
+        >
+          default: {defaultValue}{field.suffix ? ` ${field.suffix}` : ''} -- click to restore
+        </button>
+      )}
     </div>
   );
 }
