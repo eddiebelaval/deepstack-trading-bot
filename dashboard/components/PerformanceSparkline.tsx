@@ -19,7 +19,7 @@ interface PerformanceSparklineProps {
 }
 
 export default function PerformanceSparkline({ data }: PerformanceSparklineProps) {
-  const chartData = data || [];
+  const chartData = useMemo(() => data ?? [], [data]);
 
   const stats = useMemo(() => {
     if (chartData.length === 0) return { current: 0, start: 0, change: 0, isProfit: true };

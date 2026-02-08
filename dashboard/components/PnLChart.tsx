@@ -38,7 +38,7 @@ const CustomTooltip = ({ active, payload, label }: {active?: boolean; payload?: 
 };
 
 export default function PnLChart({ data }: PnLChartProps) {
-  const chartData = data || [];
+  const chartData = useMemo(() => data ?? [], [data]);
 
   const { minValue, maxValue, currentValue, domain } = useMemo(() => {
     const min = chartData.length > 0 ? Math.min(...chartData.map(d => d.cumulative)) : 0;

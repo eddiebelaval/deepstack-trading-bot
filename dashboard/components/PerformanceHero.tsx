@@ -38,7 +38,7 @@ const COLORS = {
 
 export default function PerformanceHero({ data }: PerformanceHeroProps) {
   const [timeframe, setTimeframe] = useState<TimeFrame>('1M');
-  const chartData = data || [];
+  const chartData = useMemo(() => data ?? [], [data]);
 
   // Calculate stats - Robinhood style: compare END vs START
   const stats = useMemo(() => {

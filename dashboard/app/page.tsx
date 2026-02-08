@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import StrategyCard from '@/components/StrategyCard';
@@ -40,6 +40,11 @@ export default function Dashboard() {
   // Map of strategy name -> { enabled, timestamp }. Entries expire after 10 seconds
   // (by then the Supabase write has persisted and server state is correct).
   const [pendingToggles, setPendingToggles] = useState<Record<string, { enabled: boolean; at: number }>>({});
+  const pendingTogglesRef = useRef(pendingToggles);
+
+  useEffect(() => {
+    pendingTogglesRef.current = pendingToggles;
+  }, [pendingToggles]);
 
   // Modal states
   const [showOpportunities, setShowOpportunities] = useState(false);
@@ -56,7 +61,7 @@ export default function Dashboard() {
   const { logout } = useSessionTimeout(5);
 
   // Fetch dashboard state
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     try {
       const response = await fetch('/api/status');
       if (response.ok) {
@@ -68,9 +73,10 @@ export default function Dashboard() {
         const OVERRIDE_TTL_MS = 10_000;
         const stillPending: Record<string, { enabled: boolean; at: number }> = {};
 
-        if (data.strategies && Object.keys(pendingToggles).length > 0) {
+        const pending = pendingTogglesRef.current;
+        if (data.strategies && Object.keys(pending).length > 0) {
           data.strategies = data.strategies.map((s: Strategy) => {
-            const override = pendingToggles[s.name];
+            const override = pending[s.name];
             if (override && (now - override.at) < OVERRIDE_TTL_MS) {
               stillPending[s.name] = override;
               return { ...s, enabled: override.enabled };
@@ -92,10 +98,10 @@ export default function Dashboard() {
       console.error('Failed to fetch status:', error);
       setFetchError('Connection lost');
     }
-  };
+  }, []);
 
   // Fetch trades
-  const fetchTrades = async () => {
+  const fetchTrades = useCallback(async () => {
     try {
       const response = await fetch('/api/trades');
       if (response.ok) {
@@ -105,10 +111,10 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Failed to fetch trades:', error);
     }
-  };
+  }, []);
 
   // Fetch bot config (mode, risk params, heartbeat)
-  const fetchConfig = async () => {
+  const fetchConfig = useCallback(async () => {
     try {
       const response = await fetch('/api/config');
       if (response.ok) {
@@ -118,7 +124,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Failed to fetch bot config:', error);
     }
-  };
+  }, []);
 
   // Send a command to the bot via the command queue, then poll for acknowledgment
   const sendCommand = useCallback(async (command: string, params?: Record<string, unknown>) => {
@@ -169,7 +175,7 @@ export default function Dashboard() {
       console.error('Failed to send command:', error);
       addToast('warning', `Failed to send command: ${command}`);
     }
-  }, [addToast]);
+  }, [addToast, fetchConfig]);
 
   // Initial load
   useEffect(() => {
@@ -178,7 +184,7 @@ export default function Dashboard() {
       setLoading(false);
     };
     loadData();
-  }, []);
+  }, [fetchConfig, fetchStatus, fetchTrades]);
 
   // Auto-refresh every 5 seconds
   useEffect(() => {
@@ -189,7 +195,7 @@ export default function Dashboard() {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchConfig, fetchStatus, fetchTrades]);
 
   // Detect new trades and notify
   useEffect(() => {
@@ -208,7 +214,7 @@ export default function Dashboard() {
       }
     }
     setPrevTradeCount(trades.length);
-  }, [trades.length]);
+  }, [addToast, prevTradeCount, sound, trades]);
 
   // Manual refresh handler
   const handleRefresh = useCallback(() => {
@@ -216,7 +222,7 @@ export default function Dashboard() {
     fetchTrades();
     addToast('info', 'Data refreshed');
     sound.playNotification();
-  }, [addToast, sound]);
+  }, [addToast, fetchStatus, fetchTrades, sound]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
