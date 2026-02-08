@@ -254,6 +254,7 @@ export default function Dashboard() {
         dashboardState={dashboardState}
         botConfig={botConfig}
         onCommand={sendCommand}
+        sound={sound}
         onStrategyToggle={(name, enabled) => {
           // 1. Optimistic update — reflect toggle instantly in UI
           if (dashboardState) {
