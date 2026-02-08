@@ -26,7 +26,7 @@ export interface TestData {
 export async function seedTestData(pool: Pool): Promise<TestData> {
   // Insert test trades
   const tradesResult = await pool.query(`
-    INSERT INTO trades (market_ticker, side, action, contracts, entry_price_cents, pnl_cents, status, strategy, session_date)
+    INSERT INTO deepstack_trades (market_ticker, side, action, contracts, entry_price_cents, pnl_cents, status, strategy, session_date)
     VALUES
       ('INXD-27JAN27-5400', 'YES', 'BUY', 5, 45, 250, 'closed', 'momentum', CURRENT_DATE),
       ('INXD-27JAN27-5375', 'NO', 'BUY', 3, 55, -150, 'closed', 'mean_reversion', CURRENT_DATE),
@@ -38,7 +38,7 @@ export async function seedTestData(pool: Pool): Promise<TestData> {
 
   // Insert test opportunities
   const opportunitiesResult = await pool.query(`
-    INSERT INTO opportunities (market_ticker, strategy, side, current_price_cents, target_price_cents, expected_profit_pct, confidence, status, reasoning)
+    INSERT INTO deepstack_opportunities (market_ticker, strategy, side, current_price_cents, target_price_cents, expected_profit_pct, confidence, status, reasoning)
     VALUES
       ('INXD-27JAN27-5400', 'momentum', 'YES', 42, 55, 31.0, 0.78, 'active', 'RSI oversold at 28'),
       ('INXD-27JAN27-5375', 'mean_reversion', 'NO', 67, 50, 34.0, 0.82, 'active', 'Overbought condition'),
@@ -49,7 +49,7 @@ export async function seedTestData(pool: Pool): Promise<TestData> {
 
   // Insert log entries
   await pool.query(`
-    INSERT INTO log_entries (level, strategy, message)
+    INSERT INTO deepstack_log_entries (level, strategy, message)
     VALUES
       ('INFO', 'momentum', 'Strategy initialized'),
       ('INFO', 'momentum', 'Scanning for opportunities'),
@@ -66,7 +66,14 @@ export async function seedTestData(pool: Pool): Promise<TestData> {
 
 export async function clearTestData(pool: Pool): Promise<void> {
   await pool.query(`
-    TRUNCATE trades, opportunities, log_entries, dashboard_state,
-    market_snapshots, performance_metrics RESTART IDENTITY CASCADE
+    TRUNCATE
+      deepstack_trades,
+      deepstack_opportunities,
+      deepstack_log_entries,
+      deepstack_dashboard_state,
+      deepstack_market_snapshots,
+      deepstack_performance_metrics,
+      deepstack_bot_commands
+    RESTART IDENTITY CASCADE
   `);
 }

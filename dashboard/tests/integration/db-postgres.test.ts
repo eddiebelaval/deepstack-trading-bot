@@ -27,7 +27,7 @@ describe('Database Integration Tests', () => {
     it('should create and retrieve trades', async () => {
       const { trades } = await seedTestData(pool);
 
-      const result = await pool.query('SELECT * FROM trades ORDER BY id');
+      const result = await pool.query('SELECT * FROM deepstack_trades ORDER BY id');
       expect(result.rows).toHaveLength(5);
       expect(result.rows[0].market_ticker).toBe('INXD-27JAN27-5400');
     });
@@ -36,12 +36,12 @@ describe('Database Integration Tests', () => {
       await seedTestData(pool);
 
       const openTrades = await pool.query(
-        "SELECT * FROM trades WHERE status = 'open'"
+        "SELECT * FROM deepstack_trades WHERE status = 'open'"
       );
       expect(openTrades.rows).toHaveLength(1);
 
       const closedTrades = await pool.query(
-        "SELECT * FROM trades WHERE status = 'closed'"
+        "SELECT * FROM deepstack_trades WHERE status = 'closed'"
       );
       expect(closedTrades.rows).toHaveLength(4);
     });
@@ -54,7 +54,7 @@ describe('Database Integration Tests', () => {
           COUNT(*)::int as total_trades,
           COALESCE(SUM(CASE WHEN pnl_cents > 0 THEN 1 ELSE 0 END), 0)::int as winning_trades,
           COALESCE(SUM(pnl_cents), 0)::int as total_pnl_cents
-        FROM trades
+        FROM deepstack_trades
         WHERE strategy = 'momentum' AND status = 'closed'
       `);
 
@@ -68,12 +68,12 @@ describe('Database Integration Tests', () => {
       const openTrade = trades.find(t => t.status === 'open');
 
       await pool.query(
-        `UPDATE trades SET status = 'closed', pnl_cents = 300, exit_price_cents = 52
+        `UPDATE deepstack_trades SET status = 'closed', pnl_cents = 300, exit_price_cents = 52
          WHERE id = $1`,
         [openTrade?.id]
       );
 
-      const result = await pool.query('SELECT * FROM trades WHERE id = $1', [openTrade?.id]);
+      const result = await pool.query('SELECT * FROM deepstack_trades WHERE id = $1', [openTrade?.id]);
       expect(result.rows[0].status).toBe('closed');
       expect(result.rows[0].pnl_cents).toBe(300);
       expect(result.rows[0].exit_price_cents).toBe(52);
@@ -92,12 +92,12 @@ describe('Database Integration Tests', () => {
       await seedTestData(pool);
 
       const active = await pool.query(
-        "SELECT * FROM opportunities WHERE status = 'active'"
+        "SELECT * FROM deepstack_opportunities WHERE status = 'active'"
       );
       expect(active.rows).toHaveLength(2);
 
       const taken = await pool.query(
-        "SELECT * FROM opportunities WHERE status = 'taken'"
+        "SELECT * FROM deepstack_opportunities WHERE status = 'taken'"
       );
       expect(taken.rows).toHaveLength(1);
     });
@@ -107,13 +107,13 @@ describe('Database Integration Tests', () => {
       const activeOpp = opportunities.find(o => o.status === 'active');
 
       await pool.query(
-        `UPDATE opportunities
+        `UPDATE deepstack_opportunities
          SET status = 'taken', taken_at = NOW(), trade_id = $1
          WHERE id = $2`,
         [trades[0].id, activeOpp?.id]
       );
 
-      const result = await pool.query('SELECT * FROM opportunities WHERE id = $1', [activeOpp?.id]);
+      const result = await pool.query('SELECT * FROM deepstack_opportunities WHERE id = $1', [activeOpp?.id]);
       expect(result.rows[0].status).toBe('taken');
       expect(result.rows[0].trade_id).toBe(trades[0].id);
       expect(result.rows[0].taken_at).not.toBeNull();
@@ -125,7 +125,7 @@ describe('Database Integration Tests', () => {
       await seedTestData(pool);
 
       const result = await pool.query(
-        'SELECT * FROM log_entries ORDER BY timestamp DESC LIMIT 10'
+        'SELECT * FROM deepstack_log_entries ORDER BY timestamp DESC LIMIT 10'
       );
       expect(result.rows).toHaveLength(5);
     });
@@ -134,7 +134,7 @@ describe('Database Integration Tests', () => {
       await seedTestData(pool);
 
       const errors = await pool.query(
-        "SELECT * FROM log_entries WHERE level = 'ERROR'"
+        "SELECT * FROM deepstack_log_entries WHERE level = 'ERROR'"
       );
       expect(errors.rows).toHaveLength(1);
       expect(errors.rows[0].message).toContain('rate limit');
@@ -144,7 +144,7 @@ describe('Database Integration Tests', () => {
       await seedTestData(pool);
 
       const momentumLogs = await pool.query(
-        "SELECT * FROM log_entries WHERE strategy = 'momentum'"
+        "SELECT * FROM deepstack_log_entries WHERE strategy = 'momentum'"
       );
       expect(momentumLogs.rows).toHaveLength(3);
     });
@@ -153,7 +153,7 @@ describe('Database Integration Tests', () => {
   describe('Dashboard State', () => {
     it('should save and retrieve dashboard state', async () => {
       await pool.query(`
-        INSERT INTO dashboard_state (
+        INSERT INTO deepstack_dashboard_state (
           balance_cents, daily_pnl_cents, daily_pnl_percentage,
           total_positions, available_balance_cents,
           daily_loss_limit_cents, daily_loss_used_cents,
@@ -163,7 +163,7 @@ describe('Database Integration Tests', () => {
       `);
 
       const result = await pool.query(
-        'SELECT * FROM dashboard_state ORDER BY timestamp DESC LIMIT 1'
+        'SELECT * FROM deepstack_dashboard_state ORDER BY timestamp DESC LIMIT 1'
       );
 
       expect(result.rows[0].balance_cents).toBe(10000);
@@ -174,7 +174,7 @@ describe('Database Integration Tests', () => {
 
   describe('Strategy Status', () => {
     it('should have default strategies from migration', async () => {
-      const result = await pool.query('SELECT * FROM strategy_status ORDER BY name');
+      const result = await pool.query('SELECT * FROM deepstack_strategy_status ORDER BY name');
 
       expect(result.rows.length).toBeGreaterThanOrEqual(4);
       expect(result.rows.map(r => r.name)).toContain('momentum');
@@ -183,13 +183,13 @@ describe('Database Integration Tests', () => {
 
     it('should update strategy status', async () => {
       await pool.query(`
-        UPDATE strategy_status
+        UPDATE deepstack_strategy_status
         SET status = 'active', opportunities_found = 5, last_scan = NOW()
         WHERE name = 'momentum'
       `);
 
       const result = await pool.query(
-        "SELECT * FROM strategy_status WHERE name = 'momentum'"
+        "SELECT * FROM deepstack_strategy_status WHERE name = 'momentum'"
       );
 
       expect(result.rows[0].status).toBe('active');
@@ -205,7 +205,7 @@ describe('Database Integration Tests', () => {
       // This should fail - invalid trade_id
       await expect(
         pool.query(`
-          INSERT INTO opportunities (market_ticker, strategy, side, current_price_cents, target_price_cents, trade_id)
+          INSERT INTO deepstack_opportunities (market_ticker, strategy, side, current_price_cents, target_price_cents, trade_id)
           VALUES ('TEST', 'test', 'YES', 50, 60, 99999)
         `)
       ).rejects.toThrow();
@@ -214,7 +214,7 @@ describe('Database Integration Tests', () => {
     it('should enforce check constraints on side values', async () => {
       await expect(
         pool.query(`
-          INSERT INTO trades (market_ticker, side, action, contracts, entry_price_cents, strategy)
+          INSERT INTO deepstack_trades (market_ticker, side, action, contracts, entry_price_cents, strategy)
           VALUES ('TEST', 'INVALID', 'BUY', 1, 50, 'test')
         `)
       ).rejects.toThrow();
@@ -228,11 +228,11 @@ describe('Database Integration Tests', () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       await pool.query(
-        'UPDATE trades SET pnl_cents = 999 WHERE id = $1',
+        'UPDATE deepstack_trades SET pnl_cents = 999 WHERE id = $1',
         [trade.id]
       );
 
-      const result = await pool.query('SELECT created_at, updated_at FROM trades WHERE id = $1', [trade.id]);
+      const result = await pool.query('SELECT created_at, updated_at FROM deepstack_trades WHERE id = $1', [trade.id]);
       expect(new Date(result.rows[0].updated_at).getTime())
         .toBeGreaterThan(new Date(result.rows[0].created_at).getTime());
     });
