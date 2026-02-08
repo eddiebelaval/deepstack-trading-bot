@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { DashboardState, Strategy, BotConfig } from '@/lib/types';
 import { getStrategyMeta, CATEGORY_LABELS, CATEGORY_ICONS, StrategyCategory } from '@/lib/strategy-meta';
 import RiskControls from './RiskControls';
+import StrategyInfoModal from './StrategyInfoModal';
 import type { UseSoundEffectsReturn, VolumeLevel, SoundName } from '@/hooks/useSoundEffects';
 
 interface SidebarProps {
@@ -37,6 +38,7 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
   const [showAudioSettings, setShowAudioSettings] = useState(false);
   const [showForceCloseConfirm, setShowForceCloseConfirm] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+  const [infoStrategy, setInfoStrategy] = useState<string | null>(null);
 
   const botRunState: BotRunState = (botConfig?.mode as BotRunState) || 'stopped';
   const balance = dashboardState?.account?.balance_cents ?? 0;
@@ -395,6 +397,14 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
                                 <span className="text-[8px] font-bold text-[#5a5a75] tracking-[0.1em] flex-shrink-0">OFF</span>
                               )}
                             </div>
+                            {/* Info button */}
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setInfoStrategy(strategy.name); }}
+                              className="w-5 h-5 flex items-center justify-center text-[9px] font-bold text-terminal-dim/50 hover:text-terminal-cyan border border-transparent hover:border-terminal-cyan/30 rounded transition-all flex-shrink-0"
+                              title="Strategy info & config"
+                            >
+                              i
+                            </button>
                             {/* Toggle switch */}
                             <button
                               onClick={() => handleStrategyToggle(strategy.name, strategy.enabled)}
@@ -546,6 +556,12 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
         </div>
       </div>
     </div>
+
+    {/* Strategy Info Modal */}
+    <StrategyInfoModal
+      strategyName={infoStrategy}
+      onClose={() => setInfoStrategy(null)}
+    />
     </>
   );
 }
