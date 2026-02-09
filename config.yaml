@@ -216,7 +216,7 @@ risk:
 learning:
   prior_strength: 20          # Bayesian k: trades needed to equal prior weight
   decay_half_life: 30.0       # Days until trade weight halves
-  auto_disable: false         # Flag unhealthy strategies, don't auto-kill
+  auto_disable: true          # Auto-disable strategies with sustained negative EV
 
 # CryExc real-time exchange data (sub-second trades, orderbook, liquidations, CVD)
 # Provides 10-30s information edge over REST polling for crypto strategies.

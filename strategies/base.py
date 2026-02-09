@@ -11,10 +11,13 @@ Design Principles:
     - Configuration is passed at initialization
 """
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -248,6 +251,17 @@ class Strategy(ABC):
             ExitSignal indicating whether and how to exit
         """
         pass
+
+    def apply_adaptive_params(self, params: Dict[str, float]) -> None:
+        """Update take_profit and stop_loss from learned parameters."""
+        old_tp, old_sl = self.take_profit, self.stop_loss
+        self.take_profit = int(params["take_profit_cents"])
+        self.stop_loss = int(params["stop_loss_cents"])
+        logger.info(
+            f"[{self.name}] Adaptive thresholds: "
+            f"TP {old_tp}c -> {self.take_profit}c, "
+            f"SL {old_sl}c -> {self.stop_loss}c"
+        )
 
     def get_historical_stats(self) -> Dict[str, float]:
         """

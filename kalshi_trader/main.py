@@ -203,6 +203,7 @@ class KalshiTradingBot:
             auto_disable=getattr(self.config, 'learning_auto_disable', False),
         )
         self._register_strategy_priors()
+        self._apply_adaptive_thresholds()
 
         # 6. Initialize dashboard sync (Supabase, fire-and-forget)
         self.dashboard = DashboardSync()
@@ -367,6 +368,21 @@ class KalshiTradingBot:
             self.performance_tracker.register_prior(self.strategy.name, prior_stats)
             self.strategy._performance_tracker = self.performance_tracker
             logger.info(f"Learning loop attached: {self.strategy.name}")
+
+    def _apply_adaptive_thresholds(self) -> None:
+        """Apply learned take_profit/stop_loss to active strategies."""
+        if not self.performance_tracker:
+            return
+
+        if self.strategy_manager:
+            for name, state in self.strategy_manager._strategies.items():
+                params = self.performance_tracker.get_adaptive_params(name)
+                if params and hasattr(state.strategy, 'apply_adaptive_params'):
+                    state.strategy.apply_adaptive_params(params)
+        elif self.strategy and hasattr(self.strategy, 'apply_adaptive_params'):
+            params = self.performance_tracker.get_adaptive_params("mean_reversion")
+            if params:
+                self.strategy.apply_adaptive_params(params)
 
     async def _shutdown(self) -> None:
         """Clean shutdown of all components."""
@@ -811,15 +827,30 @@ class KalshiTradingBot:
                 health = self.performance_tracker.evaluate_health(strategy_name)
                 if health.health_status == "critical" and self.performance_tracker.auto_disable:
                     logger.warning(
-                        f"Strategy {strategy_name} CRITICAL — "
-                        f"auto-disable would trigger (disabled by config)"
+                        f"Strategy {strategy_name} CRITICAL — auto-disabling | "
+                        f"EV={health.blended_ev_cents:.2f}c, "
+                        f"confidence={health.confidence:.1%}, "
+                        f"warnings={health.consecutive_warnings}"
                     )
+                    if self.strategy_manager:
+                        self.strategy_manager.disable_strategy(strategy_name)
+                    if self.dashboard:
+                        await self.dashboard.push_log(
+                            f"Auto-disabled {strategy_name}: sustained negative EV "
+                            f"({health.blended_ev_cents:.2f}c) over "
+                            f"{health.consecutive_warnings} evaluations",
+                            level="WARNING",
+                            strategy=strategy_name,
+                        )
                 elif health.health_status != "healthy":
                     logger.warning(
                         f"Strategy {strategy_name}: {health.health_status} | "
                         f"blended EV={health.blended_ev_cents:.2f}c, "
                         f"confidence={health.confidence:.1%}"
                     )
+
+            # Recompute adaptive thresholds after each trade close
+            self._apply_adaptive_thresholds()
 
             logger.info(
                 f"Exited {ticker}: {exit_signal.exit_type} | "
@@ -889,8 +920,11 @@ class KalshiTradingBot:
             logger.debug(f"Opportunity {ticker} blocked: {risk_check['reasons']}")
             return False
 
-        # Calculate position size
-        stats = self.strategy.get_historical_stats()
+        # Calculate position size using learned stats (Bayesian blend) if available
+        if self.performance_tracker:
+            stats = self.performance_tracker.get_blended_stats("mean_reversion")
+        else:
+            stats = self.strategy.get_historical_stats()
         size_result = self.risk.calculate_position_size(
             win_rate=stats["win_rate"],
             avg_win_cents=stats["avg_win_cents"],
@@ -928,7 +962,11 @@ class KalshiTradingBot:
         if not state:
             return False
 
-        stats = state.strategy.get_historical_stats()
+        # Use learned Bayesian blend for sizing (falls back to strategy priors)
+        if self.performance_tracker:
+            stats = self.performance_tracker.get_blended_stats(strategy_name)
+        else:
+            stats = state.strategy.get_historical_stats()
         size_result = self.risk.calculate_position_size(
             win_rate=stats["win_rate"],
             avg_win_cents=stats["avg_win_cents"],

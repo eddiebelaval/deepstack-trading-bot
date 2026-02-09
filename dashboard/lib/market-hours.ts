@@ -1,6 +1,10 @@
 /**
- * US Stock Market Hours (NYSE/NASDAQ)
- * All times Eastern Time.
+ * Kalshi Prediction Market Hours
+ *
+ * Kalshi operates 24/7 with one scheduled maintenance window:
+ *   Thursday 3:00 AM – 5:00 AM Eastern Time
+ *
+ * Source: https://help.kalshi.com/trading/what-are-trading-hours
  */
 
 export type MarketState = 'open' | 'pre_market' | 'after_hours' | 'closed';
@@ -8,25 +12,43 @@ export type MarketState = 'open' | 'pre_market' | 'after_hours' | 'closed';
 interface MarketStatus {
   state: MarketState;
   label: string;
-  nextChange: string; // e.g. "opens in 15h 30m"
+  nextChange: string;
 }
 
-const ET_TIMEZONE = 'America/New_York';
+const MAINTENANCE_DAY = 4; // Thursday (0=Sun, 4=Thu)
+const MAINTENANCE_START = 3 * 60; // 3:00 AM ET in minutes
+const MAINTENANCE_END = 5 * 60;   // 5:00 AM ET in minutes
 
-// Minutes from midnight ET
-const PRE_MARKET_OPEN = 4 * 60;        // 4:00 AM
-const MARKET_OPEN = 9 * 60 + 30;       // 9:30 AM
-const MARKET_CLOSE = 16 * 60;          // 4:00 PM
-const AFTER_HOURS_CLOSE = 20 * 60;     // 8:00 PM
-
-function getETTime(now?: Date): { day: number; minutes: number; date: Date } {
+/**
+ * Get current Eastern Time using Intl.DateTimeFormat for reliable
+ * timezone conversion (no string round-trip parsing).
+ */
+function getETComponents(now?: Date): { day: number; hours: number; minutes: number } {
   const date = now ?? new Date();
-  const etStr = date.toLocaleString('en-US', { timeZone: ET_TIMEZONE });
-  const et = new Date(etStr);
+
+  // Use Intl.DateTimeFormat to extract individual components — avoids
+  // the fragile toLocaleString → new Date() round-trip that broke before
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: 'numeric',
+    minute: 'numeric',
+    weekday: 'short',
+    hour12: false,
+  });
+
+  const parts = fmt.formatToParts(date);
+  const dayStr = parts.find(p => p.type === 'weekday')?.value ?? '';
+  const hours = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10);
+  const mins = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10);
+
+  const dayMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  };
+
   return {
-    day: et.getDay(), // 0=Sun, 6=Sat
-    minutes: et.getHours() * 60 + et.getMinutes(),
-    date: et,
+    day: dayMap[dayStr] ?? new Date().getDay(),
+    hours,
+    minutes: mins,
   };
 }
 
@@ -40,69 +62,34 @@ function formatDuration(minutes: number): string {
 }
 
 export function getMarketStatus(now?: Date): MarketStatus {
-  const { day, minutes } = getETTime(now);
-  const isWeekday = day >= 1 && day <= 5;
+  const { day, hours, minutes } = getETComponents(now);
+  const minutesSinceMidnight = hours * 60 + minutes;
 
-  if (!isWeekday) {
-    // Weekend — calculate time until Monday 4:00 AM pre-market
-    const daysUntilMonday = day === 0 ? 1 : (8 - day); // Sat=2, Sun=1
-    const minutesUntilPreMarket =
-      (daysUntilMonday - 1) * 24 * 60 + (24 * 60 - minutes) + PRE_MARKET_OPEN;
+  // Check if we're in the Thursday maintenance window
+  if (day === MAINTENANCE_DAY &&
+      minutesSinceMidnight >= MAINTENANCE_START &&
+      minutesSinceMidnight < MAINTENANCE_END) {
     return {
       state: 'closed',
-      label: 'MARKET CLOSED',
-      nextChange: `pre-market in ${formatDuration(minutesUntilPreMarket)}`,
+      label: 'MAINTENANCE',
+      nextChange: `opens in ${formatDuration(MAINTENANCE_END - minutesSinceMidnight)}`,
     };
   }
 
-  // Weekday
-  if (minutes >= MARKET_OPEN && minutes < MARKET_CLOSE) {
-    return {
-      state: 'open',
-      label: 'MARKET OPEN',
-      nextChange: `closes in ${formatDuration(MARKET_CLOSE - minutes)}`,
-    };
+  // Calculate time until next maintenance window
+  let daysUntilThursday = (MAINTENANCE_DAY - day + 7) % 7;
+  if (daysUntilThursday === 0 && minutesSinceMidnight >= MAINTENANCE_END) {
+    daysUntilThursday = 7; // Already past this week's maintenance
   }
 
-  if (minutes >= PRE_MARKET_OPEN && minutes < MARKET_OPEN) {
-    return {
-      state: 'pre_market',
-      label: 'PRE-MARKET',
-      nextChange: `opens in ${formatDuration(MARKET_OPEN - minutes)}`,
-    };
-  }
-
-  if (minutes >= MARKET_CLOSE && minutes < AFTER_HOURS_CLOSE) {
-    return {
-      state: 'after_hours',
-      label: 'AFTER HOURS',
-      nextChange: `closes in ${formatDuration(AFTER_HOURS_CLOSE - minutes)}`,
-    };
-  }
-
-  // Before pre-market (midnight to 4 AM) or after after-hours (8 PM to midnight)
-  if (minutes < PRE_MARKET_OPEN) {
-    return {
-      state: 'closed',
-      label: 'MARKET CLOSED',
-      nextChange: `pre-market in ${formatDuration(PRE_MARKET_OPEN - minutes)}`,
-    };
-  }
-
-  // After 8 PM — next session depends on day
-  if (day === 5) {
-    // Friday evening — next is Monday
-    const minutesUntilMonday = (2 * 24 * 60) + (24 * 60 - minutes) + PRE_MARKET_OPEN;
-    return {
-      state: 'closed',
-      label: 'MARKET CLOSED',
-      nextChange: `pre-market in ${formatDuration(minutesUntilMonday)}`,
-    };
-  }
+  const minutesUntilMaintenance =
+    daysUntilThursday === 0
+      ? MAINTENANCE_START - minutesSinceMidnight
+      : (daysUntilThursday - 1) * 24 * 60 + (24 * 60 - minutesSinceMidnight) + MAINTENANCE_START;
 
   return {
-    state: 'closed',
-    label: 'MARKET CLOSED',
-    nextChange: `pre-market in ${formatDuration(24 * 60 - minutes + PRE_MARKET_OPEN)}`,
+    state: 'open',
+    label: 'MARKET OPEN',
+    nextChange: `maintenance in ${formatDuration(minutesUntilMaintenance)}`,
   };
 }
