@@ -352,6 +352,9 @@ class DashboardSync:
                 "current_price": pos.get("current_price"),
                 "market_value_cents": pos.get("market_value_cents"),
                 "avg_entry_price_cents": pos.get("avg_entry_price_cents"),
+                "volume_24h": pos.get("volume_24h", 0),
+                "open_interest": pos.get("open_interest", 0),
+                "previous_price": pos.get("previous_price"),
                 "last_updated_ts": pos.get("last_updated_ts"),
                 "synced_at": now,
             }, on_conflict="ticker")

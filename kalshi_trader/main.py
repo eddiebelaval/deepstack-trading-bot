@@ -573,6 +573,9 @@ class KalshiTradingBot:
                         "current_price": last_price,
                         "market_value_cents": pos_value,
                         "avg_entry_price_cents": avg_entry,
+                        "volume_24h": market.get("volume_24h", 0),
+                        "open_interest": market.get("open_interest", 0),
+                        "previous_price": market.get("previous_price"),
                         "last_updated_ts": position.get("last_updated_ts"),
                     })
                 except Exception:

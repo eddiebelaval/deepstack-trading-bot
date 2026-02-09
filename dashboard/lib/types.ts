@@ -185,8 +185,23 @@ export interface Position {
   current_price: number | null;
   market_value_cents: number | null;
   avg_entry_price_cents: number | null;
+  volume_24h: number | null;
+  open_interest: number | null;
+  previous_price: number | null;
+  price_change_cents: number | null;
   last_updated_ts: string | null;
   synced_at: string;
+}
+
+// Candlestick OHLCV data (fetched on-demand from Kalshi public API)
+export interface Candlestick {
+  end_period_ts: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  open_interest: number;
 }
 
 // Order from Kalshi API (synced by bot)
