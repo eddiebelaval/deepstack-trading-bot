@@ -55,6 +55,7 @@ strategies:
         series: "*"           # Trade on Kalshi
       - platform: polymarket
         series: "*"           # Data source only (read-only)
+        scan: false           # Dependency only — don't run a separate scan pass
     config:
       # Price difference threshold to trigger signal
       price_diff_threshold_cents: 5
