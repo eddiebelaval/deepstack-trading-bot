@@ -14,6 +14,7 @@ import {
   Position,
   Order,
   Fill,
+  Settlement,
 } from './types';
 
 // PostgREST uses URL query params for filtering/sorting.
@@ -429,4 +430,12 @@ export async function getOrders(status?: string): Promise<Order[]> {
 
 export async function getFills(limit: number = 100): Promise<Fill[]> {
   return restGet<Fill>('deepstack_fills', `order=created_time.desc&limit=${limit}`);
+}
+
+// ============================================================================
+// SETTLEMENTS (Kalshi resolved market payouts, synced by bot)
+// ============================================================================
+
+export async function getSettlements(limit: number = 100): Promise<Settlement[]> {
+  return restGet<Settlement>('deepstack_settlements', `order=settled_time.desc&limit=${limit}`);
 }

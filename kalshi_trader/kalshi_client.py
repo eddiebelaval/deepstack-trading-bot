@@ -396,6 +396,49 @@ class AuthenticatedKalshiClient:
             for f in fills
         ]
 
+    async def get_settlements(
+        self,
+        limit: int = 100,
+        ticker: Optional[str] = None,
+        min_ts: Optional[int] = None,
+    ) -> List[Dict]:
+        """
+        Get settlement history — resolved market payouts.
+
+        Args:
+            limit: Maximum results to return (max 200)
+            ticker: Optional market ticker filter
+            min_ts: Optional Unix timestamp floor (only settlements after this time)
+
+        Returns:
+            List of settlement dictionaries (monetary values in cents)
+        """
+        params: Dict[str, Any] = {"limit": min(limit, 200)}
+        if ticker:
+            params["ticker"] = ticker
+        if min_ts:
+            params["min_ts"] = min_ts
+
+        response = await self._request("GET", "/portfolio/settlements", params=params)
+        settlements = response.get("settlements", [])
+
+        return [
+            {
+                "ticker": s.get("ticker"),
+                "event_ticker": s.get("event_ticker"),
+                "market_result": s.get("market_result"),
+                "yes_count": s.get("yes_count", 0),
+                "no_count": s.get("no_count", 0),
+                "yes_total_cost": s.get("yes_total_cost", 0),
+                "no_total_cost": s.get("no_total_cost", 0),
+                "revenue": s.get("revenue", 0),
+                "settled_time": s.get("settled_time"),
+                "fee_cost": s.get("fee_cost"),
+                "value": s.get("value"),
+            }
+            for s in settlements
+        ]
+
     # -------------------------------------------------------------------------
     # Market Methods
     # -------------------------------------------------------------------------

@@ -421,3 +421,23 @@ class DashboardSync:
                 "fee_cost": fill.get("fee_cost"),
                 "created_time": fill.get("created_time"),
             })
+
+    async def push_settlements(self, settlements: List[Dict[str, Any]]) -> None:
+        """Upsert settlement records to Supabase (one row per ticker)."""
+        for s in settlements:
+            ticker = s.get("ticker")
+            if not ticker:
+                continue
+            await self._upsert("settlements", {
+                "ticker": ticker,
+                "event_ticker": s.get("event_ticker"),
+                "market_result": s.get("market_result", "void"),
+                "yes_count": s.get("yes_count", 0),
+                "no_count": s.get("no_count", 0),
+                "yes_total_cost": s.get("yes_total_cost", 0),
+                "no_total_cost": s.get("no_total_cost", 0),
+                "revenue": s.get("revenue", 0),
+                "settled_time": s.get("settled_time"),
+                "fee_cost": s.get("fee_cost"),
+                "value": s.get("value"),
+            })

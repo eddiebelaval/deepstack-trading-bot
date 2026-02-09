@@ -24,7 +24,8 @@ import MarketStatus from '@/components/MarketStatus';
 import PositionsTable from '@/components/PositionsTable';
 import OrdersTable from '@/components/OrdersTable';
 import FillsHistory from '@/components/FillsHistory';
-import { DashboardState, Trade, Strategy, BotConfig, Position, Order, Fill } from '@/lib/types';
+import SettlementsHistory from '@/components/SettlementsHistory';
+import { DashboardState, Trade, Strategy, BotConfig, Position, Order, Fill, Settlement } from '@/lib/types';
 
 interface BalanceSnapshot {
   timestamp: string;
@@ -40,7 +41,8 @@ export default function Dashboard() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [fills, setFills] = useState<Fill[]>([]);
-  const [portfolioTab, setPortfolioTab] = useState<'positions' | 'orders' | 'fills' | 'journal'>('positions');
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [portfolioTab, setPortfolioTab] = useState<'positions' | 'orders' | 'fills' | 'settlements' | 'journal'>('positions');
   const [loading, setLoading] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [lastSeenTradeId, setLastSeenTradeId] = useState<string | null>(null);
@@ -151,10 +153,11 @@ export default function Dashboard() {
   // Fetch positions, orders, fills for portfolio tabs
   const fetchPortfolio = async () => {
     try {
-      const [posRes, ordRes, fillRes] = await Promise.all([
+      const [posRes, ordRes, fillRes, settleRes] = await Promise.all([
         fetch('/api/positions'),
         fetch('/api/orders'),
         fetch('/api/fills?limit=100'),
+        fetch('/api/settlements?limit=100'),
       ]);
       if (posRes.ok) {
         const data = await posRes.json();
@@ -167,6 +170,10 @@ export default function Dashboard() {
       if (fillRes.ok) {
         const data = await fillRes.json();
         setFills(data.fills || []);
+      }
+      if (settleRes.ok) {
+        const data = await settleRes.json();
+        setSettlements(data.settlements || []);
       }
     } catch (error) {
       console.error('Failed to fetch portfolio:', error);
@@ -450,7 +457,7 @@ export default function Dashboard() {
         {/* Portfolio Tabs: Positions | Orders | Fills | Journal */}
         <div className="mb-4 md:mb-6">
           <div className="flex gap-1 mb-3 border-b border-terminal-green/30 pb-1">
-            {(['positions', 'orders', 'fills', 'journal'] as const).map((tab) => (
+            {(['positions', 'orders', 'fills', 'settlements', 'journal'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setPortfolioTab(tab)}
@@ -467,6 +474,9 @@ export default function Dashboard() {
                 {tab === 'orders' && orders.filter(o => o.status === 'resting').length > 0 && (
                   <span className="ml-1 text-terminal-cyan-bright">({orders.filter(o => o.status === 'resting').length})</span>
                 )}
+                {tab === 'settlements' && settlements.length > 0 && (
+                  <span className="ml-1 text-terminal-dim">({settlements.length})</span>
+                )}
               </button>
             ))}
           </div>
@@ -474,6 +484,7 @@ export default function Dashboard() {
           {portfolioTab === 'positions' && <PositionsTable positions={positions} />}
           {portfolioTab === 'orders' && <OrdersTable orders={orders} />}
           {portfolioTab === 'fills' && <FillsHistory fills={fills} />}
+          {portfolioTab === 'settlements' && <SettlementsHistory settlements={settlements} />}
           {portfolioTab === 'journal' && <TradeJournal trades={trades} onTradeClick={(trade) => setSelectedTrade(trade)} />}
         </div>
 
