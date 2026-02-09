@@ -26,6 +26,9 @@ from .utils import get_mid_price, is_market_tradeable
 
 logger = logging.getLogger(__name__)
 
+# Crypto series tickers for CryExc integration
+CRYPTO_SERIES = {"KXBTC": "BTC", "KXETH": "ETH", "KXSOL": "SOL"}
+
 
 class MarketMakingStrategy(Strategy):
     """
@@ -57,6 +60,9 @@ class MarketMakingStrategy(Strategy):
 
         # Track inventory per ticker: {"ticker": {"yes": N, "no": M}}
         self._inventory: Dict[str, Dict[str, int]] = {}
+
+        # CryExc bridge (injected by strategy_manager if available)
+        self._cryexc_bridge = None
 
         logger.info(
             f"MarketMakingStrategy initialized: "
@@ -100,12 +106,24 @@ class MarketMakingStrategy(Strategy):
         )
         return opportunities
 
+    def _detect_crypto_symbol(self, ticker: str) -> Optional[str]:
+        """Detect Kalshi crypto symbol from ticker (e.g. KXBTC-... -> BTC)."""
+        upper = ticker.upper()
+        for prefix, symbol in CRYPTO_SERIES.items():
+            if upper.startswith(prefix):
+                return symbol
+        return None
+
     def _analyze_market_for_quotes(
         self, market: Dict[str, Any]
     ) -> List[TradingOpportunity]:
         """
         Analyze a market and generate 0 or 2 quote opportunities.
         Returns a YES bid and NO bid if the spread is in range.
+
+        When CryExc is active:
+        - Tight exchange spread = 10pt bonus (more predictable fair value)
+        - Liquidation cascade = skip quoting (capital preservation)
         """
         ticker = market.get("ticker", "")
         title = market.get("title", "")
@@ -114,6 +132,20 @@ class MarketMakingStrategy(Strategy):
         no_bid = market.get("no_bid", 0)
         no_ask = market.get("no_ask", 0)
         volume = market.get("volume", 0) or market.get("volume_24h", 0)
+
+        # Liquidation cascade protection: skip quoting during cascades
+        crypto_symbol = self._detect_crypto_symbol(ticker)
+        if crypto_symbol and self._cryexc_bridge:
+            store = self._cryexc_bridge.get_signal_store(crypto_symbol)
+            if store and not store.is_stale():
+                liq_signal = store.get_liquidation_signal()
+                if liq_signal.get("is_cascade", False):
+                    logger.info(
+                        f"[{self.name}] Skipping {ticker}: liquidation cascade "
+                        f"({liq_signal.get('count', 0)} events, "
+                        f"${liq_signal.get('total_notional', 0):,.0f} notional)"
+                    )
+                    return []
 
         # Check spreads
         yes_spread = (yes_ask - yes_bid) if (yes_ask and yes_bid) else 0
@@ -149,7 +181,24 @@ class MarketMakingStrategy(Strategy):
         spread_score = min(50, avg_spread * 5)
         volume_score = min(30, volume / 100 * 30)
         inv_score = 20 * (1 - abs(net_exposure) / max(self.inventory_limit, 1))
-        total_score = max(0, min(100, spread_score + volume_score + inv_score))
+
+        # Exchange depth bonus: tight exchange spread = more predictable fair value
+        depth_bonus = 0.0
+        if crypto_symbol and self._cryexc_bridge:
+            store = self._cryexc_bridge.get_signal_store(crypto_symbol)
+            if store and not store.is_stale():
+                ob = store.get_orderbook_imbalance()
+                if ob:
+                    exchange_spread = ob.get("spread", 0)
+                    mid_price = ob.get("mid_price", 1)
+                    if mid_price > 0:
+                        # Spread as bps of mid price
+                        spread_bps = (exchange_spread / mid_price) * 10000
+                        # Tight spread (<5 bps) = 10pt bonus, scaling down to 0 at 20 bps
+                        if spread_bps < 20:
+                            depth_bonus = max(0, 10 * (1 - spread_bps / 20))
+
+        total_score = max(0, min(100, spread_score + volume_score + inv_score + depth_bonus))
 
         if total_score < self.min_score:
             return []

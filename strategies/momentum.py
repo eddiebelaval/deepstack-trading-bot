@@ -28,6 +28,9 @@ from .base import Strategy, TradingOpportunity, ExitSignal
 
 logger = logging.getLogger(__name__)
 
+# Crypto series tickers for CryExc CVD enhancement
+CRYPTO_SERIES = {"KXBTC": "BTC", "KXETH": "ETH", "KXSOL": "SOL"}
+
 
 class MomentumStrategy(Strategy):
     """
@@ -72,6 +75,9 @@ class MomentumStrategy(Strategy):
         # ticker -> [(timestamp, price), ...]
         self._price_history: Dict[str, List[tuple]] = defaultdict(list)
         self._max_history = 100  # Max samples to keep per ticker
+
+        # CryExc bridge (injected by strategy_manager if available)
+        self._cryexc_bridge = None
 
         logger.info(
             f"MomentumStrategy initialized: "
@@ -260,7 +266,19 @@ class MomentumStrategy(Strategy):
         volume_score = min(volume / 2000, 1) * 30  # Max 30 for 2000+ volume
         spread_score = self._score_spread(yes_bid, yes_ask, no_bid, no_ask)
 
-        total_score = momentum_score + volume_score + spread_score
+        # CVD confirmation bonus for crypto tickers (up to 20 points)
+        cvd_score = 0.0
+        crypto_symbol = self._detect_crypto_symbol(ticker)
+        if crypto_symbol and self._cryexc_bridge:
+            store = self._cryexc_bridge.get_signal_store(crypto_symbol)
+            if store and not store.is_stale():
+                cvd = store.get_cvd_signal()  # -100 to +100
+                # CVD confirms momentum direction
+                if (momentum > 0 and cvd > 10) or (momentum < 0 and cvd < -10):
+                    cvd_score = min(20, abs(cvd) / 5)  # Max 20 bonus
+                    reasoning += f" CVD confirms: {cvd:.0f}."
+
+        total_score = momentum_score + volume_score + spread_score + cvd_score
 
         # Require minimum score
         if total_score < self.min_score:
@@ -285,6 +303,7 @@ class MomentumStrategy(Strategy):
                 "momentum_score": momentum_score,
                 "volume_score": volume_score,
                 "spread_score": spread_score,
+                "cvd_score": cvd_score,
             },
         )
 
@@ -307,6 +326,14 @@ class MomentumStrategy(Strategy):
             return 0.0
         else:
             return 20.0 * (1 - (avg_spread - 1) / 9)
+
+    def _detect_crypto_symbol(self, ticker: str) -> Optional[str]:
+        """Detect Kalshi crypto symbol from ticker (e.g. KXBTC-... -> BTC)."""
+        upper = ticker.upper()
+        for prefix, symbol in CRYPTO_SERIES.items():
+            if upper.startswith(prefix):
+                return symbol
+        return None
 
     async def check_exit(
         self,

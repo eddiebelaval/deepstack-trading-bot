@@ -101,6 +101,54 @@ class LearningConfig(BaseModel):
     )
 
 
+class CryExcSymbolConfig(BaseModel):
+    """Configuration for a single CryExc symbol subscription."""
+
+    symbol: str = Field(description="Exchange symbol, e.g. BTCUSDT")
+    exchanges: List[str] = Field(
+        default_factory=list,
+        description="Filter to specific exchanges, or empty for all",
+    )
+    min_notional_trade: float = Field(
+        default=0,
+        description="Minimum trade notional to relay",
+        ge=0,
+    )
+    min_notional_liq: float = Field(
+        default=0,
+        description="Minimum liquidation notional to relay",
+        ge=0,
+    )
+
+
+class CryExcReconnectConfig(BaseModel):
+    """CryExc WebSocket reconnect parameters."""
+
+    base_seconds: float = Field(default=1.0, ge=0.1, le=60.0)
+    max_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+
+
+class CryExcConfig(BaseModel):
+    """CryExc real-time exchange data configuration."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable CryExc integration (opt-in)",
+    )
+    url: str = Field(
+        default="ws://localhost:8086/ws",
+        description="CryExc WebSocket server URL",
+    )
+    symbols: List[CryExcSymbolConfig] = Field(
+        default_factory=list,
+        description="Symbols to subscribe to",
+    )
+    reconnect: CryExcReconnectConfig = Field(
+        default_factory=CryExcReconnectConfig,
+        description="Reconnect behavior",
+    )
+
+
 class YAMLConfig(BaseModel):
     """Full YAML configuration structure."""
 
@@ -119,6 +167,10 @@ class YAMLConfig(BaseModel):
     learning: LearningConfig = Field(
         default_factory=LearningConfig,
         description="Learning loop settings",
+    )
+    cryexc: CryExcConfig = Field(
+        default_factory=CryExcConfig,
+        description="CryExc real-time exchange data settings",
     )
 
 

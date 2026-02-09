@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from .command_processor import CommandProcessor
-from .config import KalshiConfig, load_config, get_strategy_configs, load_yaml_config
+from .config import KalshiConfig, load_config, get_strategy_configs, load_yaml_config, CryExcConfig
 from .dashboard_sync import DashboardSync
 from .kalshi_client import AuthenticatedKalshiClient
 from .deepstack_integration import DeepStackIntegration
@@ -106,6 +106,9 @@ class KalshiTradingBot:
         self.strategy = None  # Legacy single strategy
         self.strategy_manager = None  # Multi-strategy manager
         self.market = None  # Market adapter for StrategyManager
+
+        # CryExc real-time exchange data bridge (optional, enabled via config)
+        self._cryexc_bridge = None
 
         self._running = False
         self._paused = False
@@ -185,6 +188,9 @@ class KalshiTradingBot:
             await self._initialize_strategy_manager()
         else:
             await self._initialize_legacy_strategy()
+
+        # 4b. Initialize CryExc real-time exchange data (optional)
+        await self._initialize_cryexc()
 
         # 5. Initialize journal
         self.journal = TradeJournal(self.config.journal_db_path)
@@ -299,6 +305,38 @@ class KalshiTradingBot:
         await self.strategy_manager.initialize()
         logger.info(f"StrategyManager initialized: {self.strategy_manager}")
 
+    async def _initialize_cryexc(self) -> None:
+        """Initialize CryExc real-time exchange data bridge (optional)."""
+        # Load cryexc config from YAML
+        yaml_config = load_yaml_config()
+        if not yaml_config or not yaml_config.cryexc.enabled:
+            logger.info("CryExc integration disabled (cryexc.enabled=false)")
+            return
+
+        try:
+            from .cryexc_bridge import CryExcBridge
+
+            cryexc_config = yaml_config.cryexc.model_dump()
+            self._cryexc_bridge = CryExcBridge(cryexc_config)
+            connected = await self._cryexc_bridge.connect()
+
+            if connected:
+                # Inject bridge into strategy manager for strategy access
+                if self.strategy_manager:
+                    self.strategy_manager._cryexc_bridge = self._cryexc_bridge
+
+                logger.info("CryExc bridge connected — real-time exchange data active")
+            else:
+                logger.warning("CryExc bridge failed to connect — using fallback data sources")
+                self._cryexc_bridge = None
+
+        except ImportError as e:
+            logger.warning(f"CryExc bridge import failed: {e}")
+            self._cryexc_bridge = None
+        except Exception as e:
+            logger.warning(f"CryExc initialization failed: {e}")
+            self._cryexc_bridge = None
+
     def _register_strategy_priors(self) -> None:
         """Register priors and attach tracker to all active strategies."""
         if not self.performance_tracker:
@@ -334,6 +372,10 @@ class KalshiTradingBot:
                 await self.command_processor.update_mode("stopped")
             if self.dashboard:
                 await self.dashboard.push_log("Bot shutting down", level="WARNING", strategy="system")
+
+            # Disconnect CryExc bridge
+            if self._cryexc_bridge:
+                await self._cryexc_bridge.disconnect()
 
             # Cancel all open orders
             if self.client:

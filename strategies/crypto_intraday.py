@@ -129,6 +129,11 @@ class CryptoIntradayStrategy(Strategy):
     3. Volatility harvest (20%): Buy underpriced side when spreads are wide
     4. Orderbook imbalance (15%): Bid/ask depth asymmetry
 
+    When CryExc is active, signals are enhanced:
+    - Spot price from CryExc trades (sub-second) instead of CoinGecko (15s cache)
+    - Momentum boosted by CVD confirmation (30% boost when CVD agrees)
+    - Orderbook imbalance uses real exchange depth instead of Kalshi bid/ask
+
     Configuration:
         - price_source: "coingecko" (only supported source)
         - min_edge_cents: Minimum edge to trade (default 3)
@@ -143,6 +148,9 @@ class CryptoIntradayStrategy(Strategy):
         self.min_edge = config.get("min_edge_cents", 3)
         self.max_hold_minutes = config.get("max_hold_minutes", 45)
         self._price_feed = CryptoPriceFeed()
+
+        # CryExc bridge (injected by strategy_manager if available)
+        self._cryexc_bridge = None
 
         logger.info(
             f"CryptoIntradayStrategy initialized: "
@@ -176,7 +184,29 @@ class CryptoIntradayStrategy(Strategy):
         if not symbols_needed:
             return []
 
-        prices = await self._price_feed.get_prices(list(symbols_needed))
+        # Try CryExc for spot prices first, fall back to CoinGecko
+        prices = {}
+        cryexc_symbols = set()
+        if self._cryexc_bridge:
+            for sym in symbols_needed:
+                store = self._cryexc_bridge.get_signal_store(sym)
+                if store and not store.is_stale():
+                    spot = store.get_spot_price()
+                    if spot > 0:
+                        prices[sym] = spot
+                        cryexc_symbols.add(sym)
+
+        # Fetch remaining symbols from CoinGecko
+        remaining = symbols_needed - cryexc_symbols
+        if remaining:
+            coingecko_prices = await self._price_feed.get_prices(list(remaining))
+            prices.update(coingecko_prices)
+
+        if cryexc_symbols:
+            logger.debug(
+                f"[{self.name}] CryExc prices for {cryexc_symbols}, "
+                f"CoinGecko fallback for {remaining or 'none'}"
+            )
 
         for market in markets:
             ticker = market.get("ticker", "")
@@ -232,7 +262,7 @@ class CryptoIntradayStrategy(Strategy):
         vol_signal = self._calc_volatility_signal(symbol, yes_bid, yes_ask, no_bid, no_ask)
 
         # --- Signal 4: Orderbook Imbalance ---
-        imbalance_signal = self._calc_imbalance_signal(yes_bid, yes_ask, no_bid, no_ask)
+        imbalance_signal = self._calc_imbalance_signal(yes_bid, yes_ask, no_bid, no_ask, symbol=symbol)
 
         # Composite score (0-100)
         composite = (
@@ -311,13 +341,30 @@ class CryptoIntradayStrategy(Strategy):
         implied_prob = mid_price / 100.0
 
         # Agreement between direction and price = bullish signal
+        base_signal = 50.0
         if distance_pct > 0 and implied_prob < 0.6:
             # External says above strike, market says <60% — buy YES
-            return min(100, 50 + abs(distance_pct) * 2000)
+            base_signal = min(100, 50 + abs(distance_pct) * 2000)
         elif distance_pct < 0 and implied_prob > 0.4:
             # External says below strike, market says >40% — buy NO
-            return min(100, 50 + abs(distance_pct) * 2000)
-        return 50.0
+            base_signal = min(100, 50 + abs(distance_pct) * 2000)
+
+        # CVD confirmation boost: when CVD agrees with direction, boost by 30%
+        if self._cryexc_bridge and base_signal != 50.0:
+            store = self._cryexc_bridge.get_signal_store(symbol)
+            if store and not store.is_stale():
+                cvd = store.get_cvd_signal()  # -100 to +100
+                # CVD positive = buying pressure, distance_pct positive = above strike
+                cvd_agrees = (cvd > 10 and distance_pct > 0) or (cvd < -10 and distance_pct < 0)
+                if cvd_agrees:
+                    boost = (base_signal - 50) * 0.30
+                    base_signal = min(100, base_signal + boost)
+                    logger.debug(
+                        f"[{self.name}] CVD boost for {symbol}: "
+                        f"cvd={cvd:.0f}, boost={boost:.1f}"
+                    )
+
+        return base_signal
 
     def _calc_fair_value_signal(
         self,
@@ -386,22 +433,39 @@ class CryptoIntradayStrategy(Strategy):
         yes_ask: int,
         no_bid: int,
         no_ask: int,
+        symbol: str = "",
     ) -> float:
         """
         Orderbook imbalance: asymmetric depth suggests directional pressure.
         Returns 0-100 signal.
+
+        When CryExc is available, uses real exchange orderbook depth ratios
+        instead of Kalshi bid/ask spread proxy.
         """
+        # Try real exchange orderbook depth from CryExc
+        if self._cryexc_bridge and symbol:
+            store = self._cryexc_bridge.get_signal_store(symbol)
+            if store and not store.is_stale():
+                ob = store.get_orderbook_imbalance()
+                if ob:
+                    ratio = ob.get("bid_ask_ratio", 1.0)
+                    # ratio > 1 = bid-heavy (bullish), < 1 = ask-heavy (bearish)
+                    # Normalize: log2(ratio) maps 0.5->-1, 1->0, 2->+1
+                    if ratio > 0:
+                        log_ratio = math.log2(ratio)
+                        signal = max(0, min(100, 50 + log_ratio * 25))
+                        return signal
+
+        # Fallback: Kalshi bid/ask spread proxy
         if not (yes_bid and yes_ask and no_bid and no_ask):
             return 50.0
 
-        # YES-side strength: bid close to ask = strong demand
         yes_tightness = yes_ask - yes_bid
         no_tightness = no_ask - no_bid
 
         if yes_tightness + no_tightness == 0:
             return 50.0
 
-        # Ratio favoring tighter side (more aggressive quoting)
         imbalance = (no_tightness - yes_tightness) / (yes_tightness + no_tightness)
         return max(0, min(100, 50 + imbalance * 30))
 
