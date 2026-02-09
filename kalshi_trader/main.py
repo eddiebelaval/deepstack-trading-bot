@@ -910,7 +910,7 @@ class KalshiTradingBot:
         )
 
         if not opportunities:
-            logger.debug("No trading opportunities found")
+            logger.info("Scan complete — no opportunities across all strategies")
             return
 
         # Rank and filter
@@ -1111,7 +1111,21 @@ async def main():
             )
             sys.exit(1)
 
-        bot = KalshiTradingBot(config)
+        # If config.yaml defines a strategies list, run in multi-strategy mode by default.
+        # Legacy mode still exists (run_bot.py without --multi), but the module entrypoint
+        # should follow the repo's primary configuration.
+        strategy_configs = None
+        try:
+            strategy_configs = get_strategy_configs()
+        except Exception as e:
+            logger.warning(f"Could not load strategy configs — starting in legacy mode: {e}")
+
+        use_multi = bool(strategy_configs)
+        bot = KalshiTradingBot(
+            config,
+            use_strategy_manager=use_multi,
+            strategy_configs=strategy_configs if use_multi else None,
+        )
         await bot.start()
 
     except KeyboardInterrupt:

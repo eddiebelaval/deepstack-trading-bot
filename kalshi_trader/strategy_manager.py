@@ -244,6 +244,11 @@ class StrategyManager:
 
                 # Scan each market for this strategy
                 for market_config in state.markets:
+                    # Some market configs are dependencies/data-sources only (e.g. polymarket for
+                    # cross_platform_arbitrage). Keep them for client injection, but don't scan them.
+                    if market_config.get("scan", True) is False:
+                        continue
+
                     platform = market_config.get("platform", "kalshi")
                     series = market_config.get("series")
 
