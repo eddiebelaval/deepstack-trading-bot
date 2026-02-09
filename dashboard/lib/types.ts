@@ -230,6 +230,24 @@ export interface Fill {
   synced_at: string;
 }
 
+// Settlement (resolved market payout, synced by bot)
+export interface Settlement {
+  id: number;
+  ticker: string;
+  event_ticker: string | null;
+  market_result: 'yes' | 'no' | 'void' | 'all_no' | 'all_yes';
+  yes_count: number;
+  no_count: number;
+  yes_total_cost: number;
+  no_total_cost: number;
+  revenue: number;
+  settled_time: string | null;
+  fee_cost: string | null;
+  value: number | null;
+  net_pnl_cents: number | null;
+  synced_at: string;
+}
+
 export type BotMode = 'running' | 'stopped' | 'paused' | 'dry_run';
 
 export interface BotConfig {

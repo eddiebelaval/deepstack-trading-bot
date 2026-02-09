@@ -640,6 +640,12 @@ class KalshiTradingBot:
             except Exception as e:
                 logger.debug(f"Failed to push fills: {e}")
 
+            try:
+                settlements = await self.client.get_settlements(limit=100)
+                await self.dashboard.push_settlements(settlements)
+            except Exception as e:
+                logger.debug(f"Failed to push settlements: {e}")
+
     async def _sync_positions(self) -> None:
         """Sync local position tracking with exchange."""
         positions = await self.client.get_positions()
