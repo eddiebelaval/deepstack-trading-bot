@@ -1,10 +1,15 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getBalanceHistory } from '@/lib/db-postgres';
 
-export async function GET(request: Request) {
+// This route reads request search params and hits the database, so it must be dynamic.
+export const dynamic = 'force-dynamic';
+
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const limit = Math.min(Number(searchParams.get('limit') || '500'), 2000);
+    const { searchParams } = request.nextUrl;
+    // Keep this endpoint flexible: charts may need more history than 2,000 rows.
+    // Still cap to prevent accidentally returning an unbounded dataset.
+    const limit = Math.min(Number(searchParams.get('limit') || '500'), 5000);
 
     const history = await getBalanceHistory(limit);
 

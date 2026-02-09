@@ -130,7 +130,8 @@ export default function Dashboard() {
   // Fetch balance history for charts
   const fetchPerformance = async () => {
     try {
-      const response = await fetch('/api/performance?limit=500');
+      // Pull enough history to support "ALL" without truncating mid-session.
+      const response = await fetch('/api/performance?limit=5000');
       if (response.ok) {
         const data = await response.json();
         setBalanceHistory(data.history || []);
