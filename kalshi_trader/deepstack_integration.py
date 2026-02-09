@@ -10,6 +10,7 @@ Adapts these components for prediction market specifics (prices in cents,
 """
 
 import logging
+import math
 import os
 import sys
 from datetime import datetime
@@ -173,12 +174,62 @@ class DeepStackIntegration:
             "patterns_detected": firewall_result.get("patterns_detected", []),
         }
 
+    def calculate_dynamic_kelly(
+        self,
+        win_rate: float,
+        effective_trade_count: float,
+        kelly_min: float = 0.10,
+        kelly_max: float = 0.30,
+        kelly_default: float = 0.25,
+        kelly_confidence_trades: int = 30,
+    ) -> float:
+        """
+        Calculate per-strategy Kelly fraction based on actual performance.
+
+        Win rate tiers:
+          >=60% -> kelly_max
+          40-60% -> linear interpolation between kelly_min and kelly_max
+          <40%  -> kelly_min (floor)
+
+        Confidence decay: base * sqrt(min(n, confidence_trades) / confidence_trades)
+        New strategies with few trades get sized down toward the floor.
+
+        Returns clamped Kelly fraction.
+        """
+        # Win rate tier -> base Kelly
+        if win_rate >= 0.60:
+            base = kelly_max
+        elif win_rate < 0.40:
+            base = kelly_min
+        else:
+            # Linear interpolation between 40% and 60%
+            t = (win_rate - 0.40) / 0.20
+            base = kelly_min + t * (kelly_max - kelly_min)
+
+        # Confidence decay: sqrt ramp from 0 to 1 over confidence_trades
+        n_clamped = min(effective_trade_count, kelly_confidence_trades)
+        confidence = math.sqrt(n_clamped / kelly_confidence_trades) if kelly_confidence_trades > 0 else 1.0
+
+        # Blend: low confidence pulls toward default, high confidence trusts the data
+        dynamic = kelly_default + confidence * (base - kelly_default)
+
+        # Clamp
+        result = max(kelly_min, min(kelly_max, dynamic))
+
+        logger.debug(
+            f"Dynamic Kelly: win_rate={win_rate:.2%}, n={effective_trade_count:.1f}, "
+            f"base={base:.3f}, confidence={confidence:.3f}, result={result:.3f}"
+        )
+
+        return result
+
     def calculate_position_size(
         self,
         win_rate: float,
         avg_win_cents: float,
         avg_loss_cents: float,
         ticker: Optional[str] = None,
+        kelly_fraction_override: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Calculate optimal position size using Kelly Criterion.
@@ -190,6 +241,7 @@ class DeepStackIntegration:
             avg_win_cents: Average win in cents
             avg_loss_cents: Average loss in cents (positive)
             ticker: Optional ticker for existing position check
+            kelly_fraction_override: If provided, use this instead of config.kelly_fraction
 
         Returns:
             Dict with:
@@ -204,12 +256,14 @@ class DeepStackIntegration:
         avg_win_dollars = avg_win_cents / 100  # Win per dollar invested
         avg_loss_dollars = avg_loss_cents / 100  # Loss per dollar invested
 
+        kelly_frac = kelly_fraction_override if kelly_fraction_override is not None else self.config.kelly_fraction
+
         # Calculate using Kelly
         result = self.kelly_sizer.calculate_position_size(
             win_rate=win_rate,
             avg_win=avg_win_dollars,
             avg_loss=avg_loss_dollars,
-            kelly_fraction=self.config.kelly_fraction,
+            kelly_fraction=kelly_frac,
             symbol=ticker,
         )
 

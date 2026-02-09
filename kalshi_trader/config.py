@@ -172,6 +172,15 @@ class BreakerConfig(BaseModel):
     max_drawdown_pct: float = Field(default=0.10, ge=0.01, le=0.50)
 
 
+class KellyConfig(BaseModel):
+    """Dynamic Kelly sizing configuration."""
+
+    kelly_min: float = Field(default=0.10, ge=0.01, le=0.50)
+    kelly_max: float = Field(default=0.30, ge=0.10, le=1.0)
+    kelly_default: float = Field(default=0.25, ge=0.05, le=0.50)
+    kelly_confidence_trades: int = Field(default=30, ge=5, le=100)
+
+
 class YAMLConfig(BaseModel):
     """Full YAML configuration structure."""
 
@@ -194,6 +203,10 @@ class YAMLConfig(BaseModel):
     breaker: BreakerConfig = Field(
         default_factory=BreakerConfig,
         description="Circuit breaker thresholds",
+    )
+    kelly: KellyConfig = Field(
+        default_factory=KellyConfig,
+        description="Dynamic Kelly sizing bounds",
     )
     cryexc: CryExcConfig = Field(
         default_factory=CryExcConfig,
@@ -355,6 +368,32 @@ class KalshiConfig(BaseModel):
         le=0.50,
     )
 
+    # Dynamic Kelly Sizing
+    kelly_min: float = Field(
+        default=0.10,
+        description="Floor for dynamic Kelly fraction",
+        ge=0.01,
+        le=0.50,
+    )
+    kelly_max: float = Field(
+        default=0.30,
+        description="Ceiling for dynamic Kelly fraction",
+        ge=0.10,
+        le=1.0,
+    )
+    kelly_default: float = Field(
+        default=0.25,
+        description="Default Kelly fraction before enough trades",
+        ge=0.05,
+        le=0.50,
+    )
+    kelly_confidence_trades: int = Field(
+        default=30,
+        description="Trades needed for full confidence in dynamic Kelly",
+        ge=5,
+        le=100,
+    )
+
     @field_validator("private_key_path")
     @classmethod
     def expand_key_path(cls, v: str) -> str:
@@ -467,6 +506,13 @@ def load_config(
                 config_dict["breaker_win_rate_window"] = yaml_config.breaker.win_rate_window
                 config_dict["breaker_max_consecutive_losses"] = yaml_config.breaker.max_consecutive_losses
                 config_dict["breaker_max_drawdown_pct"] = yaml_config.breaker.max_drawdown_pct
+
+            # Apply Kelly settings from YAML
+            if yaml_config.kelly:
+                config_dict["kelly_min"] = yaml_config.kelly.kelly_min
+                config_dict["kelly_max"] = yaml_config.kelly.kelly_max
+                config_dict["kelly_default"] = yaml_config.kelly.kelly_default
+                config_dict["kelly_confidence_trades"] = yaml_config.kelly.kelly_confidence_trades
 
         except Exception as e:
             logger.warning(f"Failed to load YAML config: {e}")

@@ -999,11 +999,26 @@ class KalshiTradingBot:
             stats = self.performance_tracker.get_blended_stats("mean_reversion")
         else:
             stats = self.strategy.get_historical_stats()
+
+        # Dynamic Kelly for legacy path
+        dynamic_kelly = None
+        if self.performance_tracker:
+            n = self.performance_tracker._get_effective_trade_count("mean_reversion")
+            dynamic_kelly = self.risk.calculate_dynamic_kelly(
+                win_rate=stats["win_rate"],
+                effective_trade_count=n,
+                kelly_min=self.config.kelly_min,
+                kelly_max=self.config.kelly_max,
+                kelly_default=self.config.kelly_default,
+                kelly_confidence_trades=self.config.kelly_confidence_trades,
+            )
+
         size_result = self.risk.calculate_position_size(
             win_rate=stats["win_rate"],
             avg_win_cents=stats["avg_win_cents"],
             avg_loss_cents=stats["avg_loss_cents"],
             ticker=ticker,
+            kelly_fraction_override=dynamic_kelly,
         )
 
         contracts = size_result["contracts"]
@@ -1041,11 +1056,30 @@ class KalshiTradingBot:
             stats = self.performance_tracker.get_blended_stats(strategy_name)
         else:
             stats = state.strategy.get_historical_stats()
+
+        # Dynamic Kelly: per-strategy fraction based on actual performance
+        dynamic_kelly = None
+        if self.performance_tracker:
+            n = self.performance_tracker._get_effective_trade_count(strategy_name)
+            dynamic_kelly = self.risk.calculate_dynamic_kelly(
+                win_rate=stats["win_rate"],
+                effective_trade_count=n,
+                kelly_min=self.config.kelly_min,
+                kelly_max=self.config.kelly_max,
+                kelly_default=self.config.kelly_default,
+                kelly_confidence_trades=self.config.kelly_confidence_trades,
+            )
+            logger.info(
+                f"Dynamic Kelly for {strategy_name}: {dynamic_kelly:.3f} "
+                f"(win_rate={stats['win_rate']:.2%}, n={n:.1f})"
+            )
+
         size_result = self.risk.calculate_position_size(
             win_rate=stats["win_rate"],
             avg_win_cents=stats["avg_win_cents"],
             avg_loss_cents=stats["avg_loss_cents"],
             ticker=ticker,
+            kelly_fraction_override=dynamic_kelly,
         )
 
         contracts = size_result["contracts"]

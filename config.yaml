@@ -227,6 +227,14 @@ breaker:
   max_consecutive_losses: 5   # Trip after 5 straight losses
   max_drawdown_pct: 0.10      # Trip if strategy drawdown exceeds 10%
 
+# Dynamic Kelly — per-strategy sizing based on actual performance
+# Replaces static 0.5x Kelly with confidence-weighted calculation.
+kelly:
+  kelly_min: 0.10             # Floor: never bet less than 10% Kelly
+  kelly_max: 0.30             # Ceiling: never bet more than 30% Kelly
+  kelly_default: 0.25         # Before enough trades for confidence
+  kelly_confidence_trades: 30 # Trades needed for full confidence
+
 # CryExc real-time exchange data (sub-second trades, orderbook, liquidations, CVD)
 # Provides 10-30s information edge over REST polling for crypto strategies.
 # Set enabled: true when CryExc server is running locally.
