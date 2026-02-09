@@ -334,10 +334,10 @@ class AuthenticatedKalshiClient:
 
     async def get_positions(self) -> List[Dict]:
         """
-        Get all open positions.
+        Get all open positions with full Kalshi API fields.
 
         Returns:
-            List of position dictionaries
+            List of position dictionaries (all monetary values in cents)
         """
         response = await self._request("GET", "/portfolio/positions")
         positions = response.get("market_positions", [])
@@ -349,9 +349,51 @@ class AuthenticatedKalshiClient:
                 "position": pos.get("position", 0),  # Positive=yes, Negative=no
                 "resting_orders_count": pos.get("resting_orders_count", 0),
                 "total_traded": pos.get("total_traded", 0),
-                "realized_pnl": pos.get("realized_pnl", 0) / 100,
+                "market_exposure": pos.get("market_exposure", 0),
+                "realized_pnl": pos.get("realized_pnl", 0),
+                "fees_paid": pos.get("fees_paid", 0),
+                "last_updated_ts": pos.get("last_updated_ts"),
             }
             for pos in positions
+        ]
+
+    async def get_fills(
+        self,
+        ticker: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict]:
+        """
+        Get fill (execution) history from Kalshi.
+
+        Args:
+            ticker: Optional market ticker filter
+            limit: Maximum results to return
+
+        Returns:
+            List of fill dictionaries
+        """
+        params: Dict[str, Any] = {"limit": limit}
+        if ticker:
+            params["ticker"] = ticker
+
+        response = await self._request("GET", "/portfolio/fills", params=params)
+        fills = response.get("fills", [])
+
+        return [
+            {
+                "fill_id": f.get("fill_id") or f.get("trade_id"),
+                "order_id": f.get("order_id"),
+                "ticker": f.get("ticker") or f.get("market_ticker"),
+                "side": f.get("side"),
+                "action": f.get("action"),
+                "count": f.get("count", 0),
+                "yes_price": f.get("yes_price"),
+                "no_price": f.get("no_price"),
+                "is_taker": f.get("is_taker", False),
+                "fee_cost": f.get("fee_cost"),
+                "created_time": f.get("created_time"),
+            }
+            for f in fills
         ]
 
     # -------------------------------------------------------------------------
@@ -602,10 +644,20 @@ class AuthenticatedKalshiClient:
                 "ticker": o.get("ticker"),
                 "side": o.get("side"),
                 "action": o.get("action"),
-                "count": o.get("count"),
-                "remaining_count": o.get("remaining_count"),
-                "price": o.get("yes_price") or o.get("no_price"),
+                "type": o.get("type", "limit"),
                 "status": o.get("status"),
+                "yes_price": o.get("yes_price"),
+                "no_price": o.get("no_price"),
+                "initial_count": o.get("initial_count", o.get("count", 0)),
+                "remaining_count": o.get("remaining_count", 0),
+                "fill_count": o.get("fill_count", 0),
+                "taker_fees": o.get("taker_fees", 0),
+                "maker_fees": o.get("maker_fees", 0),
+                "taker_fill_cost": o.get("taker_fill_cost", 0),
+                "maker_fill_cost": o.get("maker_fill_cost", 0),
+                "created_time": o.get("created_time"),
+                "last_update_time": o.get("last_update_time"),
+                "expiration_time": o.get("expiration_time"),
             }
             for o in orders
         ]

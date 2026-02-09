@@ -537,17 +537,44 @@ class KalshiTradingBot:
         if self.dashboard:
             cash_cents = int(balance["available"] * 100)
 
-            # Compute mark-to-market portfolio value from positions * current prices.
-            # This matches what the Kalshi app shows (NOT portfolio_value which is max payout).
+            # Compute mark-to-market portfolio value and enrich position data
+            # with current prices and market titles for the dashboard.
             market_value_cents = 0
+            enriched_positions = []
             for ticker, position in self.open_positions.items():
                 try:
                     market = await self.client.get_market(ticker)
                     last_price = market.get("last_price", 50)
-                    if position["side"] == "yes":
-                        market_value_cents += position["contracts"] * last_price
+                    title = market.get("title", "")
+                    contracts = position["contracts"]
+                    side = position["side"]
+
+                    if side == "yes":
+                        pos_value = contracts * last_price
                     else:
-                        market_value_cents += position["contracts"] * (100 - last_price)
+                        pos_value = contracts * (100 - last_price)
+                    market_value_cents += pos_value
+
+                    # Compute avg entry from market_exposure if available
+                    exposure = position.get("market_exposure", 0)
+                    avg_entry = round(exposure / contracts) if contracts > 0 and exposure > 0 else None
+
+                    enriched_positions.append({
+                        "ticker": ticker,
+                        "market_title": title,
+                        "side": side,
+                        "contracts": contracts,
+                        "position": contracts if side == "yes" else -contracts,
+                        "total_traded": position.get("total_traded", 0),
+                        "market_exposure": exposure,
+                        "realized_pnl": position.get("realized_pnl", 0),
+                        "fees_paid": position.get("fees_paid", 0),
+                        "resting_orders_count": position.get("resting_orders_count", 0),
+                        "current_price": last_price,
+                        "market_value_cents": pos_value,
+                        "avg_entry_price_cents": avg_entry,
+                        "last_updated_ts": position.get("last_updated_ts"),
+                    })
                 except Exception:
                     pass  # Skip positions we can't price — fire-and-forget
 
@@ -595,24 +622,56 @@ class KalshiTradingBot:
                 },
             )
 
+            # Push enriched positions, orders, and fills for dashboard parity
+            try:
+                await self.dashboard.push_positions(enriched_positions)
+            except Exception as e:
+                logger.debug(f"Failed to push positions: {e}")
+
+            try:
+                orders = await self.client.get_orders()
+                await self.dashboard.push_orders(orders)
+            except Exception as e:
+                logger.debug(f"Failed to push orders: {e}")
+
+            try:
+                fills = await self.client.get_fills(limit=50)
+                await self.dashboard.push_fills(fills)
+            except Exception as e:
+                logger.debug(f"Failed to push fills: {e}")
+
     async def _sync_positions(self) -> None:
         """Sync local position tracking with exchange."""
         positions = await self.client.get_positions()
 
-        # Update local tracking
+        # Update local tracking with full Kalshi fields
         exchange_tickers = set()
         for pos in positions:
             ticker = pos.get("market_ticker") or pos.get("ticker")
             if ticker and pos.get("position", 0) != 0:
                 exchange_tickers.add(ticker)
 
-                # If not in local tracking, add it
+                side = "yes" if pos["position"] > 0 else "no"
+                contracts = abs(pos["position"])
+
                 if ticker not in self.open_positions:
                     self.open_positions[ticker] = {
-                        "contracts": abs(pos["position"]),
-                        "side": "yes" if pos["position"] > 0 else "no",
+                        "contracts": contracts,
+                        "side": side,
                         "synced_from_exchange": True,
                     }
+
+                # Always update enriched fields from exchange
+                self.open_positions[ticker].update({
+                    "contracts": contracts,
+                    "side": side,
+                    "total_traded": pos.get("total_traded", 0),
+                    "market_exposure": pos.get("market_exposure", 0),
+                    "realized_pnl": pos.get("realized_pnl", 0),
+                    "fees_paid": pos.get("fees_paid", 0),
+                    "resting_orders_count": pos.get("resting_orders_count", 0),
+                    "last_updated_ts": pos.get("last_updated_ts"),
+                })
 
         # Remove closed positions
         closed = [t for t in self.open_positions if t not in exchange_tickers]

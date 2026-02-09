@@ -11,6 +11,9 @@ import {
   TradingStats,
   BotCommand,
   BotConfig,
+  Position,
+  Order,
+  Fill,
 } from './types';
 
 // PostgREST uses URL query params for filtering/sorting.
@@ -400,4 +403,30 @@ export async function updateBotConfig(updates: Partial<BotConfig>): Promise<BotC
   }
   if (Object.keys(body).length === 0) return null;
   return restUpdate<BotConfig>('deepstack_bot_config', 'id=eq.1', body);
+}
+
+// ============================================================================
+// POSITIONS (Kalshi portfolio positions, synced by bot)
+// ============================================================================
+
+export async function getPositions(): Promise<Position[]> {
+  return restGet<Position>('deepstack_positions', 'order=synced_at.desc');
+}
+
+// ============================================================================
+// ORDERS (Kalshi orders, synced by bot)
+// ============================================================================
+
+export async function getOrders(status?: string): Promise<Order[]> {
+  let params = 'order=synced_at.desc';
+  if (status) params += `&status=eq.${status}`;
+  return restGet<Order>('deepstack_orders', params);
+}
+
+// ============================================================================
+// FILLS (Kalshi execution history, synced by bot)
+// ============================================================================
+
+export async function getFills(limit: number = 100): Promise<Fill[]> {
+  return restGet<Fill>('deepstack_fills', `order=created_time.desc&limit=${limit}`);
 }
