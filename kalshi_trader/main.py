@@ -662,6 +662,21 @@ class KalshiTradingBot:
             try:
                 settlements = await self.client.get_settlements(limit=100)
                 await self.dashboard.push_settlements(settlements)
+
+                # Bridge: close local SQLite trades that settled on exchange
+                if self.journal and settlements:
+                    for s in settlements:
+                        ticker = s.get("ticker")
+                        result = s.get("market_result")
+                        if ticker and result:
+                            closed = self.journal.close_trades_by_settlement(ticker, result)
+                            if closed > 0:
+                                logger.info(
+                                    f"Settlement bridge: closed {closed} local trade(s) "
+                                    f"for {ticker} (result={result})"
+                                )
+                                # Recompute adaptive thresholds with new data
+                                self._apply_adaptive_thresholds()
             except Exception as e:
                 logger.debug(f"Failed to push settlements: {e}")
 
