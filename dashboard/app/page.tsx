@@ -29,7 +29,7 @@ export default function Dashboard() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
-  const [prevTradeCount, setPrevTradeCount] = useState(0);
+  const [lastSeenTradeId, setLastSeenTradeId] = useState<string | null>(null);
   const [lastSuccessfulFetch, setLastSuccessfulFetch] = useState<number>(Date.now());
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -52,8 +52,8 @@ export default function Dashboard() {
   // Sound effects
   const sound = useSoundEffects();
 
-  // Session security: auto-logout after 5 minutes of inactivity
-  const { logout } = useSessionTimeout(5);
+  // Session security: auto-logout after 30 minutes of inactivity
+  const { logout } = useSessionTimeout(30);
 
   // Fetch dashboard state
   const fetchStatus = async () => {
@@ -191,16 +191,19 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Detect new trades and notify with distinct buy/sell audio
+  // Detect new trades by comparing latest trade ID (not array length,
+  // which plateaus at the API limit of 20 and stops detecting new trades).
   useEffect(() => {
-    if (trades.length > prevTradeCount && prevTradeCount > 0) {
-      const newTrade = trades[0];
-      const action = newTrade?.action?.toLowerCase() ?? '';
-      const pnl = newTrade?.pnl_cents ?? 0;
-      const ticker = newTrade?.market_ticker ?? '';
+    if (trades.length === 0) return;
+
+    const latestTrade = trades[0]; // sorted desc by created_at
+    if (lastSeenTradeId && latestTrade.id !== lastSeenTradeId) {
+      const action = latestTrade?.action?.toLowerCase() ?? '';
+      const pnl = latestTrade?.pnl_cents ?? 0;
+      const ticker = latestTrade?.market_ticker ?? '';
 
       if (action === 'buy') {
-        addToast('info', `BUY ${ticker} @ ${newTrade.entry_price_cents}c`);
+        addToast('info', `BUY ${ticker} @ ${latestTrade.entry_price_cents}c`);
         sound.playBuy();
       } else if (action === 'sell') {
         const label = pnl > 0
@@ -211,13 +214,12 @@ export default function Dashboard() {
         addToast(pnl >= 0 ? 'success' : 'warning', label);
         sound.playSell();
       } else {
-        // Fallback for any other action type
         addToast('info', 'New trade executed');
         sound.playTrade();
       }
     }
-    setPrevTradeCount(trades.length);
-  }, [trades.length]);
+    setLastSeenTradeId(latestTrade.id);
+  }, [trades]);
 
   // Manual refresh handler
   const handleRefresh = useCallback(() => {

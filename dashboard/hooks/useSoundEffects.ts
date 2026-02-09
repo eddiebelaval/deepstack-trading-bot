@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 type AudioContextType = typeof AudioContext;
 
@@ -97,12 +97,32 @@ export interface UseSoundEffectsReturn {
 }
 
 export function useSoundEffects(): UseSoundEffectsReturn {
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useState(true);
   const [volume, setVolumeState] = useState<VolumeLevel>('medium');
   const enabledRef = useRef(enabled);
   const volumeRef = useRef(volume);
   enabledRef.current = enabled;
   volumeRef.current = volume;
+
+  // Hydrate from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('deepstack-sound-enabled');
+    if (stored === 'false') setEnabled(false);
+    const storedVol = localStorage.getItem('deepstack-sound-volume') as VolumeLevel;
+    if (storedVol && ['off', 'low', 'medium', 'high'].includes(storedVol)) {
+      setVolumeState(storedVol);
+      if (storedVol === 'off') setEnabled(false);
+    }
+  }, []);
+
+  // Persist changes to localStorage
+  useEffect(() => {
+    localStorage.setItem('deepstack-sound-enabled', String(enabled));
+  }, [enabled]);
+
+  useEffect(() => {
+    localStorage.setItem('deepstack-sound-volume', volume);
+  }, [volume]);
 
   // Core player — applies volume multiplier
   const playSound = useCallback((name: string, force = false): void => {
