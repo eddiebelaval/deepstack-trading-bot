@@ -14,66 +14,102 @@ import {
 
 type TimeFrame = '1D' | '1W' | '1M' | '3M' | '1Y' | 'ALL';
 
-interface DataPoint {
+interface BalanceSnapshot {
   timestamp: string;
-  value: number;
-  label: string;
+  balance_cents: number;
+  available_balance_cents: number;
 }
 
 interface PerformanceHeroProps {
-  data?: DataPoint[];
+  balanceHistory?: BalanceSnapshot[];
 }
 
-// Colors matching Robinhood/DeepStack style
 const COLORS = {
-  profit: {
-    line: '#22c55e',
-    glow: 'rgba(34, 197, 94, 0.5)',
-  },
-  loss: {
-    line: '#ef4444',
-    glow: 'rgba(239, 68, 68, 0.5)',
-  },
+  profit: { line: '#22c55e', glow: 'rgba(34, 197, 94, 0.5)' },
+  loss: { line: '#ef4444', glow: 'rgba(239, 68, 68, 0.5)' },
 };
 
-export default function PerformanceHero({ data }: PerformanceHeroProps) {
-  const [timeframe, setTimeframe] = useState<TimeFrame>('1M');
-  const chartData = data || [];
+const TIMEFRAME_MS: Record<TimeFrame, number> = {
+  '1D': 86_400_000,
+  '1W': 7 * 86_400_000,
+  '1M': 30 * 86_400_000,
+  '3M': 90 * 86_400_000,
+  '1Y': 365 * 86_400_000,
+  'ALL': 0,
+};
 
-  // Calculate stats - Robinhood style: compare END vs START
-  const stats = useMemo(() => {
-    if (chartData.length === 0) return { current: 0, start: 0, high: 0, low: 0, change: 0, isProfit: true };
+function formatDollars(cents: number): string {
+  return `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
-    const values = chartData.map(d => d.value);
-    const current = values[values.length - 1] || 0;
-    const start = values[0] || 0;
-    const high = Math.max(...values);
-    const low = Math.min(...values);
-    const change = current - start;
-    const isProfit = current >= start;
+function formatLabel(ts: string, timeframe: TimeFrame): string {
+  const d = new Date(ts);
+  if (timeframe === '1D') return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (timeframe === '1W') return d.toLocaleDateString([], { weekday: 'short', hour: '2-digit' });
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
 
-    return { current, start, high, low, change, isProfit };
-  }, [chartData]);
-
-  // Get colors based on profit/loss for the period
-  const colors = stats.isProfit ? COLORS.profit : COLORS.loss;
-
+export default function PerformanceHero({ balanceHistory }: PerformanceHeroProps) {
+  const [timeframe, setTimeframe] = useState<TimeFrame>('1D');
   const timeframes: TimeFrame[] = ['1D', '1W', '1M', '3M', '1Y', 'ALL'];
+
+  // Filter balance history by selected timeframe
+  const filteredData = useMemo(() => {
+    if (!balanceHistory?.length) return [];
+    // API returns desc order — reverse to chronological
+    const chrono = [...balanceHistory].reverse();
+    if (timeframe === 'ALL') return chrono;
+    const cutoff = Date.now() - TIMEFRAME_MS[timeframe];
+    return chrono.filter(d => new Date(d.timestamp).getTime() >= cutoff);
+  }, [balanceHistory, timeframe]);
+
+  // Compute chart data + stats from the filtered window
+  const { chartData, stats } = useMemo(() => {
+    if (filteredData.length < 2) return { chartData: [], stats: null };
+    const startCents = filteredData[0].balance_cents;
+    const endCents = filteredData[filteredData.length - 1].balance_cents;
+    const values = filteredData.map(d => d.balance_cents);
+    const changeCents = endCents - startCents;
+    const changePct = startCents > 0 ? (changeCents / startCents) * 100 : 0;
+    const endEntry = filteredData[filteredData.length - 1];
+    const positionCents = endEntry.balance_cents - endEntry.available_balance_cents;
+
+    return {
+      chartData: filteredData.map(entry => ({
+        timestamp: entry.timestamp,
+        value: entry.balance_cents / 100,
+        label: formatLabel(entry.timestamp, timeframe),
+      })),
+      stats: {
+        currentCents: endCents,
+        startCents,
+        highCents: Math.max(...values),
+        lowCents: Math.min(...values),
+        changeCents,
+        changePct,
+        isProfit: changeCents >= 0,
+        cashCents: endEntry.available_balance_cents,
+        positionCents,
+      },
+    };
+  }, [filteredData, timeframe]);
+
+  const colors = stats?.isProfit ? COLORS.profit : COLORS.loss;
 
   // Custom tooltip
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) => {
-    if (active && payload && payload.length) {
-      const value = payload[0].value;
-      const fromStart = value - stats.start;
+    if (active && payload?.length && stats) {
+      const dollars = payload[0].value;
+      const fromStart = (dollars * 100) - stats.startCents;
       const isUp = fromStart >= 0;
       return (
         <div className="bg-terminal-bg-panel/95 backdrop-blur border border-white/10 rounded-lg p-3 text-xs font-mono shadow-xl">
           <div className="text-terminal-dim mb-2">{label}</div>
           <div className={`text-2xl font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`}>
-            {value >= 0 ? '+' : ''}{value.toFixed(2)}%
+            ${dollars.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className={`text-sm mt-1 ${isUp ? 'text-green-400/70' : 'text-red-400/70'}`}>
-            {isUp ? '+' : ''}{fromStart.toFixed(2)}% from start
+            {isUp ? '+' : ''}{formatDollars(fromStart)} from period start
           </div>
         </div>
       );
@@ -81,12 +117,12 @@ export default function PerformanceHero({ data }: PerformanceHeroProps) {
     return null;
   };
 
-  if (chartData.length === 0) {
+  if (!stats || chartData.length === 0) {
     return (
       <div className="panel panel-hero p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <div className="text-xs text-terminal-dim mb-1 tracking-wider">PORTFOLIO PERFORMANCE</div>
+            <div className="text-xs text-terminal-dim mb-1 tracking-wider">PORTFOLIO VALUE</div>
             <div className="text-4xl font-bold tabular-nums text-terminal-dim/40">---</div>
           </div>
           <div className="flex gap-1 bg-terminal-bg rounded-lg p-1">
@@ -115,17 +151,28 @@ export default function PerformanceHero({ data }: PerformanceHeroProps) {
 
   return (
     <div className="panel panel-hero p-6">
-      {/* Header with timeframe selector */}
-      <div className="flex items-center justify-between mb-4">
+      {/* Header: balance + change + timeframe selector */}
+      <div className="flex items-start justify-between mb-4">
         <div>
-          <div className="text-xs text-terminal-dim mb-1 tracking-wider">PORTFOLIO PERFORMANCE</div>
-          <div className="flex items-baseline gap-4">
-            <span className={`text-4xl font-bold tabular-nums ${stats.isProfit ? 'text-green-400' : 'text-red-400'}`}
-              style={{ textShadow: `0 0 20px ${colors.glow}` }}>
-              {stats.current >= 0 ? '+' : ''}{stats.current.toFixed(2)}%
+          <div className="text-xs text-terminal-dim mb-1 tracking-wider">PORTFOLIO VALUE</div>
+          <div className="flex items-baseline gap-3">
+            <span
+              className="text-4xl font-bold tabular-nums text-white"
+              style={{ textShadow: '0 0 20px rgba(255,255,255,0.15)' }}
+            >
+              {formatDollars(stats.currentCents)}
             </span>
-            <span className={`text-lg font-medium ${stats.isProfit ? 'text-green-400/70' : 'text-red-400/70'}`}>
-              {stats.change >= 0 ? '+' : ''}{stats.change.toFixed(2)}% this period
+          </div>
+          <div className="flex items-center gap-3 mt-1">
+            <span className={`text-lg font-bold tabular-nums ${stats.isProfit ? 'text-green-400' : 'text-red-400'}`}
+              style={{ textShadow: `0 0 12px ${colors.glow}` }}>
+              {stats.changeCents >= 0 ? '+' : ''}{formatDollars(stats.changeCents)}
+            </span>
+            <span className={`text-sm font-medium ${stats.isProfit ? 'text-green-400/70' : 'text-red-400/70'}`}>
+              ({stats.changePct >= 0 ? '+' : ''}{stats.changePct.toFixed(2)}%)
+            </span>
+            <span className="text-xs text-terminal-dim">
+              {timeframe === 'ALL' ? 'all time' : timeframe === '1D' ? 'today' : `past ${timeframe.replace('1', '1 ').replace('3', '3 ')}`}
             </span>
           </div>
         </div>
@@ -180,20 +227,19 @@ export default function PerformanceHero({ data }: PerformanceHeroProps) {
               tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10 }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(value) => `${value >= 0 ? '+' : ''}${value.toFixed(0)}%`}
-              domain={['dataMin - 2', 'dataMax + 2']}
-              width={50}
+              tickFormatter={(v) => `$${v}`}
+              domain={['dataMin - 5', 'dataMax + 5']}
+              width={55}
             />
             <Tooltip content={<CustomTooltip />} />
 
-            {/* Zero reference line */}
+            {/* Reference line at period start value */}
             <ReferenceLine
-              y={stats.start}
+              y={stats.startCents / 100}
               stroke="rgba(255,255,255,0.2)"
               strokeDasharray="4 4"
             />
 
-            {/* Main area - color based on profit/loss */}
             <Area
               type="monotone"
               dataKey="value"
@@ -216,28 +262,34 @@ export default function PerformanceHero({ data }: PerformanceHeroProps) {
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-4 gap-3 mt-4 pt-4 border-t border-white/5">
+      <div className="grid grid-cols-5 gap-3 mt-4 pt-4 border-t border-white/5">
         <div>
-          <div className="text-xs text-terminal-dim mb-1">START</div>
-          <div className="text-lg font-bold tabular-nums text-white/80">
-            {stats.start >= 0 ? '+' : ''}{stats.start.toFixed(2)}%
+          <div className="text-xs text-terminal-dim mb-1">CASH</div>
+          <div className="text-base font-bold tabular-nums text-terminal-cyan">
+            {formatDollars(stats.cashCents)}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-terminal-dim mb-1">POSITIONS</div>
+          <div className="text-base font-bold tabular-nums text-terminal-amber">
+            {formatDollars(stats.positionCents)}
           </div>
         </div>
         <div>
           <div className="text-xs text-terminal-dim mb-1">HIGH</div>
-          <div className="text-lg font-bold tabular-nums text-green-400">
-            +{stats.high.toFixed(2)}%
+          <div className="text-base font-bold tabular-nums text-green-400">
+            {formatDollars(stats.highCents)}
           </div>
         </div>
         <div>
           <div className="text-xs text-terminal-dim mb-1">LOW</div>
-          <div className={`text-lg font-bold tabular-nums ${stats.low >= 0 ? 'text-white/80' : 'text-red-400'}`}>
-            {stats.low >= 0 ? '+' : ''}{stats.low.toFixed(2)}%
+          <div className={`text-base font-bold tabular-nums ${stats.lowCents < stats.startCents ? 'text-red-400' : 'text-white/80'}`}>
+            {formatDollars(stats.lowCents)}
           </div>
         </div>
         <div>
-          <div className="text-xs text-terminal-dim mb-1">DATA POINTS</div>
-          <div className="text-lg font-bold tabular-nums text-terminal-cyan">
+          <div className="text-xs text-terminal-dim mb-1">SNAPSHOTS</div>
+          <div className="text-base font-bold tabular-nums text-terminal-dim">
             {chartData.length}
           </div>
         </div>

@@ -321,13 +321,15 @@ class AuthenticatedKalshiClient:
         Get account balance.
 
         Returns:
-            Dict with 'balance', 'available', 'portfolio_value'
+            Dict with 'balance' (total equity), 'available' (cash), 'portfolio_value' (positions)
         """
         response = await self._request("GET", "/portfolio/balance")
+        cash_cents = response.get("balance", 0)
+        portfolio_cents = response.get("portfolio_value", 0)
         return {
-            "balance": response.get("balance", 0) / 100,  # Convert cents to dollars
-            "available": response.get("balance", 0) / 100,  # Kalshi v2 API uses "balance" for available cash
-            "portfolio_value": response.get("portfolio_value", 0) / 100,
+            "balance": (cash_cents + portfolio_cents) / 100,  # Total equity (cash + positions)
+            "available": cash_cents / 100,  # Cash available for trading
+            "portfolio_value": portfolio_cents / 100,
         }
 
     async def get_positions(self) -> List[Dict]:
