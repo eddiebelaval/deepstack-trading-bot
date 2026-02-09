@@ -34,8 +34,25 @@ if DEEPSTACK_PATH not in sys.path:
 # to load specific files without the package __init__.
 import importlib.util as _ilu
 
+def _ensure_parent_packages(module_name: str):
+    """Register stub parent packages in sys.modules for relative imports."""
+    parts = module_name.rsplit(".", 1)
+    if len(parts) < 2:
+        return
+    parent = parts[0]
+    if parent not in sys.modules:
+        import types
+        # Walk up the chain: "core.data" needs "core" registered first
+        _ensure_parent_packages(parent)
+        pkg = types.ModuleType(parent)
+        pkg.__path__ = []
+        pkg.__package__ = parent
+        sys.modules[parent] = pkg
+
+
 def _load_deepstack_module(module_name: str, file_path: str):
     """Load a DeepStack module directly from file, bypassing __init__.py."""
+    _ensure_parent_packages(module_name)
     spec = _ilu.spec_from_file_location(module_name, file_path)
     mod = _ilu.module_from_spec(spec)
     sys.modules[module_name] = mod
