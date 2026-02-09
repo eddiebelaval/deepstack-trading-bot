@@ -13,33 +13,55 @@ strategies:
     enabled: true
     markets:
       - platform: kalshi
-        series: INXD          # S&P 500 hourly contracts
+        series: INXD          # S&P 500 hourly (weekdays only)
+      - platform: kalshi
+        series: KXGDP         # GDP markets (24/7, massive volume)
+      - platform: kalshi
+        series: KXCPI         # CPI/inflation markets (24/7, tight spreads)
+      - platform: kalshi
+        series: KXFED         # Fed rate markets (24/7)
+      - platform: kalshi
+        series: KXBTC         # Bitcoin markets (24/7)
     config:
-      price_floor_cents: 45   # Min YES price to consider
-      price_ceiling_cents: 55 # Max YES price to consider
+      price_floor_cents: 40   # Widened from 45 — CPI/GDP markets cluster 40-60c
+      price_ceiling_cents: 60 # Widened from 55 — captures more high-uncertainty markets
       take_profit_cents: 8    # Exit with profit at +8c
       stop_loss_cents: 5      # Exit with loss at -5c
-      min_volume: 100         # Minimum market volume
+      min_volume: 50          # Lowered from 100 — crypto series have lower but real volume
       min_score: 30           # Minimum opportunity score
 
   - name: momentum
     enabled: true             # ENABLED for multi-strategy test
     markets:
       - platform: kalshi
-        series: "*"           # Scan all markets
+        series: KXGDP         # GDP — highest volume, strong trends
+      - platform: kalshi
+        series: KXCPI         # CPI — inflation moves create momentum
+      - platform: kalshi
+        series: KXBTC         # Bitcoin — inherently momentum-driven
+      - platform: kalshi
+        series: KXFED         # Fed rates — policy signals trend
+      - platform: kalshi
+        series: INXD          # S&P 500 hourly (weekdays only)
     config:
       lookback_periods: 5
       momentum_threshold: 0.03
       take_profit_cents: 10
       stop_loss_cents: 6
-      min_volume: 200
+      min_volume: 50          # Lowered from 200 — prediction markets have lower but meaningful volume
       reversal_threshold: 0.02
 
   - name: combinatorial_arbitrage
-    enabled: true             # ENABLED - $40M alpha strategy
+    enabled: true             # ENABLED - finds pricing inconsistencies in related markets
     markets:
       - platform: kalshi
-        series: "*"           # Scan ALL markets for arb
+        series: KXGDP         # GDP brackets — natural combinatorial structure
+      - platform: kalshi
+        series: KXCPI         # CPI brackets — same structure, high volume
+      - platform: kalshi
+        series: KXFED         # Fed rate brackets — related outcomes
+      - platform: kalshi
+        series: KXBTC         # Bitcoin brackets
     config:
       min_profit_cents: 2     # Min guaranteed profit
       max_exposure_per_arb: 100
@@ -52,9 +74,15 @@ strategies:
     enabled: true             # ENABLED - Polymarket intelligence
     markets:
       - platform: kalshi
-        series: "*"           # Trade on Kalshi
+        series: KXGDP         # GDP — likely Polymarket overlap
+      - platform: kalshi
+        series: KXCPI         # CPI — inflation markets on both platforms
+      - platform: kalshi
+        series: KXFED         # Fed — rate decisions on both platforms
+      - platform: kalshi
+        series: KXBTC         # Bitcoin — strong Polymarket presence
       - platform: polymarket
-        series: "*"           # Data source only (read-only)
+        series: "*"           # Data source only (read-only, fuzzy matches)
     config:
       # Price difference threshold to trigger signal
       price_diff_threshold_cents: 5
@@ -63,7 +91,7 @@ strategies:
       max_expiry_diff_days: 7 # Max days between expiry dates for match
       # Volume filters
       min_polymarket_volume: 10000  # Min Polymarket 24h volume in dollars
-      min_kalshi_volume: 100        # Min Kalshi volume
+      min_kalshi_volume: 50         # Lowered from 100 — prediction market volume is lower
       # Volume momentum confirmation
       use_volume_confirmation: true
       volume_momentum_threshold: 1.5  # 50% volume increase = momentum
@@ -155,7 +183,7 @@ strategies:
   # === New Strategies (Feb 2026) ===
 
   - name: crypto_intraday
-    enabled: false            # Short-timeframe crypto with external price feeds
+    enabled: true             # ENABLED — KXBTC has 1K+ volume, 24/7
     markets:
       - platform: kalshi
         series: "KXBTC"
@@ -207,6 +235,45 @@ strategies:
       take_profit_cents: 3
       stop_loss_cents: 5
       min_volume: 50
+
+  - name: tiktok_velocity
+    enabled: false            # TikTok social arbitrage (needs vaderSentiment)
+    markets:
+      - platform: kalshi
+        series: "INXDJ"       # Index markets for sentiment
+      - platform: kalshi
+        series: "KXCPI"       # Inflation markets
+      - platform: kalshi
+        series: "KXBTC"       # Crypto markets
+      - platform: kalshi
+        series: "KXFED"       # Fed/rate markets
+    config:
+      velocity_threshold: 0.6
+      sentiment_threshold: 0.2
+      ema_periods: 12
+      max_hashtag_age_hours: 4
+      take_profit_cents: 12
+      stop_loss_cents: 6
+      min_volume: 150
+      max_positions: 3
+      api_delay_ms: 1000
+      hashtags:
+        - "recession"
+        - "inflation"
+        - "crypto"
+        - "bitcoin"
+        - "ethereum"
+        - "fed"
+        - "stockmarket"
+        - "sp500"
+        - "nasdaq"
+        - "jobs"
+        - "unemployment"
+        - "gdp"
+        - "ai"
+        - "crash"
+        - "bullmarket"
+        - "bearmarket"
 
 risk:
   max_position_size: 50       # Max dollars per trade

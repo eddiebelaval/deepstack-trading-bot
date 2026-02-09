@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -297,11 +297,7 @@ class KalshiConfig(BaseModel):
 
         return True, ""
 
-    class Config:
-        """Pydantic model configuration."""
-
-        extra = "ignore"
-        validate_default = True
+    model_config = ConfigDict(extra="ignore", validate_default=True)
 
 
 def load_config(

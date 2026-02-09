@@ -23,6 +23,7 @@ Available Strategies:
     - CryptoIntradayStrategy: Short-timeframe crypto trading with external price feeds
     - BearMacroStrategy: Economic indicator trading using FRED data
     - MarketMakingStrategy: Non-directional spread capture with inventory management
+    - TikTokVelocityStrategy: Social arbitrage via TikTok trend velocity and sentiment
 
 Example:
     >>> from strategies import load_strategy
@@ -70,6 +71,11 @@ from .domain_specialization import DomainSpecializationStrategy
 from .crypto_intraday import CryptoIntradayStrategy
 from .bear_macro import BearMacroStrategy
 from .market_making import MarketMakingStrategy
+from .tiktok_velocity import (
+    TikTokVelocityStrategy,
+    HashtagMetrics,
+    TrendSignal,
+)
 
 # Strategy registry - maps name to class
 STRATEGY_REGISTRY = {
@@ -86,6 +92,7 @@ STRATEGY_REGISTRY = {
     "crypto_intraday": CryptoIntradayStrategy,
     "bear_macro": BearMacroStrategy,
     "market_making": MarketMakingStrategy,
+    "tiktok_velocity": TikTokVelocityStrategy,
 }
 
 
@@ -152,6 +159,9 @@ __all__ = [
     "CryptoIntradayStrategy",
     "BearMacroStrategy",
     "MarketMakingStrategy",
+    "TikTokVelocityStrategy",
+    "HashtagMetrics",
+    "TrendSignal",
     # Combinatorial arbitrage components (for advanced usage)
     "MarketRelationshipGraph",
     "ArbitrageScanner",

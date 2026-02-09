@@ -187,6 +187,14 @@ class MeanReversionStrategy(Strategy):
         if not (self.price_floor <= yes_price <= self.price_ceiling):
             return None
 
+        # Reject wide spreads — if the spread exceeds our take profit,
+        # the edge is eaten by execution cost even if the thesis is correct
+        yes_spread = (yes_ask - yes_bid) if (yes_ask and yes_bid) else 99
+        no_spread = (no_ask - no_bid) if (no_ask and no_bid) else 99
+        max_acceptable_spread = self.take_profit * 2  # Spread can't exceed 2x our TP
+        if min(yes_spread, no_spread) > max_acceptable_spread:
+            return None
+
         # Determine side based on deviation from 50
         if yes_price < 50:
             # Market undervalues YES - buy YES

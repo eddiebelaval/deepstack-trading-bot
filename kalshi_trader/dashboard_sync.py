@@ -305,6 +305,7 @@ class DashboardSync:
         target_price_cents: int,
         confidence: float,
         reasoning: Optional[str] = None,
+        status: str = "active",
     ) -> None:
         """Push a detected opportunity to Supabase."""
         expected_profit = 0.0
@@ -323,7 +324,7 @@ class DashboardSync:
             "target_price_cents": target_price_cents,
             "expected_profit_pct": expected_profit,
             "confidence": confidence,
-            "status": "active",
+            "status": status,
             "reasoning": reasoning,
         }
         await self._post("opportunities", opp)

@@ -47,10 +47,10 @@ class TestStatusBugFix:
 # ─── Strategy Registry ────────────────────────────────────────────────────
 
 class TestStrategyRegistry:
-    """Verify all 13 strategies are registered."""
+    """Verify all 14 strategies are registered."""
 
     def test_registry_count(self):
-        assert len(STRATEGY_REGISTRY) == 13
+        assert len(STRATEGY_REGISTRY) == 14
 
     def test_new_strategies_registered(self):
         assert "crypto_intraday" in STRATEGY_REGISTRY

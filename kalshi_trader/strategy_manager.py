@@ -227,45 +227,8 @@ class StrategyManager:
             if not state.enabled:
                 continue
 
-            try:
-                # Rate limiting between strategies
-                if state.last_scan_time:
-                    elapsed = (datetime.now() - state.last_scan_time).total_seconds()
-                    if elapsed < self.MIN_SCAN_INTERVAL_SECONDS:
-                        await asyncio.sleep(self.MIN_SCAN_INTERVAL_SECONDS - elapsed)
-
-                # Scan each market for this strategy
-                for market_config in state.markets:
-                    platform = market_config.get("platform", "kalshi")
-                    series = market_config.get("series")
-
-                    if platform not in self.markets:
-                        logger.warning(f"Market '{platform}' not available")
-                        continue
-
-                    market = self.markets[platform]
-
-                    # Fetch market data (with caching)
-                    cache_key = f"markets:{platform}:{series or 'all'}"
-                    markets_data = await self._market_cache.get_or_fetch(
-                        cache_key,
-                        lambda: market.get_open_markets(series=series),
-                        ttl=30.0,  # 30 second TTL for market lists
-                    )
-
-                    # Find opportunities
-                    opportunities = await state.strategy.scan_opportunities(
-                        markets=markets_data,
-                        existing_positions=existing_positions,
-                    )
-
-                    all_opportunities.extend(opportunities)
-
-                state.last_scan_time = datetime.now()
-                state.scan_count += 1
-
-            except Exception as e:
-                logger.error(f"Error scanning strategy '{name}': {e}")
+            opps = await self._scan_strategy(name, state, existing_positions)
+            all_opportunities.extend(opps)
 
         # Sort by score (best first)
         all_opportunities.sort(key=lambda x: x.score, reverse=True)
@@ -276,6 +239,90 @@ class StrategyManager:
         )
 
         return all_opportunities
+
+    async def scan_shadow_opportunities(
+        self,
+        existing_positions: Optional[Dict[str, Any]] = None,
+    ) -> List[TradingOpportunity]:
+        """
+        Scan all DISABLED strategies to find what we're missing.
+
+        Returns opportunities that would have been found if the strategy
+        were enabled. These are logged but never traded.
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        existing_positions = existing_positions or {}
+        shadow_opportunities: List[TradingOpportunity] = []
+
+        for name, state in self._strategies.items():
+            if state.enabled:
+                continue  # Skip enabled — those are real
+
+            opps = await self._scan_strategy(name, state, existing_positions)
+            shadow_opportunities.extend(opps)
+
+        shadow_opportunities.sort(key=lambda x: x.score, reverse=True)
+
+        if shadow_opportunities:
+            logger.info(
+                f"Shadow scan: {len(shadow_opportunities)} opportunities "
+                f"from {sum(1 for s in self._strategies.values() if not s.enabled)} disabled strategies"
+            )
+
+        return shadow_opportunities
+
+    async def _scan_strategy(
+        self,
+        name: str,
+        state: StrategyState,
+        existing_positions: Dict[str, Any],
+    ) -> List[TradingOpportunity]:
+        """Scan a single strategy across its configured markets."""
+        opportunities: List[TradingOpportunity] = []
+
+        try:
+            # Rate limiting between strategies
+            if state.last_scan_time:
+                elapsed = (datetime.now() - state.last_scan_time).total_seconds()
+                if elapsed < self.MIN_SCAN_INTERVAL_SECONDS:
+                    await asyncio.sleep(self.MIN_SCAN_INTERVAL_SECONDS - elapsed)
+
+            # Scan each market for this strategy
+            for market_config in state.markets:
+                platform = market_config.get("platform", "kalshi")
+                series = market_config.get("series")
+
+                if platform not in self.markets:
+                    logger.warning(f"Market '{platform}' not available")
+                    continue
+
+                market = self.markets[platform]
+
+                # Fetch market data (with caching)
+                cache_key = f"markets:{platform}:{series or 'all'}"
+                markets_data = await self._market_cache.get_or_fetch(
+                    cache_key,
+                    lambda: market.get_open_markets(series=series),
+                    ttl=30.0,  # 30 second TTL for market lists
+                )
+
+                # Find opportunities
+                opps = await state.strategy.scan_opportunities(
+                    markets=markets_data,
+                    existing_positions=existing_positions,
+                )
+
+                opportunities.extend(opps)
+
+            state.last_scan_time = datetime.now()
+            state.scan_count += 1
+
+        except Exception as e:
+            logger.error(f"Error scanning strategy '{name}': {e}")
+
+        return opportunities
 
     def rank_opportunities(
         self,

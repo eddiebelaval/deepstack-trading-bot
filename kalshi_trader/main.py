@@ -717,22 +717,56 @@ class KalshiTradingBot:
 
     async def _scan_and_trade_multi(self) -> None:
         """Scan for opportunities using strategy manager."""
-        # Scan all strategies
+        # Scan all enabled strategies
         opportunities = await self.strategy_manager.scan_all_opportunities(
             existing_positions=self.open_positions,
         )
 
         if not opportunities:
             logger.debug("No trading opportunities found")
+        else:
+            # Rank and filter
+            ranked = self.strategy_manager.rank_opportunities(opportunities)
+
+            # Try to execute best opportunity
+            for opp in ranked[:3]:  # Check top 3
+                if await self._execute_opportunity_multi(opp):
+                    break  # One trade per cycle
+
+        # Shadow scan disabled strategies (log-only, never trade)
+        await self._shadow_scan()
+
+    async def _shadow_scan(self) -> None:
+        """Scan disabled strategies and log their opportunities as 'shadow' trades."""
+        if not self.strategy_manager:
             return
 
-        # Rank and filter
-        ranked = self.strategy_manager.rank_opportunities(opportunities)
+        try:
+            shadow_opps = await self.strategy_manager.scan_shadow_opportunities(
+                existing_positions=self.open_positions,
+            )
 
-        # Try to execute best opportunity
-        for opp in ranked[:3]:  # Check top 3
-            if await self._execute_opportunity_multi(opp):
-                break  # One trade per cycle
+            for opp in shadow_opps:
+                logger.info(
+                    f"[SHADOW] {opp.strategy_name} | {opp.ticker} | "
+                    f"{opp.side.upper()} @ {opp.entry_price_cents}c | "
+                    f"score={opp.score:.1f} | {opp.reasoning}"
+                )
+
+                if self.dashboard:
+                    await self.dashboard.push_opportunity(
+                        market_ticker=opp.ticker,
+                        strategy=opp.strategy_name,
+                        side=opp.side,
+                        current_price_cents=opp.entry_price_cents,
+                        target_price_cents=opp.entry_price_cents + opp.expected_profit_cents,
+                        confidence=opp.score / 100.0,
+                        reasoning=f"[SHADOW] {opp.reasoning}",
+                        status="shadow",
+                    )
+
+        except Exception as e:
+            logger.debug(f"Shadow scan error (non-critical): {e}")
 
     async def _execute_opportunity_legacy(self, opp) -> bool:
         """Execute opportunity using legacy strategy."""
