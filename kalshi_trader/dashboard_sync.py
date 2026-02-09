@@ -259,19 +259,19 @@ class DashboardSync:
 
     async def push_trade_close(
         self,
-        trade_id: str,
+        order_id: str,
         exit_price_cents: int,
         pnl_cents: int,
         exit_reason: str,
     ) -> None:
-        """Push a trade close/update to Supabase."""
+        """Push a trade close/update to Supabase (matches by Kalshi order_id)."""
         if not self._client or not self._supabase_url:
             return
 
         try:
             await self._client.patch(
                 self._rest_url("trades"),
-                params={"id": f"eq.{trade_id}"},
+                params={"order_id": f"eq.{order_id}"},
                 json={
                     "exit_price_cents": exit_price_cents,
                     "pnl_cents": pnl_cents,

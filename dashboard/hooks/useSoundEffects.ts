@@ -97,8 +97,15 @@ export interface UseSoundEffectsReturn {
 }
 
 export function useSoundEffects(): UseSoundEffectsReturn {
-  const [enabled, setEnabled] = useState(false);
-  const [volume, setVolumeState] = useState<VolumeLevel>('medium');
+  const [enabled, setEnabled] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = localStorage.getItem('deepstack-sound-enabled');
+    return stored !== null ? stored === 'true' : true;
+  });
+  const [volume, setVolumeState] = useState<VolumeLevel>(() => {
+    if (typeof window === 'undefined') return 'medium';
+    return (localStorage.getItem('deepstack-sound-volume') as VolumeLevel) || 'medium';
+  });
   const enabledRef = useRef(enabled);
   const volumeRef = useRef(volume);
   enabledRef.current = enabled;
@@ -133,15 +140,22 @@ export function useSoundEffects(): UseSoundEffectsReturn {
   const preview = useCallback((sound: SoundName) => playSound(sound, true), [playSound]);
 
   const toggle = useCallback((): void => {
-    setEnabled((prev) => !prev);
+    setEnabled((prev) => {
+      const next = !prev;
+      localStorage.setItem('deepstack-sound-enabled', String(next));
+      return next;
+    });
   }, []);
 
   const setVolume = useCallback((level: VolumeLevel): void => {
     setVolumeState(level);
+    localStorage.setItem('deepstack-sound-volume', level);
     if (level === 'off') {
       setEnabled(false);
+      localStorage.setItem('deepstack-sound-enabled', 'false');
     } else if (!enabledRef.current) {
       setEnabled(true);
+      localStorage.setItem('deepstack-sound-enabled', 'true');
     }
   }, []);
 

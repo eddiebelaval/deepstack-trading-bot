@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import StrategyCard from '@/components/StrategyCard';
@@ -227,6 +227,27 @@ export default function Dashboard() {
     sound.playNotification();
   }, [addToast, sound]);
 
+  // Compute performance data from closed trades (cumulative P&L as % of balance)
+  const performanceData = useMemo(() => {
+    const closedTrades = trades
+      .filter(t => t.pnl_cents != null)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+    if (closedTrades.length === 0) return [];
+
+    const startBalance = dashboardState?.account?.balance_cents ?? 25000;
+    let cumPnl = 0;
+
+    return closedTrades.map(t => {
+      cumPnl += t.pnl_cents!;
+      return {
+        timestamp: t.created_at,
+        value: (cumPnl / startBalance) * 100,
+        label: new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      };
+    });
+  }, [trades, dashboardState?.account?.balance_cents]);
+
   // Keyboard shortcuts
   useKeyboardShortcuts({
     onRefresh: handleRefresh,
@@ -319,7 +340,7 @@ export default function Dashboard() {
 
         {/* Hero Performance Panel */}
         <div className="mb-4 md:mb-6">
-          <PerformanceHero />
+          <PerformanceHero data={performanceData} />
         </div>
 
         {/* Strategy Status Cards */}

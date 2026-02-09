@@ -657,6 +657,15 @@ class KalshiTradingBot:
                     position_size_dollars=contracts,
                 )
 
+                # Sync close to Supabase dashboard
+                if self.dashboard and position.get("order_id"):
+                    await self.dashboard.push_trade_close(
+                        order_id=position["order_id"],
+                        exit_price_cents=exit_signal.current_price_cents,
+                        pnl_cents=pnl,
+                        exit_reason=exit_signal.exit_type,
+                    )
+
             # Remove from tracking
             del self.open_positions[ticker]
 
@@ -844,6 +853,10 @@ class KalshiTradingBot:
         strategy_name: str,
     ) -> bool:
         """Place a trade and record it."""
+        if ticker in self.open_positions:
+            logger.debug(f"Skipping {ticker}: position already tracked")
+            return False
+
         try:
             # In dry-run mode, log but don't execute
             if self.dry_run:
