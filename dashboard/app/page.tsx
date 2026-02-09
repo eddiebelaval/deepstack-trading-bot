@@ -335,8 +335,35 @@ export default function Dashboard() {
     }));
   }, [balanceHistory]);
 
-  // Only count closed trades for win rate
-  const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
+  // Win/loss stats from settlements (real settled P&L, not stale trades table)
+  const settlementStats = useMemo(() => {
+    if (settlements.length === 0) return { winRate: 0, total: 0, wins: 0, losses: 0 };
+    const wins = settlements.filter(s => (s.net_pnl_cents ?? 0) > 0).length;
+    const losses = settlements.filter(s => (s.net_pnl_cents ?? 0) < 0).length;
+    const total = wins + losses;
+    return {
+      winRate: total > 0 ? (wins / total) * 100 : 0,
+      total,
+      wins,
+      losses,
+    };
+  }, [settlements]);
+
+  // Hourly activity aggregation from fills (for TradeActivity chart)
+  const activityData = useMemo(() => {
+    if (fills.length === 0) return [];
+    const hourMap: Record<string, { trades: number; volume: number }> = {};
+    for (const fill of fills) {
+      if (!fill.created_time) continue;
+      const hour = new Date(fill.created_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (!hourMap[hour]) hourMap[hour] = { trades: 0, volume: 0 };
+      hourMap[hour].trades++;
+      hourMap[hour].volume += fill.count;
+    }
+    return Object.entries(hourMap)
+      .map(([hour, stats]) => ({ hour, trades: stats.trades, volume: stats.volume, opportunities: 0 }))
+      .slice(-24);
+  }, [fills]);
 
   if (loading || !dashboardState) {
     return (
@@ -440,12 +467,12 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
           <RiskMetricsCard metrics={dashboardState.risk} />
           <WinRateGauge
-            winRate={closedTrades.length > 0 ? (closedTrades.filter(t => (t.pnl_cents ?? 0) > 0).length / closedTrades.length) * 100 : 0}
-            totalTrades={closedTrades.length}
-            wins={closedTrades.filter(t => (t.pnl_cents ?? 0) > 0).length}
-            losses={closedTrades.filter(t => (t.pnl_cents ?? 0) < 0).length}
+            winRate={settlementStats.winRate}
+            totalTrades={settlementStats.total}
+            wins={settlementStats.wins}
+            losses={settlementStats.losses}
           />
-          <TradeActivity onOpportunitiesClick={() => setShowOpportunities(true)} />
+          <TradeActivity data={activityData} onOpportunitiesClick={() => setShowOpportunities(true)} />
         </div>
 
         {/* Charts Row */}

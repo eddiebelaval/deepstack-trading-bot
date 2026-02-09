@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getLatestDashboardState, getTotalStats, getStrategies, getOpenPositionsByStrategy, saveDashboardState } from '@/lib/db-postgres';
+import { getLatestDashboardState, getStrategies, getPositions, saveDashboardState } from '@/lib/db-postgres';
 import { DashboardState } from '@/lib/types';
 import { DashboardStateSchema } from '@/lib/validation';
 
@@ -51,28 +51,18 @@ export async function GET() {
       state = { ...DEFAULT_STATE };
     }
 
-    // Enrich with real-time stats from trades table
-    // Uses aggregated query to avoid N+1 problem
+    // Enrich with live data from Supabase
     try {
-      const [totalStats, strategies, openByStrategy] = await Promise.all([
-        getTotalStats(),
+      const [strategies, positions] = await Promise.all([
         getStrategies(),
-        getOpenPositionsByStrategy(),
+        getPositions(),
       ]);
 
-      state.account.total_positions = totalStats.active_positions ?? 0;
+      // Use actual exchange positions (not stale trades table)
+      state.account.total_positions = positions.length;
 
-      // Merge strategy stats in memory (no additional queries)
-      if (strategies.length > 0) {
-        state.strategies = strategies.map((strategy) => {
-          const openCount = openByStrategy[strategy.name] ?? 0;
-          return {
-            ...strategy,
-            active_positions: openCount,
-            status: openCount > 0 ? 'active' as const : strategy.status,
-          };
-        });
-      }
+      // Use strategy_status rows if available, otherwise fall back to defaults
+      state.strategies = strategies.length > 0 ? strategies : DEFAULT_STATE.strategies;
     } catch (statsError) {
       console.error('Error enriching with stats:', statsError);
     }
