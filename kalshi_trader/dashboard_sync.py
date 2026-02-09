@@ -358,7 +358,7 @@ class DashboardSync:
 
         # Remove stale positions (closed on exchange but still in Supabase)
         active_tickers = {p["ticker"] for p in positions}
-        if self._client and self._supabase_url and active_tickers:
+        if self._client and self._supabase_url:
             try:
                 # Fetch current tickers in table
                 resp = await self._client.get(
