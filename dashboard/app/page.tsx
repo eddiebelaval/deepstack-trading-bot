@@ -26,6 +26,7 @@ import { DashboardState, Trade, Strategy, BotConfig } from '@/lib/types';
 interface BalanceSnapshot {
   timestamp: string;
   balance_cents: number;
+  available_balance_cents: number;
 }
 
 export default function Dashboard() {
@@ -264,18 +265,20 @@ export default function Dashboard() {
     onHelp: () => setShowHelp(true),
   });
 
-  // Compute chart data from balance history
-  const heroData = useMemo(() => {
-    if (balanceHistory.length < 2) return [];
-    // API returns desc order — reverse to chronological
-    const chrono = [...balanceHistory].reverse();
-    const startBalance = chrono[0].balance_cents;
-    if (startBalance === 0) return [];
-    return chrono.map((entry) => ({
-      timestamp: entry.timestamp,
-      value: ((entry.balance_cents - startBalance) / startBalance) * 100,
-      label: new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    }));
+  // Compute daily P&L from balance history (replaces bot's always-$0 daily_pnl_cents)
+  const dailyChange = useMemo(() => {
+    if (balanceHistory.length < 2) return { cents: 0, pct: 0 };
+    const todayStr = new Date().toLocaleDateString('en-CA'); // "2026-02-09"
+    const todayEntries = balanceHistory.filter(e =>
+      new Date(e.timestamp).toLocaleDateString('en-CA') === todayStr
+    );
+    if (todayEntries.length < 2) return { cents: 0, pct: 0 };
+    // balanceHistory is desc order: [0] = newest, [last] = oldest
+    const earliest = todayEntries[todayEntries.length - 1].balance_cents;
+    const latest = todayEntries[0].balance_cents;
+    const changeCents = latest - earliest;
+    const changePct = earliest > 0 ? (changeCents / earliest) * 100 : 0;
+    return { cents: changeCents, pct: changePct };
   }, [balanceHistory]);
 
   const pnlData = useMemo(() => {
@@ -310,6 +313,8 @@ export default function Dashboard() {
         botConfig={botConfig}
         onCommand={sendCommand}
         sound={sound}
+        dailyChangeCents={dailyChange.cents}
+        dailyChangePct={dailyChange.pct}
         onStrategyToggle={(name, enabled) => {
           // 1. Optimistic update — reflect toggle instantly in UI
           if (dashboardState) {
@@ -374,7 +379,7 @@ export default function Dashboard() {
 
         {/* Hero Performance Panel */}
         <div className="mb-4 md:mb-6">
-          <PerformanceHero data={heroData} />
+          <PerformanceHero balanceHistory={balanceHistory} />
         </div>
 
         {/* Strategy Status Cards */}

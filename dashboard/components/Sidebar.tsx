@@ -13,6 +13,8 @@ interface SidebarProps {
   onCommand: (command: string, params?: Record<string, unknown>) => void;
   onStrategyToggle?: (strategyName: string, enabled: boolean) => void;
   sound: UseSoundEffectsReturn;
+  dailyChangeCents?: number;
+  dailyChangePct?: number;
   isOpen?: boolean;
   onClose?: () => void;
 }
@@ -33,7 +35,7 @@ const POLL_INTERVALS = [
   { label: '120s', value: 120 },
 ];
 
-export default function Sidebar({ dashboardState, botConfig, onCommand, onStrategyToggle, sound, isOpen, onClose }: SidebarProps): JSX.Element {
+export default function Sidebar({ dashboardState, botConfig, onCommand, onStrategyToggle, sound, dailyChangeCents, dailyChangePct, isOpen, onClose }: SidebarProps): JSX.Element {
   const [showRiskControls, setShowRiskControls] = useState(false);
   const [showAudioSettings, setShowAudioSettings] = useState(false);
   const [showForceCloseConfirm, setShowForceCloseConfirm] = useState(false);
@@ -274,17 +276,46 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
         </div>
       </div>
 
-      {/* Balance & P/L */}
+      {/* Account Overview */}
       <div className="p-4 border-b border-terminal-green/30">
-        <div className="text-[10px] text-terminal-dim mb-2 tracking-[0.15em] uppercase">Balance</div>
+        <div className="text-[10px] text-terminal-dim mb-2 tracking-[0.15em] uppercase">Total Value</div>
         <div className="text-3xl font-bold terminal-glow-bright tabular-nums tracking-tight">
           {formatCents(balance)}
         </div>
-        <div className={`text-sm font-bold tabular-nums mt-2 flex items-center gap-2 ${dailyPnl >= 0 ? 'text-terminal-green' : 'text-terminal-red'}`}>
-          <span className={`inline-block w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent ${
-            dailyPnl >= 0 ? 'border-b-[6px] border-b-terminal-green' : 'border-t-[6px] border-t-terminal-red'
-          }`} />
-          {dailyPnl >= 0 ? '+' : ''}{formatCents(dailyPnl)} today
+        {/* Daily Change — computed from balance history, not from the bot's always-$0 daily_pnl */}
+        {(() => {
+          const change = dailyChangeCents ?? dailyPnl;
+          const pct = dailyChangePct ?? 0;
+          const isUp = change >= 0;
+          return (
+            <div className={`text-sm font-bold tabular-nums mt-2 flex items-center gap-2 ${isUp ? 'text-terminal-green' : 'text-terminal-red'}`}>
+              <span className={`inline-block w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent ${
+                isUp ? 'border-b-[6px] border-b-terminal-green' : 'border-t-[6px] border-t-terminal-red'
+              }`} />
+              {isUp ? '+' : ''}{formatCents(change)}
+              {pct !== 0 && (
+                <span className={isUp ? 'text-terminal-green/70' : 'text-terminal-red/70'}>
+                  ({isUp ? '+' : ''}{pct.toFixed(1)}%)
+                </span>
+              )}
+              <span className="text-terminal-dim font-normal">today</span>
+            </div>
+          );
+        })()}
+        {/* Equity breakdown */}
+        <div className="mt-3 pt-3 border-t border-terminal-green/15 space-y-1.5">
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-terminal-dim tracking-wide">CASH</span>
+            <span className="font-bold tabular-nums text-terminal-cyan">
+              {formatCents(dashboardState?.account?.available_balance_cents ?? 0)}
+            </span>
+          </div>
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-terminal-dim tracking-wide">POSITIONS</span>
+            <span className="font-bold tabular-nums text-terminal-amber">
+              {formatCents(balance - (dashboardState?.account?.available_balance_cents ?? 0))}
+            </span>
+          </div>
         </div>
       </div>
 

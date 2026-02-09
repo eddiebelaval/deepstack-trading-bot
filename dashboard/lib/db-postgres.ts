@@ -330,10 +330,10 @@ export async function getMarketHistory(ticker: string, limit: number = 100): Pro
 // BALANCE HISTORY (for charts)
 // ============================================================================
 
-export async function getBalanceHistory(limit: number = 200): Promise<{ timestamp: string; balance_cents: number }[]> {
-  return restGet<{ timestamp: string; balance_cents: number }>(
+export async function getBalanceHistory(limit: number = 200): Promise<{ timestamp: string; balance_cents: number; available_balance_cents: number }[]> {
+  return restGet<{ timestamp: string; balance_cents: number; available_balance_cents: number }>(
     'deepstack_dashboard_state',
-    `select=timestamp,balance_cents&order=timestamp.desc&limit=${limit}`
+    `select=timestamp,balance_cents,available_balance_cents&order=timestamp.desc&limit=${limit}`
   );
 }
 
