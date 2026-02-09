@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getLatestDashboardState, getTotalStats, getAllStrategyStats, getStrategies, getOpenPositionsByStrategy, saveDashboardState } from '@/lib/db-postgres';
+import { getLatestDashboardState, getTotalStats, getStrategies, getOpenPositionsByStrategy, saveDashboardState } from '@/lib/db-postgres';
 import { DashboardState } from '@/lib/types';
 import { DashboardStateSchema } from '@/lib/validation';
 
@@ -54,10 +54,9 @@ export async function GET() {
     // Enrich with real-time stats from trades table
     // Uses aggregated query to avoid N+1 problem
     try {
-      const [totalStats, strategies, allStrategyStats, openByStrategy] = await Promise.all([
+      const [totalStats, strategies, openByStrategy] = await Promise.all([
         getTotalStats(),
         getStrategies(),
-        getAllStrategyStats(),
         getOpenPositionsByStrategy(),
       ]);
 
