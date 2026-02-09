@@ -217,3 +217,26 @@ learning:
   prior_strength: 20          # Bayesian k: trades needed to equal prior weight
   decay_half_life: 30.0       # Days until trade weight halves
   auto_disable: false         # Flag unhealthy strategies, don't auto-kill
+
+# CryExc real-time exchange data (sub-second trades, orderbook, liquidations, CVD)
+# Provides 10-30s information edge over REST polling for crypto strategies.
+# Set enabled: true when CryExc server is running locally.
+cryexc:
+  enabled: true               # ACTIVE: CryExc real-time data feeding crypto strategies
+  url: "ws://localhost:8086/ws"
+  symbols:
+    - symbol: BTCUSDT
+      exchanges: []           # Empty = all exchanges (Binance, Bybit, OKX, etc.)
+      min_notional_trade: 50000   # Only relay trades > $50K (whale trades)
+      min_notional_liq: 100000    # Only relay liquidations > $100K
+    - symbol: ETHUSDT
+      exchanges: []
+      min_notional_trade: 25000
+      min_notional_liq: 50000
+    - symbol: SOLUSDT
+      exchanges: []
+      min_notional_trade: 10000
+      min_notional_liq: 25000
+  reconnect:
+    base_seconds: 1.0         # Initial retry delay
+    max_seconds: 30.0         # Max retry delay (exponential backoff)

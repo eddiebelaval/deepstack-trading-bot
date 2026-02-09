@@ -90,6 +90,9 @@ class StrategyManager:
         self._position_to_strategy: Dict[str, str] = {}  # ticker -> strategy name
         self._initialized = False
 
+        # CryExc bridge (injected by main.py after initialization)
+        self._cryexc_bridge = None
+
         # Market data cache to reduce API calls
         # TTL of 30 seconds balances freshness with API rate limits
         self._market_cache = get_market_cache(default_ttl=30.0, max_size=1000)
@@ -203,6 +206,11 @@ class StrategyManager:
                 logger.debug(f"Injected MarketMatcher into {strategy.name}")
             except ImportError:
                 pass
+
+        # Inject CryExc bridge if available and strategy supports it
+        if self._cryexc_bridge and hasattr(strategy, "_cryexc_bridge"):
+            strategy._cryexc_bridge = self._cryexc_bridge
+            logger.debug(f"Injected CryExc bridge into {strategy.name}")
 
     async def scan_all_opportunities(
         self,
