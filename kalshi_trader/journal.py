@@ -401,6 +401,74 @@ class TradeJournal:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def close_trades_by_settlement(
+        self,
+        ticker: str,
+        market_result: str,
+    ) -> int:
+        """
+        Close all open trades for a settled market ticker.
+
+        Computes per-trade P&L from market result:
+          - YES result: YES contracts pay 100c, NO contracts pay 0c
+          - NO result:  YES contracts pay 0c, NO contracts pay 100c
+
+        Returns:
+            Number of trades closed
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM trades WHERE market_ticker = ? AND status = 'open'",
+                (ticker,),
+            )
+            open_trades = cursor.fetchall()
+
+            if not open_trades:
+                return 0
+
+            closed = 0
+            for trade in open_trades:
+                entry = trade["fill_price_cents"] or trade["entry_price_cents"]
+                contracts = trade["contracts"]
+                side = trade["side"]
+                action = trade["action"]
+
+                # Settlement payout: winning side gets 100c, losing side gets 0c
+                if market_result == "yes":
+                    settle_price = 100 if side == "yes" else 0
+                elif market_result == "no":
+                    settle_price = 0 if side == "yes" else 100
+                else:
+                    settle_price = 0  # void
+
+                if action == "buy":
+                    pnl = (settle_price - entry) * contracts
+                else:
+                    pnl = (entry - settle_price) * contracts
+
+                cursor.execute(
+                    """
+                    UPDATE trades
+                    SET exit_price_cents = ?,
+                        exit_reason = ?,
+                        pnl_cents = ?,
+                        status = 'closed',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (settle_price, f"settlement:{market_result}", pnl, trade["id"]),
+                )
+                closed += 1
+                logger.info(
+                    f"Settlement closed trade {trade['id']}: "
+                    f"{ticker} {side} {action} {contracts}x @ {entry}c -> "
+                    f"{settle_price}c = {pnl:+d}c ({market_result})"
+                )
+
+            conn.commit()
+            return closed
+
     def get_open_trades(self) -> List[Dict]:
         """Get all open trades."""
         with self._get_connection() as conn:
