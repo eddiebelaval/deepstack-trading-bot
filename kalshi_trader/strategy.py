@@ -95,10 +95,25 @@ class MeanReversionStrategy:
         self.stop_loss = config.stop_loss_cents
         self.min_volume = config.min_volume
 
+        # Track whether adaptive params have been applied
+        self._using_adaptive = False
+
         logger.info(
             f"MeanReversionStrategy initialized: "
             f"floor={self.price_floor}c, ceiling={self.price_ceiling}c, "
             f"TP=+{self.take_profit}c, SL=-{self.stop_loss}c"
+        )
+
+    def apply_adaptive_params(self, params: Dict[str, float]) -> None:
+        """Update take_profit and stop_loss from learned parameters."""
+        old_tp, old_sl = self.take_profit, self.stop_loss
+        self.take_profit = int(params["take_profit_cents"])
+        self.stop_loss = int(params["stop_loss_cents"])
+        self._using_adaptive = True
+        logger.info(
+            f"Adaptive thresholds applied: "
+            f"TP {old_tp}c -> {self.take_profit}c, "
+            f"SL {old_sl}c -> {self.stop_loss}c"
         )
 
     def find_opportunities(

@@ -138,6 +138,16 @@ class PerformanceTracker:
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS learned_params (
+                strategy_name TEXT PRIMARY KEY,
+                take_profit_cents INTEGER,
+                stop_loss_cents INTEGER,
+                sample_size INTEGER DEFAULT 0,
+                last_computed TIMESTAMP
+            )
+        """)
+
         conn.commit()
 
     def register_prior(self, strategy_name: str, stats: Dict[str, float]) -> None:
@@ -428,6 +438,82 @@ class PerformanceTracker:
             ),
         )
         conn.commit()
+
+    # ── Adaptive Thresholds ──────────────────────────────────────────
+
+    def get_adaptive_params(self, strategy_name: str) -> Optional[Dict[str, float]]:
+        """
+        Compute adaptive take_profit and stop_loss from closed trade distribution.
+
+        Returns adjusted params only when enough data exists (>= 5 closed trades).
+        Uses percentile-based approach:
+          - take_profit = 75th percentile of winning P&Ls (capture realistic wins)
+          - stop_loss = 75th percentile of losing P&Ls (allow realistic drawdowns)
+
+        Falls back to None if insufficient data, letting caller use config defaults.
+        """
+        conn = self._get_conn()
+        try:
+            rows = conn.execute(
+                """
+                SELECT pnl_cents, created_at
+                FROM trades
+                WHERE strategy = ? AND status = 'closed' AND pnl_cents IS NOT NULL
+                ORDER BY pnl_cents
+                """,
+                (strategy_name,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return None
+
+        if len(rows) < 5:
+            return None
+
+        wins = [r["pnl_cents"] for r in rows if r["pnl_cents"] > 0]
+        losses = [abs(r["pnl_cents"]) for r in rows if r["pnl_cents"] < 0]
+
+        if not wins or not losses:
+            return None
+
+        wins.sort()
+        losses.sort()
+
+        def percentile(data: list, pct: float) -> float:
+            idx = (len(data) - 1) * pct
+            lower = int(idx)
+            upper = min(lower + 1, len(data) - 1)
+            weight = idx - lower
+            return data[lower] * (1 - weight) + data[upper] * weight
+
+        # 75th percentile: capture most realistic targets, not outliers
+        adaptive_tp = max(2, round(percentile(wins, 0.75)))
+        adaptive_sl = max(2, round(percentile(losses, 0.75)))
+
+        # Persist for dashboard visibility
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO learned_params
+                (strategy_name, take_profit_cents, stop_loss_cents,
+                 sample_size, last_computed)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (strategy_name, adaptive_tp, adaptive_sl,
+             len(rows), datetime.now().isoformat()),
+        )
+        conn.commit()
+
+        logger.info(
+            f"Adaptive params for {strategy_name}: "
+            f"TP={adaptive_tp}c, SL={adaptive_sl}c "
+            f"(from {len(wins)} wins, {len(losses)} losses)"
+        )
+
+        return {
+            "take_profit_cents": adaptive_tp,
+            "stop_loss_cents": adaptive_sl,
+            "sample_wins": len(wins),
+            "sample_losses": len(losses),
+        }
 
     def close(self) -> None:
         """Close the database connection."""
