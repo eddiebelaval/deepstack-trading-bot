@@ -21,7 +21,10 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { useSessionTimeout } from '@/hooks/useSessionTimeout';
 import MarketStatus from '@/components/MarketStatus';
-import { DashboardState, Trade, Strategy, BotConfig } from '@/lib/types';
+import PositionsTable from '@/components/PositionsTable';
+import OrdersTable from '@/components/OrdersTable';
+import FillsHistory from '@/components/FillsHistory';
+import { DashboardState, Trade, Strategy, BotConfig, Position, Order, Fill } from '@/lib/types';
 
 interface BalanceSnapshot {
   timestamp: string;
@@ -34,6 +37,10 @@ export default function Dashboard() {
   const [botConfig, setBotConfig] = useState<BotConfig | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [fills, setFills] = useState<Fill[]>([]);
+  const [portfolioTab, setPortfolioTab] = useState<'positions' | 'orders' | 'fills' | 'journal'>('positions');
   const [loading, setLoading] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [lastSeenTradeId, setLastSeenTradeId] = useState<string | null>(null);
@@ -141,6 +148,31 @@ export default function Dashboard() {
     }
   };
 
+  // Fetch positions, orders, fills for portfolio tabs
+  const fetchPortfolio = async () => {
+    try {
+      const [posRes, ordRes, fillRes] = await Promise.all([
+        fetch('/api/positions'),
+        fetch('/api/orders'),
+        fetch('/api/fills?limit=100'),
+      ]);
+      if (posRes.ok) {
+        const data = await posRes.json();
+        setPositions(data.positions || []);
+      }
+      if (ordRes.ok) {
+        const data = await ordRes.json();
+        setOrders(data.orders || []);
+      }
+      if (fillRes.ok) {
+        const data = await fillRes.json();
+        setFills(data.fills || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch portfolio:', error);
+    }
+  };
+
   // Send a command to the bot via the command queue, then poll for acknowledgment
   const sendCommand = useCallback(async (command: string, params?: Record<string, unknown>) => {
     try {
@@ -195,7 +227,7 @@ export default function Dashboard() {
   // Initial load
   useEffect(() => {
     const loadData = async () => {
-      await Promise.all([fetchStatus(), fetchTrades(), fetchConfig(), fetchPerformance()]);
+      await Promise.all([fetchStatus(), fetchTrades(), fetchConfig(), fetchPerformance(), fetchPortfolio()]);
       setLoading(false);
     };
     loadData();
@@ -210,10 +242,12 @@ export default function Dashboard() {
     }, 5000);
 
     const slow = setInterval(fetchPerformance, 30000);
+    const portfolio = setInterval(fetchPortfolio, 10000);
 
     return () => {
       clearInterval(fast);
       clearInterval(slow);
+      clearInterval(portfolio);
     };
   }, []);
 
@@ -252,6 +286,7 @@ export default function Dashboard() {
     fetchStatus();
     fetchTrades();
     fetchPerformance();
+    fetchPortfolio();
     addToast('info', 'Data refreshed');
     sound.playNotification();
   }, [addToast, sound]);
@@ -412,9 +447,34 @@ export default function Dashboard() {
           <LiveFeed />
         </div>
 
-        {/* Trade Journal - Full Width */}
+        {/* Portfolio Tabs: Positions | Orders | Fills | Journal */}
         <div className="mb-4 md:mb-6">
-          <TradeJournal trades={trades} onTradeClick={(trade) => setSelectedTrade(trade)} />
+          <div className="flex gap-1 mb-3 border-b border-terminal-green/30 pb-1">
+            {(['positions', 'orders', 'fills', 'journal'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setPortfolioTab(tab)}
+                className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider transition-colors ${
+                  portfolioTab === tab
+                    ? 'text-terminal-green border-b-2 border-terminal-green'
+                    : 'text-terminal-dim hover:text-terminal-green/70'
+                }`}
+              >
+                {tab}
+                {tab === 'positions' && positions.length > 0 && (
+                  <span className="ml-1 text-terminal-dim">({positions.length})</span>
+                )}
+                {tab === 'orders' && orders.filter(o => o.status === 'resting').length > 0 && (
+                  <span className="ml-1 text-terminal-cyan-bright">({orders.filter(o => o.status === 'resting').length})</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {portfolioTab === 'positions' && <PositionsTable positions={positions} />}
+          {portfolioTab === 'orders' && <OrdersTable orders={orders} />}
+          {portfolioTab === 'fills' && <FillsHistory fills={fills} />}
+          {portfolioTab === 'journal' && <TradeJournal trades={trades} onTradeClick={(trade) => setSelectedTrade(trade)} />}
         </div>
 
         {/* Footer */}

@@ -169,6 +169,67 @@ export interface BotCommand {
   created_by: string;
 }
 
+// Position snapshot from Kalshi API (synced by bot)
+export interface Position {
+  id: number;
+  ticker: string;
+  market_title: string | null;
+  side: 'yes' | 'no';
+  contracts: number;
+  position: number;
+  total_traded: number;
+  market_exposure: number;
+  realized_pnl: number;
+  fees_paid: number;
+  resting_orders_count: number;
+  current_price: number | null;
+  market_value_cents: number | null;
+  avg_entry_price_cents: number | null;
+  last_updated_ts: string | null;
+  synced_at: string;
+}
+
+// Order from Kalshi API (synced by bot)
+export interface Order {
+  id: number;
+  order_id: string;
+  ticker: string;
+  side: 'yes' | 'no';
+  action: 'buy' | 'sell';
+  type: 'limit' | 'market';
+  status: string;
+  yes_price: number | null;
+  no_price: number | null;
+  initial_count: number;
+  remaining_count: number;
+  fill_count: number;
+  taker_fees: number;
+  maker_fees: number;
+  taker_fill_cost: number;
+  maker_fill_cost: number;
+  created_time: string | null;
+  last_update_time: string | null;
+  expiration_time: string | null;
+  synced_at: string;
+}
+
+// Fill (execution) from Kalshi API (synced by bot)
+export interface Fill {
+  id: number;
+  fill_id: string;
+  order_id: string | null;
+  ticker: string;
+  side: 'yes' | 'no';
+  action: 'buy' | 'sell';
+  count: number;
+  yes_price: number | null;
+  no_price: number | null;
+  is_taker: boolean;
+  fee_cost: string | null;
+  created_time: string | null;
+  synced_at: string;
+}
+
 export type BotMode = 'running' | 'stopped' | 'paused' | 'dry_run';
 
 export interface BotConfig {

@@ -327,3 +327,97 @@ class DashboardSync:
             "reasoning": reasoning,
         }
         await self._post("opportunities", opp)
+
+    async def push_positions(self, positions: List[Dict[str, Any]]) -> None:
+        """Upsert position snapshots to Supabase (one row per ticker)."""
+        now = datetime.now(timezone.utc).isoformat()
+        for pos in positions:
+            await self._upsert("positions", {
+                "ticker": pos["ticker"],
+                "market_title": pos.get("market_title"),
+                "side": pos.get("side", "yes"),
+                "contracts": pos.get("contracts", 0),
+                "position": pos.get("position", 0),
+                "total_traded": pos.get("total_traded", 0),
+                "market_exposure": pos.get("market_exposure", 0),
+                "realized_pnl": pos.get("realized_pnl", 0),
+                "fees_paid": pos.get("fees_paid", 0),
+                "resting_orders_count": pos.get("resting_orders_count", 0),
+                "current_price": pos.get("current_price"),
+                "market_value_cents": pos.get("market_value_cents"),
+                "avg_entry_price_cents": pos.get("avg_entry_price_cents"),
+                "last_updated_ts": pos.get("last_updated_ts"),
+                "synced_at": now,
+            })
+
+        # Remove stale positions (closed on exchange but still in Supabase)
+        active_tickers = {p["ticker"] for p in positions}
+        if self._client and self._supabase_url and active_tickers:
+            try:
+                # Fetch current tickers in table
+                resp = await self._client.get(
+                    self._rest_url("positions"),
+                    params={"select": "ticker"},
+                )
+                if resp.status_code == 200:
+                    db_tickers = {row["ticker"] for row in resp.json()}
+                    stale = db_tickers - active_tickers
+                    for ticker in stale:
+                        await self._client.delete(
+                            self._rest_url("positions"),
+                            params={"ticker": f"eq.{ticker}"},
+                            headers=self._get_headers(),
+                        )
+            except Exception as e:
+                logger.debug(f"Failed to clean stale positions: {e}")
+
+    async def push_orders(self, orders: List[Dict[str, Any]]) -> None:
+        """Upsert order snapshots to Supabase (one row per order_id)."""
+        now = datetime.now(timezone.utc).isoformat()
+        synced_ids = set()
+        for order in orders:
+            oid = order.get("order_id")
+            if not oid:
+                continue
+            synced_ids.add(oid)
+            await self._upsert("orders", {
+                "order_id": oid,
+                "ticker": order.get("ticker", ""),
+                "side": order.get("side", "yes"),
+                "action": order.get("action", "buy"),
+                "type": order.get("type", "limit"),
+                "status": order.get("status", "resting"),
+                "yes_price": order.get("yes_price"),
+                "no_price": order.get("no_price"),
+                "initial_count": order.get("initial_count", 0),
+                "remaining_count": order.get("remaining_count", 0),
+                "fill_count": order.get("fill_count", 0),
+                "taker_fees": order.get("taker_fees", 0),
+                "maker_fees": order.get("maker_fees", 0),
+                "taker_fill_cost": order.get("taker_fill_cost", 0),
+                "maker_fill_cost": order.get("maker_fill_cost", 0),
+                "created_time": order.get("created_time"),
+                "last_update_time": order.get("last_update_time"),
+                "expiration_time": order.get("expiration_time"),
+                "synced_at": now,
+            })
+
+    async def push_fills(self, fills: List[Dict[str, Any]]) -> None:
+        """Append new fills to Supabase (skip duplicates via unique fill_id)."""
+        for fill in fills:
+            fid = fill.get("fill_id")
+            if not fid:
+                continue
+            await self._upsert("fills", {
+                "fill_id": fid,
+                "order_id": fill.get("order_id"),
+                "ticker": fill.get("ticker", ""),
+                "side": fill.get("side", "yes"),
+                "action": fill.get("action", "buy"),
+                "count": fill.get("count", 0),
+                "yes_price": fill.get("yes_price"),
+                "no_price": fill.get("no_price"),
+                "is_taker": fill.get("is_taker", False),
+                "fee_cost": fill.get("fee_cost"),
+                "created_time": fill.get("created_time"),
+            })
