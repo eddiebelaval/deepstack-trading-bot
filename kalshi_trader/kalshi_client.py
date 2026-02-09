@@ -511,12 +511,68 @@ class AuthenticatedKalshiClient:
                 "no_ask": market.get("no_ask", 0),
                 "last_price": market.get("last_price", 0),
                 "volume": market.get("volume", 0),
+                "volume_24h": market.get("volume_24h", 0),
+                "open_interest": market.get("open_interest", 0),
+                "previous_price": market.get("previous_price"),
+                "previous_yes_bid": market.get("previous_yes_bid"),
+                "previous_yes_ask": market.get("previous_yes_ask"),
                 "status": market.get("status"),
             }
         except KalshiTradingError as e:
             if "not found" in str(e).lower() or e.details.get("code") == "not_found":
                 raise MarketNotFoundError(ticker)
             raise
+
+    async def get_candlesticks(
+        self,
+        ticker: str,
+        series_ticker: str,
+        period_interval: int = 60,
+        start_ts: Optional[int] = None,
+        end_ts: Optional[int] = None,
+    ) -> List[Dict]:
+        """
+        Get OHLCV candlestick data for a market.
+
+        Args:
+            ticker: Market ticker (e.g., "KXBTC-26FEB0912-B79125")
+            series_ticker: Series ticker (e.g., "KXBTC")
+            period_interval: Candle period in minutes: 1, 60, or 1440
+            start_ts: Unix timestamp start (defaults to 24h ago)
+            end_ts: Unix timestamp end (defaults to now)
+
+        Returns:
+            List of candlestick dicts with OHLCV data
+        """
+        import time as _time
+
+        if end_ts is None:
+            end_ts = int(_time.time())
+        if start_ts is None:
+            start_ts = end_ts - 86400  # 24 hours
+
+        params = {
+            "period_interval": period_interval,
+            "start_ts": start_ts,
+            "end_ts": end_ts,
+        }
+
+        path = f"/series/{series_ticker}/markets/{ticker}/candlesticks"
+        response = await self._request("GET", path, params=params)
+        candles = response.get("candlesticks", [])
+
+        return [
+            {
+                "end_period_ts": c.get("end_period_ts"),
+                "open": c.get("price", {}).get("open"),
+                "high": c.get("price", {}).get("high"),
+                "low": c.get("price", {}).get("low"),
+                "close": c.get("price", {}).get("close"),
+                "volume": c.get("volume", 0),
+                "open_interest": c.get("open_interest", 0),
+            }
+            for c in candles
+        ]
 
     async def get_orderbook(self, ticker: str) -> Dict:
         """
