@@ -163,6 +163,15 @@ class CryExcConfig(BaseModel):
     )
 
 
+class BreakerConfig(BaseModel):
+    """Circuit breaker configuration for raw-signal trading safeguards."""
+
+    min_win_rate: float = Field(default=0.40, ge=0.0, le=1.0)
+    win_rate_window: int = Field(default=20, ge=5, le=100)
+    max_consecutive_losses: int = Field(default=5, ge=2, le=20)
+    max_drawdown_pct: float = Field(default=0.10, ge=0.01, le=0.50)
+
+
 class YAMLConfig(BaseModel):
     """Full YAML configuration structure."""
 
@@ -181,6 +190,10 @@ class YAMLConfig(BaseModel):
     learning: LearningConfig = Field(
         default_factory=LearningConfig,
         description="Learning loop settings",
+    )
+    breaker: BreakerConfig = Field(
+        default_factory=BreakerConfig,
+        description="Circuit breaker thresholds",
     )
     cryexc: CryExcConfig = Field(
         default_factory=CryExcConfig,
@@ -316,6 +329,32 @@ class KalshiConfig(BaseModel):
         description="Auto-disable strategies that reach critical health (off by default — flag only)",
     )
 
+    # Circuit Breaker Thresholds
+    breaker_min_win_rate: float = Field(
+        default=0.40,
+        description="Trip breaker if raw win rate falls below this (0-1)",
+        ge=0.0,
+        le=1.0,
+    )
+    breaker_win_rate_window: int = Field(
+        default=20,
+        description="Number of recent trades to evaluate for win rate breaker",
+        ge=5,
+        le=100,
+    )
+    breaker_max_consecutive_losses: int = Field(
+        default=5,
+        description="Trip breaker after this many consecutive losses",
+        ge=2,
+        le=20,
+    )
+    breaker_max_drawdown_pct: float = Field(
+        default=0.10,
+        description="Trip breaker if strategy drawdown exceeds this (0-1)",
+        ge=0.01,
+        le=0.50,
+    )
+
     @field_validator("private_key_path")
     @classmethod
     def expand_key_path(cls, v: str) -> str:
@@ -421,6 +460,13 @@ def load_config(
                 config_dict["learning_prior_strength"] = yaml_config.learning.prior_strength
                 config_dict["learning_decay_half_life"] = yaml_config.learning.decay_half_life
                 config_dict["learning_auto_disable"] = yaml_config.learning.auto_disable
+
+            # Apply breaker settings from YAML
+            if yaml_config.breaker:
+                config_dict["breaker_min_win_rate"] = yaml_config.breaker.min_win_rate
+                config_dict["breaker_win_rate_window"] = yaml_config.breaker.win_rate_window
+                config_dict["breaker_max_consecutive_losses"] = yaml_config.breaker.max_consecutive_losses
+                config_dict["breaker_max_drawdown_pct"] = yaml_config.breaker.max_drawdown_pct
 
         except Exception as e:
             logger.warning(f"Failed to load YAML config: {e}")

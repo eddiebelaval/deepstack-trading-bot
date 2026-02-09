@@ -219,6 +219,14 @@ learning:
   decay_half_life: 30.0       # Days until trade weight halves
   auto_disable: true          # Auto-disable strategies with sustained negative EV
 
+# Circuit breaker thresholds — raw signal safeguards that fire fast
+# Unlike Bayesian health (slow blend), these check recent raw trades only.
+breaker:
+  min_win_rate: 0.40          # Trip if win rate drops below 40% over window
+  win_rate_window: 20         # Number of recent trades to check
+  max_consecutive_losses: 5   # Trip after 5 straight losses
+  max_drawdown_pct: 0.10      # Trip if strategy drawdown exceeds 10%
+
 # CryExc real-time exchange data (sub-second trades, orderbook, liquidations, CVD)
 # Provides 10-30s information edge over REST polling for crypto strategies.
 # Set enabled: true when CryExc server is running locally.

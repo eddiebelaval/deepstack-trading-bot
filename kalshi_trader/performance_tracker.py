@@ -157,6 +157,15 @@ class PerformanceTracker:
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS strategy_peaks (
+                strategy_name TEXT PRIMARY KEY,
+                peak_cumulative_pnl_cents INTEGER DEFAULT 0,
+                current_cumulative_pnl_cents INTEGER DEFAULT 0,
+                last_updated TIMESTAMP
+            )
+        """)
+
         conn.commit()
 
     def register_prior(self, strategy_name: str, stats: Dict[str, float]) -> None:
@@ -523,6 +532,130 @@ class PerformanceTracker:
             "sample_wins": len(wins),
             "sample_losses": len(losses),
         }
+
+    # ── Circuit Breakers (Raw Signal) ────────────────────────────────
+
+    def check_circuit_breakers(
+        self,
+        strategy_name: str,
+        min_win_rate: float = 0.40,
+        win_rate_window: int = 20,
+        max_consecutive_losses: int = 5,
+        max_drawdown_pct: float = 0.10,
+    ) -> Dict[str, Any]:
+        """
+        Check raw-signal circuit breakers for a strategy.
+
+        Unlike evaluate_health() (Bayesian blend, slow), these fire on
+        raw recent trade data for fast protection.
+
+        Returns dict with 'tripped' bool and 'reason' if tripped.
+        """
+        conn = self._get_conn()
+        result = {"tripped": False, "reason": None, "details": {}}
+
+        try:
+            rows = conn.execute(
+                """
+                SELECT pnl_cents FROM trades
+                WHERE strategy = ? AND status = 'closed' AND pnl_cents IS NOT NULL
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (strategy_name, win_rate_window),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return result  # No trades table yet
+
+        if not rows:
+            return result
+
+        total = len(rows)
+        pnls = [r["pnl_cents"] for r in rows]
+
+        # 1. Win rate check (only if enough trades in window)
+        if total >= win_rate_window:
+            wins = sum(1 for p in pnls if p > 0)
+            win_rate = wins / total
+            result["details"]["win_rate"] = round(win_rate, 4)
+            result["details"]["win_rate_window"] = total
+
+            if win_rate < min_win_rate:
+                result["tripped"] = True
+                result["reason"] = (
+                    f"Win rate {win_rate:.0%} below {min_win_rate:.0%} "
+                    f"over last {total} trades"
+                )
+                return result
+
+        # 2. Consecutive losses check
+        consecutive_losses = 0
+        for p in pnls:
+            if p <= 0:
+                consecutive_losses += 1
+            else:
+                break
+        result["details"]["consecutive_losses"] = consecutive_losses
+
+        if consecutive_losses >= max_consecutive_losses:
+            result["tripped"] = True
+            result["reason"] = (
+                f"{consecutive_losses} consecutive losses "
+                f"(threshold: {max_consecutive_losses})"
+            )
+            return result
+
+        # 3. Drawdown check (from strategy_peaks)
+        peak_row = conn.execute(
+            "SELECT * FROM strategy_peaks WHERE strategy_name = ?",
+            (strategy_name,),
+        ).fetchone()
+
+        if peak_row and peak_row["peak_cumulative_pnl_cents"] != 0:
+            peak = peak_row["peak_cumulative_pnl_cents"]
+            current = peak_row["current_cumulative_pnl_cents"]
+            drawdown = (peak - current) / abs(peak) if peak > 0 else 0
+            result["details"]["drawdown_pct"] = round(drawdown, 4)
+
+            if drawdown >= max_drawdown_pct:
+                result["tripped"] = True
+                result["reason"] = (
+                    f"Drawdown {drawdown:.0%} exceeds {max_drawdown_pct:.0%} "
+                    f"(peak: {peak}c, current: {current}c)"
+                )
+                return result
+
+        return result
+
+    def update_strategy_peak(self, strategy_name: str, pnl_cents: int) -> None:
+        """
+        Update cumulative P&L and peak for a strategy after a trade closes.
+
+        Tracks the high-water mark for drawdown calculation.
+        """
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT * FROM strategy_peaks WHERE strategy_name = ?",
+            (strategy_name,),
+        ).fetchone()
+
+        if row:
+            new_current = row["current_cumulative_pnl_cents"] + pnl_cents
+            new_peak = max(row["peak_cumulative_pnl_cents"], new_current)
+        else:
+            new_current = pnl_cents
+            new_peak = max(0, pnl_cents)
+
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO strategy_peaks
+                (strategy_name, peak_cumulative_pnl_cents,
+                 current_cumulative_pnl_cents, last_updated)
+            VALUES (?, ?, ?, ?)
+            """,
+            (strategy_name, new_peak, new_current, datetime.now().isoformat()),
+        )
+        conn.commit()
 
     # ── Override Logging ────────────────────────────────────────────
 

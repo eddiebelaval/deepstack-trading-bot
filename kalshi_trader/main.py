@@ -23,10 +23,13 @@ Usage:
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+
+import httpx
 
 from .command_processor import CommandProcessor
 from .config import KalshiConfig, load_config, get_strategy_configs, load_yaml_config, CryExcConfig
@@ -383,6 +386,26 @@ class KalshiTradingBot:
             params = self.performance_tracker.get_adaptive_params("mean_reversion")
             if params:
                 self.strategy.apply_adaptive_params(params)
+
+    async def _send_telegram_alert(self, message: str) -> None:
+        """Fire-and-forget Telegram alert. No-op if env vars missing."""
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+        if not bot_token or not chat_id:
+            return
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(
+                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                    json={
+                        "chat_id": chat_id,
+                        "text": message,
+                        "parse_mode": "HTML",
+                    },
+                )
+        except Exception as e:
+            logger.debug(f"Telegram alert failed: {e}")
 
     async def _shutdown(self) -> None:
         """Clean shutdown of all components."""
@@ -839,6 +862,10 @@ class KalshiTradingBot:
             # Evaluate strategy health after trade closes
             strategy_name = position.get("strategy", "mean_reversion")
             if self.performance_tracker:
+                # Track cumulative P&L peak for drawdown breaker
+                if trade_id:
+                    self.performance_tracker.update_strategy_peak(strategy_name, pnl)
+
                 health = self.performance_tracker.evaluate_health(strategy_name)
                 if health.health_status == "critical" and self.performance_tracker.auto_disable:
                     logger.warning(
@@ -862,6 +889,38 @@ class KalshiTradingBot:
                         f"Strategy {strategy_name}: {health.health_status} | "
                         f"blended EV={health.blended_ev_cents:.2f}c, "
                         f"confidence={health.confidence:.1%}"
+                    )
+
+                # Raw-signal circuit breakers (fire fast, independent of Bayesian health)
+                breaker = self.performance_tracker.check_circuit_breakers(
+                    strategy_name,
+                    min_win_rate=self.config.breaker_min_win_rate,
+                    win_rate_window=self.config.breaker_win_rate_window,
+                    max_consecutive_losses=self.config.breaker_max_consecutive_losses,
+                    max_drawdown_pct=self.config.breaker_max_drawdown_pct,
+                )
+                if breaker["tripped"]:
+                    reason = breaker["reason"]
+                    logger.warning(
+                        f"CIRCUIT BREAKER tripped for {strategy_name}: {reason}"
+                    )
+                    if self.strategy_manager:
+                        self.strategy_manager.disable_strategy(strategy_name)
+                    if self.dashboard:
+                        await self.dashboard.push_log(
+                            f"Circuit breaker: {strategy_name} disabled — {reason}",
+                            level="WARNING",
+                            strategy=strategy_name,
+                        )
+                    # Telegram alert (fire-and-forget)
+                    details = breaker.get("details", {})
+                    win_info = ""
+                    if "win_rate" in details:
+                        win_info = f"\nWin rate (last {details.get('win_rate_window', '?')}): {details['win_rate']:.0%}"
+                    await self._send_telegram_alert(
+                        f"<b>BREAKER TRIPPED</b>\n"
+                        f"Strategy: {strategy_name}\n"
+                        f"Reason: {reason}{win_info}"
                     )
 
             # Recompute adaptive thresholds after each trade close
