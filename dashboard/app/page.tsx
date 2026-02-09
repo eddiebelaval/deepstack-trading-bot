@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import StrategyCard from '@/components/StrategyCard';
@@ -23,10 +23,16 @@ import { useSessionTimeout } from '@/hooks/useSessionTimeout';
 import MarketStatus from '@/components/MarketStatus';
 import { DashboardState, Trade, Strategy, BotConfig } from '@/lib/types';
 
+interface BalanceSnapshot {
+  timestamp: string;
+  balance_cents: number;
+}
+
 export default function Dashboard() {
   const [dashboardState, setDashboardState] = useState<DashboardState | null>(null);
   const [botConfig, setBotConfig] = useState<BotConfig | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [showHelp, setShowHelp] = useState(false);
   const [lastSeenTradeId, setLastSeenTradeId] = useState<string | null>(null);
@@ -120,6 +126,19 @@ export default function Dashboard() {
     }
   };
 
+  // Fetch balance history for charts
+  const fetchPerformance = async () => {
+    try {
+      const response = await fetch('/api/performance?limit=500');
+      if (response.ok) {
+        const data = await response.json();
+        setBalanceHistory(data.history || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch performance:', error);
+    }
+  };
+
   // Send a command to the bot via the command queue, then poll for acknowledgment
   const sendCommand = useCallback(async (command: string, params?: Record<string, unknown>) => {
     try {
@@ -174,21 +193,26 @@ export default function Dashboard() {
   // Initial load
   useEffect(() => {
     const loadData = async () => {
-      await Promise.all([fetchStatus(), fetchTrades(), fetchConfig()]);
+      await Promise.all([fetchStatus(), fetchTrades(), fetchConfig(), fetchPerformance()]);
       setLoading(false);
     };
     loadData();
   }, []);
 
-  // Auto-refresh every 5 seconds
+  // Auto-refresh every 5 seconds (status/trades/config), 30s for balance history
   useEffect(() => {
-    const interval = setInterval(() => {
+    const fast = setInterval(() => {
       fetchStatus();
       fetchTrades();
       fetchConfig();
     }, 5000);
 
-    return () => clearInterval(interval);
+    const slow = setInterval(fetchPerformance, 30000);
+
+    return () => {
+      clearInterval(fast);
+      clearInterval(slow);
+    };
   }, []);
 
   // Detect new trades by comparing latest trade ID (not array length,
@@ -225,6 +249,7 @@ export default function Dashboard() {
   const handleRefresh = useCallback(() => {
     fetchStatus();
     fetchTrades();
+    fetchPerformance();
     addToast('info', 'Data refreshed');
     sound.playNotification();
   }, [addToast, sound]);
@@ -238,6 +263,34 @@ export default function Dashboard() {
     },
     onHelp: () => setShowHelp(true),
   });
+
+  // Compute chart data from balance history
+  const heroData = useMemo(() => {
+    if (balanceHistory.length < 2) return [];
+    // API returns desc order — reverse to chronological
+    const chrono = [...balanceHistory].reverse();
+    const startBalance = chrono[0].balance_cents;
+    if (startBalance === 0) return [];
+    return chrono.map((entry) => ({
+      timestamp: entry.timestamp,
+      value: ((entry.balance_cents - startBalance) / startBalance) * 100,
+      label: new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    }));
+  }, [balanceHistory]);
+
+  const pnlData = useMemo(() => {
+    if (balanceHistory.length < 2) return [];
+    const chrono = [...balanceHistory].reverse();
+    const startBalance = chrono[0].balance_cents;
+    return chrono.map((entry, i) => ({
+      time: new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      pnl: i > 0 ? entry.balance_cents - chrono[i - 1].balance_cents : 0,
+      cumulative: entry.balance_cents - startBalance,
+    }));
+  }, [balanceHistory]);
+
+  // Only count closed trades for win rate
+  const closedTrades = useMemo(() => trades.filter(t => t.status === 'closed'), [trades]);
 
   if (loading || !dashboardState) {
     return (
@@ -321,7 +374,7 @@ export default function Dashboard() {
 
         {/* Hero Performance Panel */}
         <div className="mb-4 md:mb-6">
-          <PerformanceHero />
+          <PerformanceHero data={heroData} />
         </div>
 
         {/* Strategy Status Cards */}
@@ -339,17 +392,17 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
           <RiskMetricsCard metrics={dashboardState.risk} />
           <WinRateGauge
-            winRate={trades.length > 0 ? (trades.filter(t => (t.pnl_cents ?? 0) > 0).length / trades.length) * 100 : 0}
-            totalTrades={trades.length}
-            wins={trades.filter(t => (t.pnl_cents ?? 0) > 0).length}
-            losses={trades.filter(t => (t.pnl_cents ?? 0) < 0).length}
+            winRate={closedTrades.length > 0 ? (closedTrades.filter(t => (t.pnl_cents ?? 0) > 0).length / closedTrades.length) * 100 : 0}
+            totalTrades={closedTrades.length}
+            wins={closedTrades.filter(t => (t.pnl_cents ?? 0) > 0).length}
+            losses={closedTrades.filter(t => (t.pnl_cents ?? 0) < 0).length}
           />
           <TradeActivity onOpportunitiesClick={() => setShowOpportunities(true)} />
         </div>
 
         {/* Charts Row */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 mb-4 md:mb-6">
-          <PnLChart />
+          <PnLChart data={pnlData} />
           <LiveFeed />
         </div>
 

@@ -327,6 +327,29 @@ export async function getMarketHistory(ticker: string, limit: number = 100): Pro
 }
 
 // ============================================================================
+// BALANCE HISTORY (for charts)
+// ============================================================================
+
+export async function getBalanceHistory(limit: number = 200): Promise<{ timestamp: string; balance_cents: number }[]> {
+  return restGet<{ timestamp: string; balance_cents: number }>(
+    'deepstack_dashboard_state',
+    `select=timestamp,balance_cents&order=timestamp.desc&limit=${limit}`
+  );
+}
+
+export async function getOpenPositionsByStrategy(): Promise<Record<string, number>> {
+  const trades = await restGet<{ strategy: string }>(
+    'deepstack_trades',
+    'status=eq.open&select=strategy'
+  );
+  const counts: Record<string, number> = {};
+  for (const t of trades) {
+    counts[t.strategy] = (counts[t.strategy] || 0) + 1;
+  }
+  return counts;
+}
+
+// ============================================================================
 // PERFORMANCE METRICS
 // ============================================================================
 

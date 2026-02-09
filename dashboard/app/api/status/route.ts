@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getLatestDashboardState, getTotalStats, getAllStrategyStats, getStrategies, saveDashboardState } from '@/lib/db-postgres';
+import { getLatestDashboardState, getTotalStats, getAllStrategyStats, getStrategies, getOpenPositionsByStrategy, saveDashboardState } from '@/lib/db-postgres';
 import { DashboardState } from '@/lib/types';
 import { DashboardStateSchema } from '@/lib/validation';
 
@@ -54,10 +54,11 @@ export async function GET() {
     // Enrich with real-time stats from trades table
     // Uses aggregated query to avoid N+1 problem
     try {
-      const [totalStats, strategies, allStrategyStats] = await Promise.all([
+      const [totalStats, strategies, allStrategyStats, openByStrategy] = await Promise.all([
         getTotalStats(),
         getStrategies(),
         getAllStrategyStats(),
+        getOpenPositionsByStrategy(),
       ]);
 
       state.account.total_positions = totalStats.active_positions ?? 0;
@@ -65,10 +66,11 @@ export async function GET() {
       // Merge strategy stats in memory (no additional queries)
       if (strategies.length > 0) {
         state.strategies = strategies.map((strategy) => {
-          const stats = allStrategyStats[strategy.name];
+          const openCount = openByStrategy[strategy.name] ?? 0;
           return {
             ...strategy,
-            active_positions: stats?.total_trades ?? strategy.active_positions,
+            active_positions: openCount,
+            status: openCount > 0 ? 'active' as const : strategy.status,
           };
         });
       }
