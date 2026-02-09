@@ -321,9 +321,15 @@ class KalshiTradingBot:
             connected = await self._cryexc_bridge.connect()
 
             if connected:
-                # Inject bridge into strategy manager for strategy access
+                # Inject bridge into strategy manager AND individual strategies.
+                # _inject_market_clients() already ran during initialize() when
+                # _cryexc_bridge was None, so we propagate directly here.
                 if self.strategy_manager:
                     self.strategy_manager._cryexc_bridge = self._cryexc_bridge
+                    for name, state in self.strategy_manager._strategies.items():
+                        if hasattr(state.strategy, "_cryexc_bridge"):
+                            state.strategy._cryexc_bridge = self._cryexc_bridge
+                            logger.debug(f"CryExc bridge injected into {name}")
 
                 logger.info("CryExc bridge connected — real-time exchange data active")
             else:
