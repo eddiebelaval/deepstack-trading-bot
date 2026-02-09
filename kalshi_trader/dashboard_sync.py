@@ -162,26 +162,22 @@ class DashboardSync:
             logger.debug(f"Dashboard sync patch error on {table}: {e}")
             return False
 
-    async def _upsert(self, table: str, data: Dict[str, Any], on_conflict: str = "") -> bool:
-        """Fire-and-forget upsert to Supabase PostgREST."""
+    async def _upsert(self, table: str, data: Dict[str, Any], on_conflict: str = "id") -> bool:
+        """Fire-and-forget upsert to Supabase PostgREST.
+
+        PostgREST requires the `on_conflict` query parameter to identify
+        which unique constraint to use for merge-duplicates resolution.
+        Without it, duplicate keys return 409 even with the Prefer header.
+        """
         if not self._client or not self._supabase_url:
             return False
 
         try:
-            # Build a fresh client request with the upsert Prefer header.
-            # We must NOT reuse the client's default headers (which have
-            # Prefer: return=minimal) because httpx merges them, potentially
-            # creating duplicate Prefer entries that break PostgREST upsert.
-            upsert_headers = {
-                "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-                "Content-Type": "application/json",
-                "Prefer": "resolution=merge-duplicates,return=minimal",
-            }
+            url = f"{self._rest_url(table)}?on_conflict={on_conflict}"
             response = await self._client.post(
-                self._rest_url(table),
+                url,
                 json=data,
-                headers=upsert_headers,
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )
             return response.status_code in (200, 201)
         except Exception as e:
@@ -239,7 +235,7 @@ class DashboardSync:
                 "opportunities_found": strategy.get("opportunities_found", 0),
                 "last_scan": strategy.get("last_scan"),
                 "status": strategy.get("status", "inactive"),
-            })
+            }, on_conflict="name")
 
     async def push_trade(
         self,
@@ -358,7 +354,7 @@ class DashboardSync:
                 "avg_entry_price_cents": pos.get("avg_entry_price_cents"),
                 "last_updated_ts": pos.get("last_updated_ts"),
                 "synced_at": now,
-            })
+            }, on_conflict="ticker")
 
         # Remove stale positions (closed on exchange but still in Supabase)
         active_tickers = {p["ticker"] for p in positions}
@@ -410,7 +406,7 @@ class DashboardSync:
                 "last_update_time": order.get("last_update_time"),
                 "expiration_time": order.get("expiration_time"),
                 "synced_at": now,
-            })
+            }, on_conflict="order_id")
 
     async def push_fills(self, fills: List[Dict[str, Any]]) -> None:
         """Append new fills to Supabase (skip duplicates via unique fill_id)."""
@@ -430,7 +426,7 @@ class DashboardSync:
                 "is_taker": fill.get("is_taker", False),
                 "fee_cost": fill.get("fee_cost"),
                 "created_time": fill.get("created_time"),
-            })
+            }, on_conflict="fill_id")
 
     async def push_settlements(self, settlements: List[Dict[str, Any]]) -> None:
         """Upsert settlement records to Supabase (one row per ticker)."""
@@ -450,4 +446,4 @@ class DashboardSync:
                 "settled_time": s.get("settled_time"),
                 "fee_cost": s.get("fee_cost"),
                 "value": s.get("value"),
-            })
+            }, on_conflict="ticker")
