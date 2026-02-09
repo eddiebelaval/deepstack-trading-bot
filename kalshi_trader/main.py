@@ -434,6 +434,18 @@ class KalshiTradingBot:
                 logger.info(f"\n{summary}")
                 self.journal.save_daily_summary()
 
+            # Generate learning report (per-strategy analysis)
+            if self.performance_tracker:
+                report = self.performance_tracker.generate_daily_report()
+                logger.info(f"\n{report}")
+                if self.dashboard:
+                    await self.dashboard.push_log(
+                        f"Daily learning report generated",
+                        level="INFO",
+                        strategy="system",
+                    )
+                await self._send_telegram_alert(report)
+
             # Close performance tracker
             if self.performance_tracker:
                 self.performance_tracker.close()

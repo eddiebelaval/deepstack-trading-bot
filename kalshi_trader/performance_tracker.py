@@ -685,6 +685,143 @@ class PerformanceTracker:
             f"Override recorded: {strategy_name} re-enabled while critical at {now}"
         )
 
+    # ── Daily Report ─────────────────────────────────────────────────
+
+    def generate_daily_report(self) -> str:
+        """
+        Generate a structured daily learning report.
+
+        Covers per-strategy: blended win rate, confidence, health status,
+        breaker state, override count, adaptive TP/SL.
+
+        Summary: total P&L, best/worst strategy, breaker trip count.
+
+        Returns formatted text suitable for Telegram HTML and log output.
+        """
+        conn = self._get_conn()
+        lines = ["<b>Daily Learning Report</b>", ""]
+
+        # Get all registered strategies
+        strategies = conn.execute(
+            "SELECT strategy_name FROM strategy_priors"
+        ).fetchall()
+        strategy_names = [r["strategy_name"] for r in strategies]
+
+        if not strategy_names:
+            return "No strategies registered."
+
+        total_pnl = 0
+        best_strategy = (None, float("-inf"))
+        worst_strategy = (None, float("inf"))
+        breaker_trip_count = 0
+        override_count = 0
+        strategy_sections = []
+
+        for name in strategy_names:
+            health_row = conn.execute(
+                "SELECT * FROM strategy_health WHERE strategy_name = ?",
+                (name,),
+            ).fetchone()
+
+            peak_row = conn.execute(
+                "SELECT * FROM strategy_peaks WHERE strategy_name = ?",
+                (name,),
+            ).fetchone()
+
+            learned_row = conn.execute(
+                "SELECT * FROM learned_params WHERE strategy_name = ?",
+                (name,),
+            ).fetchone()
+
+            # Get raw trade count and P&L sum
+            try:
+                trade_row = conn.execute(
+                    """
+                    SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_cents), 0) as total_pnl
+                    FROM trades
+                    WHERE strategy = ? AND status = 'closed' AND pnl_cents IS NOT NULL
+                    """,
+                    (name,),
+                ).fetchone()
+                trade_count = trade_row["cnt"]
+                strategy_pnl = trade_row["total_pnl"]
+            except sqlite3.OperationalError:
+                trade_count = 0
+                strategy_pnl = 0
+
+            total_pnl += strategy_pnl
+
+            if strategy_pnl > best_strategy[1]:
+                best_strategy = (name, strategy_pnl)
+            if strategy_pnl < worst_strategy[1]:
+                worst_strategy = (name, strategy_pnl)
+
+            # Build per-strategy section
+            section = [f"<b>{name}</b>"]
+
+            if health_row:
+                wr = health_row["blended_win_rate"]
+                ev = health_row["blended_ev_cents"]
+                conf = health_row["confidence"]
+                status = health_row["health_status"]
+                warnings = health_row["consecutive_warnings"]
+
+                section.append(
+                    f"  Win rate: {wr:.1%} | EV: {ev:+.1f}c | "
+                    f"Confidence: {conf:.1%}"
+                )
+                section.append(
+                    f"  Health: {status} | Warnings: {warnings}"
+                )
+
+                if health_row.get("last_override_at"):
+                    section.append(
+                        f"  Last override: {health_row['last_override_at']}"
+                    )
+                    override_count += 1
+
+                if status == "critical":
+                    breaker_trip_count += 1
+            else:
+                section.append("  No health data")
+
+            if peak_row:
+                peak = peak_row["peak_cumulative_pnl_cents"]
+                current = peak_row["current_cumulative_pnl_cents"]
+                drawdown = (peak - current) / abs(peak) if peak > 0 else 0
+                section.append(
+                    f"  P&L: {strategy_pnl:+d}c ({trade_count} trades) | "
+                    f"Drawdown: {drawdown:.0%}"
+                )
+            else:
+                section.append(f"  P&L: {strategy_pnl:+d}c ({trade_count} trades)")
+
+            if learned_row:
+                section.append(
+                    f"  Adaptive TP: {learned_row['take_profit_cents']}c | "
+                    f"SL: {learned_row['stop_loss_cents']}c "
+                    f"(n={learned_row['sample_size']})"
+                )
+
+            strategy_sections.append("\n".join(section))
+
+        # Assemble report
+        lines.append(f"Total P&L: {total_pnl:+d}c")
+        if best_strategy[0]:
+            lines.append(f"Best: {best_strategy[0]} ({best_strategy[1]:+d}c)")
+        if worst_strategy[0]:
+            lines.append(f"Worst: {worst_strategy[0]} ({worst_strategy[1]:+d}c)")
+        lines.append(f"Breaker trips: {breaker_trip_count} | Overrides: {override_count}")
+        lines.append("")
+
+        for section in strategy_sections:
+            lines.append(section)
+            lines.append("")
+
+        report = "\n".join(lines)
+        logger.info(f"Daily report generated ({len(strategy_names)} strategies)")
+        return report
+
     def close(self) -> None:
         """Close the database connection."""
         if self._conn:

@@ -98,6 +98,7 @@ class CommandProcessor:
             "scan_now": self._handle_scan_now,
             "place_trade": self._handle_place_trade,
             "set_poll_interval": self._handle_set_poll_interval,
+            "daily_report": self._handle_daily_report,
         }
 
     async def poll_and_execute(self) -> None:
@@ -414,3 +415,24 @@ class CommandProcessor:
         interval = max(15, min(300, interval))  # Clamp to 15s-300s
         self.bot.config.poll_interval_seconds = interval
         return {"poll_interval_seconds": interval}
+
+    async def _handle_daily_report(self, params: dict) -> dict:
+        """Generate and return the daily learning report on demand."""
+        if not self.bot.performance_tracker:
+            return {"error": "Performance tracker not initialized"}
+
+        report = self.bot.performance_tracker.generate_daily_report()
+
+        # Push to Supabase log
+        if self.bot.dashboard:
+            await self.bot.dashboard.push_log(
+                "Daily report requested via dashboard",
+                level="INFO",
+                strategy="system",
+            )
+
+        # Send to Telegram
+        if hasattr(self.bot, "_send_telegram_alert"):
+            await self.bot._send_telegram_alert(report)
+
+        return {"report": report}
