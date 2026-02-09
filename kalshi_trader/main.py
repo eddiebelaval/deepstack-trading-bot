@@ -891,6 +891,19 @@ class KalshiTradingBot:
             if self.strategy_manager:
                 self.strategy_manager.record_position_open(ticker, strategy_name)
 
+            # Push trade to Supabase dashboard
+            if self.dashboard:
+                await self.dashboard.push_trade(
+                    market_ticker=ticker,
+                    side=opp.side,
+                    action="buy",
+                    contracts=contracts,
+                    entry_price_cents=opp.entry_price_cents,
+                    strategy=strategy_name,
+                    order_id=order.get("order_id"),
+                    reasoning=opp.reasoning,
+                )
+
             logger.info(
                 f"Trade executed: {ticker} | {opp.side} {contracts} @ {opp.entry_price_cents}c | "
                 f"Strategy: {strategy_name} | Score: {opp.score:.1f} | {opp.reasoning}"
