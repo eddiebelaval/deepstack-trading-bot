@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +26,26 @@ DEFAULT_CONFIG_PATH = "./config.yaml"
 DEFAULT_PROFILES_DIR = "./profiles"
 
 
+class StrategyMarketConfigItem(BaseModel):
+    """Configuration for a single market target in a strategy."""
+
+    # Allow adding optional fields (e.g. "scan") without breaking parsing.
+    model_config = ConfigDict(extra="allow")
+
+    platform: str = Field(default="kalshi", description="Market platform name")
+    series: str = Field(description="Series ticker, or '*' for no series filter")
+    scan: bool = Field(
+        default=True,
+        description="Whether StrategyManager should fetch and scan this market list",
+    )
+
+
 class StrategyConfigItem(BaseModel):
     """Configuration for a single strategy in YAML."""
 
     name: str = Field(description="Strategy identifier")
     enabled: bool = Field(default=True, description="Whether strategy is active")
-    markets: List[Dict[str, str]] = Field(
+    markets: List[StrategyMarketConfigItem] = Field(
         default_factory=list,
         description="Markets to run this strategy on",
     )
