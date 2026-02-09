@@ -49,7 +49,6 @@ class DashboardSync:
             "apikey": SUPABASE_SERVICE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
             "Content-Type": "application/json",
-            "Prefer": "return=minimal",
         }
 
     def _rest_url(self, table: str) -> str:
@@ -125,6 +124,7 @@ class DashboardSync:
             response = await self._client.post(
                 self._rest_url(table),
                 json=data,
+                headers={"Prefer": "return=minimal"},
             )
             if response.status_code in (200, 201):
                 if not self._available:
@@ -155,6 +155,7 @@ class DashboardSync:
             response = await self._client.patch(
                 f"{self._rest_url(table)}?{filters}",
                 json=data,
+                headers={"Prefer": "return=minimal"},
             )
             return response.status_code in (200, 204)
         except Exception as e:
@@ -167,11 +168,20 @@ class DashboardSync:
             return False
 
         try:
-            headers = {**self._get_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"}
+            # Build a fresh client request with the upsert Prefer header.
+            # We must NOT reuse the client's default headers (which have
+            # Prefer: return=minimal) because httpx merges them, potentially
+            # creating duplicate Prefer entries that break PostgREST upsert.
+            upsert_headers = {
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates,return=minimal",
+            }
             response = await self._client.post(
                 self._rest_url(table),
                 json=data,
-                headers=headers,
+                headers=upsert_headers,
             )
             return response.status_code in (200, 201)
         except Exception as e:
