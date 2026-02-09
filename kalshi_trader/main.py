@@ -705,6 +705,15 @@ class KalshiTradingBot:
                     position_size_dollars=contracts,
                 )
 
+                # Sync close to Supabase dashboard
+                if self.dashboard and position.get("order_id"):
+                    await self.dashboard.push_trade_close(
+                        order_id=position["order_id"],
+                        exit_price_cents=exit_signal.current_price_cents,
+                        pnl_cents=pnl,
+                        exit_reason=exit_signal.exit_type,
+                    )
+
             # Remove from tracking
             del self.open_positions[ticker]
 
@@ -904,6 +913,19 @@ class KalshiTradingBot:
             # Notify strategy manager
             if self.strategy_manager:
                 self.strategy_manager.record_position_open(ticker, strategy_name)
+
+            # Push trade to Supabase dashboard
+            if self.dashboard:
+                await self.dashboard.push_trade(
+                    market_ticker=ticker,
+                    side=opp.side,
+                    action="buy",
+                    contracts=contracts,
+                    entry_price_cents=opp.entry_price_cents,
+                    strategy=strategy_name,
+                    order_id=order.get("order_id"),
+                    reasoning=opp.reasoning,
+                )
 
             logger.info(
                 f"Trade executed: {ticker} | {opp.side} {contracts} @ {opp.entry_price_cents}c | "
