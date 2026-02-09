@@ -253,6 +253,19 @@ class CommandProcessor:
         if strategy_name not in strategies:
             return {"error": f"Unknown strategy: {strategy_name}"}
 
+        # Check if re-enabling a critical strategy (override audit)
+        override_logged = False
+        if enabled and self.bot.performance_tracker:
+            if self.bot.performance_tracker.is_critical(strategy_name):
+                self.bot.performance_tracker.record_override(strategy_name)
+                override_logged = True
+                if self.bot.dashboard:
+                    await self.bot.dashboard.push_log(
+                        f"Manual override: {strategy_name} re-enabled while critical",
+                        level="WARNING",
+                        strategy=strategy_name,
+                    )
+
         strategies[strategy_name].enabled = enabled
 
         # Persist toggle to Supabase so it survives restarts
@@ -263,7 +276,10 @@ class CommandProcessor:
                 {"enabled": enabled},
             )
 
-        return {"strategy": strategy_name, "enabled": enabled}
+        result = {"strategy": strategy_name, "enabled": enabled}
+        if override_logged:
+            result["override"] = True
+        return result
 
     async def _handle_update_risk(self, params: dict) -> dict:
         """Update risk parameters at runtime."""

@@ -134,9 +134,18 @@ class PerformanceTracker:
                 confidence REAL DEFAULT 0.0,
                 health_status TEXT DEFAULT 'healthy',
                 consecutive_warnings INTEGER DEFAULT 0,
-                last_evaluated TIMESTAMP
+                last_evaluated TIMESTAMP,
+                last_override_at TIMESTAMP
             )
         """)
+
+        # Migrate: add last_override_at if table already exists without it
+        try:
+            cursor.execute(
+                "ALTER TABLE strategy_health ADD COLUMN last_override_at TIMESTAMP"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS learned_params (
@@ -514,6 +523,34 @@ class PerformanceTracker:
             "sample_wins": len(wins),
             "sample_losses": len(losses),
         }
+
+    # ── Override Logging ────────────────────────────────────────────
+
+    def is_critical(self, strategy_name: str) -> bool:
+        """Check if a strategy is currently in critical health status."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT health_status FROM strategy_health WHERE strategy_name = ?",
+            (strategy_name,),
+        ).fetchone()
+        return row["health_status"] == "critical" if row else False
+
+    def record_override(self, strategy_name: str) -> None:
+        """Record that a critical strategy was manually re-enabled."""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        conn.execute(
+            """
+            UPDATE strategy_health
+            SET last_override_at = ?
+            WHERE strategy_name = ?
+            """,
+            (now, strategy_name),
+        )
+        conn.commit()
+        logger.warning(
+            f"Override recorded: {strategy_name} re-enabled while critical at {now}"
+        )
 
     def close(self) -> None:
         """Close the database connection."""
