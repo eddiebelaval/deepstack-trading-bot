@@ -321,15 +321,15 @@ class AuthenticatedKalshiClient:
         Get account balance.
 
         Returns:
-            Dict with 'balance' (total equity), 'available' (cash), 'portfolio_value' (positions)
+            Dict with 'balance' (cash), 'available' (cash), 'portfolio_value' (max payout, NOT market value)
         """
         response = await self._request("GET", "/portfolio/balance")
         cash_cents = response.get("balance", 0)
         portfolio_cents = response.get("portfolio_value", 0)
         return {
-            "balance": (cash_cents + portfolio_cents) / 100,  # Total equity (cash + positions)
+            "balance": cash_cents / 100,  # Cash balance
             "available": cash_cents / 100,  # Cash available for trading
-            "portfolio_value": portfolio_cents / 100,
+            "portfolio_value": portfolio_cents / 100,  # Max payout if all bets win (NOT mark-to-market)
         }
 
     async def get_positions(self) -> List[Dict]:

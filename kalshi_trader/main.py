@@ -535,8 +535,24 @@ class KalshiTradingBot:
 
         # Push state to Supabase for dashboard (fire-and-forget)
         if self.dashboard:
-            balance_cents = int(balance["balance"] * 100)
-            available_cents = int(balance["available"] * 100)
+            cash_cents = int(balance["available"] * 100)
+
+            # Compute mark-to-market portfolio value from positions * current prices.
+            # This matches what the Kalshi app shows (NOT portfolio_value which is max payout).
+            market_value_cents = 0
+            for ticker, position in self.open_positions.items():
+                try:
+                    market = await self.client.get_market(ticker)
+                    last_price = market.get("last_price", 50)
+                    if position["side"] == "yes":
+                        market_value_cents += position["contracts"] * last_price
+                    else:
+                        market_value_cents += position["contracts"] * (100 - last_price)
+                except Exception:
+                    pass  # Skip positions we can't price — fire-and-forget
+
+            balance_cents = cash_cents + market_value_cents
+            available_cents = cash_cents
             daily_stats = self.risk.get_daily_stats()
             daily_pnl_cents = int(daily_stats["daily_pnl"] * 100)
 
