@@ -215,6 +215,21 @@ strategies:
       stop_loss_cents: 5
       min_volume: 50
 
+  - name: tv_signals
+    enabled: false              # Start disabled, enable manually after paper trade validation
+    markets:
+      - platform: kalshi
+        series: "*"
+    config:
+      paper_trade: true         # HARD DEFAULT: no real orders until explicitly set false
+      min_composite_score: 0.5
+      min_sharpe: 1.0
+      max_positions: 3
+      take_profit_cents: 10
+      stop_loss_cents: 5
+      min_volume: 100
+      min_score: 40
+
 risk:
   max_position_size: 50       # Max dollars per trade
   daily_loss_limit: 100       # Stop trading after this daily loss

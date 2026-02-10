@@ -70,6 +70,7 @@ from .domain_specialization import DomainSpecializationStrategy
 from .crypto_intraday import CryptoIntradayStrategy
 from .bear_macro import BearMacroStrategy
 from .market_making import MarketMakingStrategy
+from .tv_signals import TvSignalsStrategy
 
 # Strategy registry - maps name to class
 STRATEGY_REGISTRY = {
@@ -86,6 +87,7 @@ STRATEGY_REGISTRY = {
     "crypto_intraday": CryptoIntradayStrategy,
     "bear_macro": BearMacroStrategy,
     "market_making": MarketMakingStrategy,
+    "tv_signals": TvSignalsStrategy,
 }
 
 
@@ -152,6 +154,7 @@ __all__ = [
     "CryptoIntradayStrategy",
     "BearMacroStrategy",
     "MarketMakingStrategy",
+    "TvSignalsStrategy",
     # Combinatorial arbitrage components (for advanced usage)
     "MarketRelationshipGraph",
     "ArbitrageScanner",

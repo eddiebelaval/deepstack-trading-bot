@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { DashboardState, Strategy, BotConfig } from '@/lib/types';
 import { getStrategyMeta, CATEGORY_LABELS, CATEGORY_ICONS, StrategyCategory } from '@/lib/strategy-meta';
 import RiskControls from './RiskControls';
@@ -41,6 +42,7 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
   const [showForceCloseConfirm, setShowForceCloseConfirm] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const [infoStrategy, setInfoStrategy] = useState<string | null>(null);
+  const router = useRouter();
 
   const botRunState: BotRunState = (botConfig?.mode as BotRunState) || 'stopped';
   const balance = dashboardState?.account?.balance_cents ?? 0;
@@ -490,6 +492,31 @@ export default function Sidebar({ dashboardState, botConfig, onCommand, onStrate
             onApply={(params) => onCommand('update_risk', params)}
           />
         )}
+      </div>
+
+      {/* Research */}
+      <div className="border-t border-terminal-green/30">
+        <div className="p-4">
+          <div className="text-[10px] text-terminal-dim mb-2 tracking-[0.15em] uppercase">Research</div>
+          <button
+            onClick={() => router.push('/research/scoreboard')}
+            className="w-full flex items-center gap-2 py-2 px-3 text-xs font-bold text-terminal-cyan border border-terminal-cyan/20 rounded hover:bg-terminal-cyan/10 hover:border-terminal-cyan/40 transition-all"
+          >
+            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            TV SCOREBOARD
+          </button>
+          <button
+            onClick={() => router.push('/research/backtest')}
+            className="w-full flex items-center gap-2 py-2 px-3 mt-2 text-xs font-bold text-terminal-green border border-terminal-green/20 rounded hover:bg-terminal-green/10 hover:border-terminal-green/40 transition-all"
+          >
+            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            BACKTEST
+          </button>
+        </div>
       </div>
 
       {/* Audio Settings */}
