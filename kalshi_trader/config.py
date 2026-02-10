@@ -92,6 +92,12 @@ class RiskConfig(BaseModel):
         ge=1.0,
         le=100.0,
     )
+    max_per_series: int = Field(
+        default=2,
+        description="Maximum opportunities per series_ticker to cap correlation exposure",
+        ge=1,
+        le=20,
+    )
 
 
 class LearningConfig(BaseModel):
@@ -234,6 +240,12 @@ class KalshiConfig(BaseModel):
         default=1.0,
         description="Minimum position size in dollars (Kalshi minimum)",
         ge=1.0,
+    )
+    max_per_series: int = Field(
+        default=2,
+        description="Maximum opportunities per series_ticker to cap correlation exposure",
+        ge=1,
+        le=20,
     )
 
     # Market Selection
@@ -415,6 +427,7 @@ def load_config(
                 config_dict["daily_loss_limit"] = yaml_config.risk.daily_loss_limit
                 config_dict["kelly_fraction"] = yaml_config.risk.kelly_fraction
                 config_dict["min_position_size"] = yaml_config.risk.min_position_size
+                config_dict["max_per_series"] = yaml_config.risk.max_per_series
 
             # Apply learning settings from YAML
             if yaml_config.learning:

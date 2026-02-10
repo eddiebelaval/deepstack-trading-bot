@@ -51,12 +51,17 @@ class MarketMakingStrategy(Strategy):
         - min_volume: Minimum market volume (default 50)
     """
 
+    MINIMUM_BALANCE_CENTS = 50_000  # $500 — strategy needs capital for two-sided quoting
+
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.min_spread = config.get("min_spread_cents", 3)
         self.max_spread = config.get("max_spread_cents", 15)
         self.inventory_limit = config.get("inventory_limit", 10)
         self.skew_per_contract = config.get("skew_per_contract", 1)
+        self.minimum_balance_cents = config.get(
+            "minimum_balance_cents", self.MINIMUM_BALANCE_CENTS
+        )
 
         # Track inventory per ticker: {"ticker": {"yes": N, "no": M}}
         self._inventory: Dict[str, Dict[str, int]] = {}
@@ -83,7 +88,18 @@ class MarketMakingStrategy(Strategy):
         self,
         markets: List[Dict],
         existing_positions: Optional[Dict[str, Any]] = None,
+        account_balance_cents: Optional[int] = None,
     ) -> List[TradingOpportunity]:
+        # Guard: market making requires sufficient capital for two-sided quoting
+        if account_balance_cents is not None and account_balance_cents < self.minimum_balance_cents:
+            logger.debug(
+                f"[{self.name}] Skipping scan: account balance "
+                f"{account_balance_cents}c (${account_balance_cents / 100:.2f}) "
+                f"is below minimum {self.minimum_balance_cents}c "
+                f"(${self.minimum_balance_cents / 100:.2f}) required for market making"
+            )
+            return []
+
         existing_positions = existing_positions or {}
         opportunities = []
 
@@ -317,8 +333,9 @@ class MarketMakingStrategy(Strategy):
         )
 
     def _get_prior_stats(self) -> Dict[str, float]:
+        # Neutral priors — let Bayesian learning converge to reality
         return {
-            "win_rate": 0.70,
-            "avg_win_cents": float(self.take_profit),   # 3c
-            "avg_loss_cents": float(self.stop_loss),     # 5c
+            "win_rate": 0.50,
+            "avg_win_cents": 6.0,
+            "avg_loss_cents": 6.0,
         }

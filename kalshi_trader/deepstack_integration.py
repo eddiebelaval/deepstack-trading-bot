@@ -179,6 +179,7 @@ class DeepStackIntegration:
         avg_win_cents: float,
         avg_loss_cents: float,
         ticker: Optional[str] = None,
+        kelly_override: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Calculate optimal position size using Kelly Criterion.
@@ -190,6 +191,8 @@ class DeepStackIntegration:
             avg_win_cents: Average win in cents
             avg_loss_cents: Average loss in cents (positive)
             ticker: Optional ticker for existing position check
+            kelly_override: Per-strategy Kelly fraction; takes precedence
+                over self.config.kelly_fraction when provided.
 
         Returns:
             Dict with:
@@ -204,12 +207,14 @@ class DeepStackIntegration:
         avg_win_dollars = avg_win_cents / 100  # Win per dollar invested
         avg_loss_dollars = avg_loss_cents / 100  # Loss per dollar invested
 
+        kelly_fraction = kelly_override if kelly_override is not None else self.config.kelly_fraction
+
         # Calculate using Kelly
         result = self.kelly_sizer.calculate_position_size(
             win_rate=win_rate,
             avg_win=avg_win_dollars,
             avg_loss=avg_loss_dollars,
-            kelly_fraction=self.config.kelly_fraction,
+            kelly_fraction=kelly_fraction,
             symbol=ticker,
         )
 

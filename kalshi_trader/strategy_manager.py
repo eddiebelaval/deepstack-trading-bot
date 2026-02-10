@@ -68,6 +68,7 @@ class StrategyManager:
         markets: Dict[str, Market],
         max_position_size: float = 50.0,
         max_total_positions: int = 10,
+        max_per_series: int = 2,
         dry_run: bool = False,
     ):
         """
@@ -78,6 +79,7 @@ class StrategyManager:
             markets: Dict of platform name -> Market instance
             max_position_size: Maximum position size per trade
             max_total_positions: Maximum concurrent positions across all strategies
+            max_per_series: Maximum opportunities per series_ticker (correlation cap)
             dry_run: If True, scan but don't execute trades
         """
         self.config = config
@@ -85,6 +87,7 @@ class StrategyManager:
         self.markets = markets
         self.max_position_size = max_position_size
         self.max_total_positions = max_total_positions
+        self.max_per_series = max_per_series
 
         self._strategies: Dict[str, StrategyState] = {}
         self._position_to_strategy: Dict[str, str] = {}  # ticker -> strategy name
@@ -300,8 +303,8 @@ class StrategyManager:
 
         Applies:
         - Conflict resolution (same ticker, opposite sides)
+        - Correlation guard (max opportunities per series_ticker)
         - Portfolio capacity checks
-        - Diversification rules
 
         Args:
             opportunities: List of opportunities to rank
@@ -341,13 +344,30 @@ class StrategyManager:
             else:
                 seen_tickers[ticker] = opp
 
-        # Apply portfolio capacity
-        remaining_capacity = self.max_total_positions - self.total_positions
+        # Correlation guard: cap opportunities per series_ticker
         ranked = list(seen_tickers.values())
         ranked.sort(key=lambda x: x.score, reverse=True)
 
+        series_counts: Dict[str, int] = {}
+        correlated_filtered: List[TradingOpportunity] = []
+        for opp in ranked:
+            series = opp.ticker.split("-")[0]
+            count = series_counts.get(series, 0)
+            if count >= self.max_per_series:
+                logger.info(
+                    f"Correlation guard: dropping {opp.ticker} "
+                    f"(series {series} already has {count} opportunities, "
+                    f"max_per_series={self.max_per_series})"
+                )
+                continue
+            series_counts[series] = count + 1
+            correlated_filtered.append(opp)
+
+        # Apply portfolio capacity
+        remaining_capacity = self.max_total_positions - self.total_positions
+
         # Limit results
-        return ranked[:min(max_results, remaining_capacity)]
+        return correlated_filtered[:min(max_results, remaining_capacity)]
 
     async def check_all_exits(
         self,

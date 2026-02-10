@@ -14,15 +14,18 @@ Math:
 Tables (same trade_journal.db):
     - strategy_priors: Registered priors from hardcoded stats
     - strategy_health: Latest blended stats and health status
+    - daily_reviews: End-of-day review with per-strategy metrics and patterns
 """
 
+import json
 import logging
 import math
 import sqlite3
+from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +148,17 @@ class PerformanceTracker:
                 stop_loss_cents INTEGER,
                 sample_size INTEGER DEFAULT 0,
                 last_computed TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS daily_reviews (
+                date DATE PRIMARY KEY,
+                total_trades INTEGER DEFAULT 0,
+                total_pnl_cents INTEGER DEFAULT 0,
+                strategies_active INTEGER DEFAULT 0,
+                review_json TEXT,
+                generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
@@ -514,6 +528,169 @@ class PerformanceTracker:
             "sample_wins": len(wins),
             "sample_losses": len(losses),
         }
+
+    # ── Daily Review ─────────────────────────────────────────────────
+
+    def generate_daily_review(self) -> Dict[str, Any]:
+        """
+        Generate end-of-day review with per-strategy metrics, pattern
+        detection, and comparison against Bayesian blended expectations.
+
+        Returns a structured dict persisted to the daily_reviews table.
+        """
+        today = date.today().isoformat()
+        conn = self._get_conn()
+
+        # 1. Query all closed trades from today
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, market_ticker, strategy, side, action, contracts,
+                       entry_price_cents, exit_price_cents, pnl_cents,
+                       exit_reason, created_at
+                FROM trades
+                WHERE session_date = ? AND status = 'closed' AND pnl_cents IS NOT NULL
+                ORDER BY created_at
+                """,
+                (today,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+
+        if not rows:
+            review: Dict[str, Any] = {
+                "date": today,
+                "total_trades": 0,
+                "total_pnl_cents": 0,
+                "strategies": {},
+                "patterns": [],
+                "blended_comparison": {},
+            }
+            self._persist_daily_review(review)
+            return review
+
+        # 2. Per-strategy metrics
+        strategy_trades: Dict[str, List[Dict]] = defaultdict(list)
+        for row in rows:
+            strategy_trades[row["strategy"]].append(dict(row))
+
+        strategies: Dict[str, Dict[str, Any]] = {}
+        for strat_name, trades in strategy_trades.items():
+            wins = [t for t in trades if t["pnl_cents"] > 0]
+            losses = [t for t in trades if t["pnl_cents"] < 0]
+            pnls = [t["pnl_cents"] for t in trades]
+
+            best = max(trades, key=lambda t: t["pnl_cents"])
+            worst = min(trades, key=lambda t: t["pnl_cents"])
+
+            strategies[strat_name] = {
+                "trades": len(trades),
+                "wins": len(wins),
+                "losses": len(losses),
+                "win_rate": round(len(wins) / len(trades), 4) if trades else 0,
+                "total_pnl_cents": sum(pnls),
+                "avg_pnl_cents": round(sum(pnls) / len(pnls), 1) if pnls else 0,
+                "best_trade": {
+                    "ticker": best["market_ticker"],
+                    "pnl_cents": best["pnl_cents"],
+                },
+                "worst_trade": {
+                    "ticker": worst["market_ticker"],
+                    "pnl_cents": worst["pnl_cents"],
+                },
+            }
+
+        # 3. Pattern detection — group by strategy + market prefix
+        patterns: List[str] = []
+        for strat_name, trades in strategy_trades.items():
+            market_groups: Dict[str, List[Dict]] = defaultdict(list)
+            for t in trades:
+                prefix = (
+                    t["market_ticker"].split("-")[0]
+                    if "-" in t["market_ticker"]
+                    else t["market_ticker"]
+                )
+                market_groups[prefix].append(t)
+
+            for prefix, group in market_groups.items():
+                if len(group) < 2:
+                    continue
+                group_wins = sum(1 for t in group if t["pnl_cents"] > 0)
+                group_total = len(group)
+
+                if group_total - group_wins >= 3 and group_wins / group_total < 0.3:
+                    patterns.append(
+                        f"{strat_name} lost {group_total - group_wins}/{group_total} "
+                        f"on {prefix} markets"
+                    )
+                elif group_wins >= 3 and group_wins / group_total > 0.7:
+                    patterns.append(
+                        f"{strat_name} profitable on {prefix} "
+                        f"({group_wins}/{group_total} wins)"
+                    )
+
+        # 4. Compare today's raw stats against all-time Bayesian blend
+        blended_comparison: Dict[str, Dict[str, Any]] = {}
+        for strat_name in strategy_trades:
+            blended = self.get_blended_stats(strat_name)
+            today_metrics = strategies[strat_name]
+
+            blended_ev = (
+                blended["win_rate"] * blended["avg_win_cents"]
+                - (1 - blended["win_rate"]) * blended["avg_loss_cents"]
+            )
+
+            blended_comparison[strat_name] = {
+                "blended_win_rate": round(blended["win_rate"], 4),
+                "today_win_rate": today_metrics["win_rate"],
+                "delta_win_rate": round(
+                    today_metrics["win_rate"] - blended["win_rate"], 4
+                ),
+                "blended_ev_cents": round(blended_ev, 2),
+                "today_avg_pnl_cents": today_metrics["avg_pnl_cents"],
+            }
+
+        # 5. Assemble review
+        total_pnl = sum(row["pnl_cents"] for row in rows)
+
+        review = {
+            "date": today,
+            "total_trades": len(rows),
+            "total_pnl_cents": total_pnl,
+            "strategies": strategies,
+            "patterns": patterns,
+            "blended_comparison": blended_comparison,
+        }
+
+        self._persist_daily_review(review)
+
+        logger.info(
+            f"Daily review generated: {len(rows)} trades, "
+            f"P&L={total_pnl:+d}c, patterns={len(patterns)}"
+        )
+
+        return review
+
+    def _persist_daily_review(self, review: Dict[str, Any]) -> None:
+        """Save daily review to the daily_reviews table."""
+        conn = self._get_conn()
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO daily_reviews
+                (date, total_trades, total_pnl_cents, strategies_active,
+                 review_json, generated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                review["date"],
+                review["total_trades"],
+                review["total_pnl_cents"],
+                len(review["strategies"]),
+                json.dumps(review),
+                datetime.now().isoformat(),
+            ),
+        )
+        conn.commit()
 
     def close(self) -> None:
         """Close the database connection."""

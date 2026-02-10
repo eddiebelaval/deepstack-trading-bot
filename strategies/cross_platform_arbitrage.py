@@ -643,11 +643,11 @@ class CrossPlatformArbitrageStrategy(Strategy):
         Returns:
             Dict with win_rate, avg_win_cents, avg_loss_cents
         """
-        # Conservative estimates for cross-platform arbitrage
+        # Neutral priors — let Bayesian learning converge to reality
         return {
-            "win_rate": 0.60,  # 60% of signals converge profitably
-            "avg_win_cents": float(self.take_profit),
-            "avg_loss_cents": float(self.stop_loss),
+            "win_rate": 0.50,
+            "avg_win_cents": 6.0,
+            "avg_loss_cents": 6.0,
         }
 
     def validate_config(self) -> tuple[bool, str]:

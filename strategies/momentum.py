@@ -456,11 +456,11 @@ class MomentumStrategy(Strategy):
         Returns:
             Dict with win_rate, avg_win_cents, avg_loss_cents
         """
-        # Momentum strategies have lower win rate but better risk/reward
+        # Neutral priors — let Bayesian learning converge to reality
         return {
-            "win_rate": 0.55,
-            "avg_win_cents": float(self.take_profit),  # 10c
-            "avg_loss_cents": float(self.stop_loss),   # 6c
+            "win_rate": 0.50,
+            "avg_win_cents": 6.0,
+            "avg_loss_cents": 6.0,
         }
 
     def validate_config(self) -> tuple[bool, str]:
