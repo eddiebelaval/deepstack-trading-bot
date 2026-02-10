@@ -1120,10 +1120,11 @@ class CombinatorialArbitrageStrategy(Strategy):
         Returns:
             Dict with win_rate, avg_win_cents, avg_loss_cents
         """
+        # Structural edge preserved — arb mispricing is mathematical, not statistical
         return {
-            "win_rate": 0.98,  # 98% success rate (2% execution failure)
+            "win_rate": 0.80,
             "avg_win_cents": float(self.min_profit_cents),
-            "avg_loss_cents": 2.0,  # Small loss on failed execution
+            "avg_loss_cents": 2.0,
         }
 
     def validate_config(self) -> tuple[bool, str]:

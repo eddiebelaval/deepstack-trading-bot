@@ -228,14 +228,20 @@ class DashboardSync:
 
         # Update strategy_status rows
         for strategy in strategies:
-            await self._upsert("strategy_status", {
+            row = {
                 "name": strategy["name"],
                 "enabled": strategy.get("enabled", True),
                 "active_positions": strategy.get("active_positions", 0),
                 "opportunities_found": strategy.get("opportunities_found", 0),
                 "last_scan": strategy.get("last_scan"),
                 "status": strategy.get("status", "inactive"),
-            }, on_conflict="name")
+            }
+            # Forward learning stats when present (populated by PerformanceTracker)
+            for key in ("blended_win_rate", "learning_confidence", "effective_trades",
+                        "blended_ev_cents", "health_status", "auto_disabled"):
+                if key in strategy:
+                    row[key] = strategy[key]
+            await self._upsert("strategy_status", row, on_conflict="name")
 
     async def push_trade(
         self,

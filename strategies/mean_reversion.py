@@ -360,12 +360,11 @@ class MeanReversionStrategy(Strategy):
         Returns:
             Dict with win_rate, avg_win_cents, avg_loss_cents
         """
-        # Optimized for positive EV:
-        # EV = (0.60 * 8) - (0.40 * 5) = 4.8 - 2.0 = +2.8c per contract
+        # Neutral priors — let Bayesian learning converge to reality
         return {
-            "win_rate": 0.60,  # 60% win rate for mean reversion
-            "avg_win_cents": float(self.take_profit),  # 8c
-            "avg_loss_cents": float(self.stop_loss),  # 5c
+            "win_rate": 0.50,
+            "avg_win_cents": 6.0,
+            "avg_loss_cents": 6.0,
         }
 
     def validate_config(self) -> tuple[bool, str]:

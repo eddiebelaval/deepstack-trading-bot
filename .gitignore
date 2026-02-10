@@ -86,6 +86,9 @@ yarn-error.log*
 *.dll
 *.dylib
 
+# Workspace scratch (throwaway experiments)
+workspace/scratch/
+
 # OS files
 .DS_Store
 .AppleDouble

@@ -289,11 +289,11 @@ class Strategy(ABC):
                 - avg_win_cents: Average winning trade in cents
                 - avg_loss_cents: Average losing trade in cents (positive)
         """
-        # Default conservative stats
+        # Neutral priors — let Bayesian learning converge to reality
         return {
-            "win_rate": 0.55,
-            "avg_win_cents": float(self.take_profit),
-            "avg_loss_cents": float(self.stop_loss),
+            "win_rate": 0.50,
+            "avg_win_cents": 6.0,
+            "avg_loss_cents": 6.0,
         }
 
     def calculate_edge(self) -> Dict[str, float]:

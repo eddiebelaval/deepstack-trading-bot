@@ -48,6 +48,11 @@ export interface StrategyStatus {
   opportunities_found: number;
   last_scan: string | null;
   status: 'active' | 'inactive' | 'scanning' | 'error';
+  blended_win_rate: number | null;
+  learning_confidence: number | null;
+  effective_trades: number | null;
+  blended_ev_cents: number | null;
+  health_status: 'healthy' | 'warning' | 'critical' | 'unknown' | null;
 }
 
 // Alias for components that use Strategy

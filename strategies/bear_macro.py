@@ -413,8 +413,9 @@ class BearMacroStrategy(Strategy):
         )
 
     def _get_prior_stats(self) -> Dict[str, float]:
+        # Neutral priors — let Bayesian learning converge to reality
         return {
-            "win_rate": 0.58,
-            "avg_win_cents": float(self.take_profit),   # 10c
-            "avg_loss_cents": float(self.stop_loss),     # 7c
+            "win_rate": 0.50,
+            "avg_win_cents": 6.0,
+            "avg_loss_cents": 6.0,
         }

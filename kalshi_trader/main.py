@@ -25,7 +25,7 @@ import asyncio
 import logging
 import signal
 import sys
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from .command_processor import CommandProcessor
@@ -116,6 +116,27 @@ class KalshiTradingBot:
 
         # Track open positions
         self.open_positions: Dict[str, Dict[str, Any]] = {}
+
+        # Per-strategy dynamic Kelly fractions (prevents last-strategy-wins bug)
+        self._dynamic_kelly_fractions: Dict[str, float] = {}
+
+        # Auto-disable: track consecutive critical cycles per strategy
+        self._critical_cycle_counts: Dict[str, int] = {}
+        self._auto_disabled_strategies: set = set()
+        self._latest_health: Dict[str, Any] = {}
+
+        # Hard circuit breakers per strategy (independent of health evaluation)
+        # Structure: {strategy_name: {consecutive_losses, peak_pnl_cents, total_pnl_cents}}
+        self._strategy_circuit_breakers: Dict[str, Dict[str, Any]] = {}
+
+        # Auto re-enable: track when each strategy was auto-disabled
+        self._auto_disabled_at: Dict[str, datetime] = {}
+        self._reenable_cooldown_hours: int = 6
+        # Apply 30% tighter Kelly on re-enable to limit exposure during probation
+        self._reenable_tighter_factor: float = 0.7
+
+        # Daily review: track last review date to trigger once per day
+        self._last_daily_review_date: Optional[str] = None
 
         logger.info(
             f"KalshiTradingBot initialized | "
@@ -300,6 +321,7 @@ class KalshiTradingBot:
             config=manager_config,
             markets=markets_dict,
             max_position_size=self.config.max_position_size,
+            max_per_series=getattr(self.config, 'max_per_series', 2),
             dry_run=getattr(self, 'dry_run', False),
         )
 
@@ -370,7 +392,7 @@ class KalshiTradingBot:
             logger.info(f"Learning loop attached: {self.strategy.name}")
 
     def _apply_adaptive_thresholds(self) -> None:
-        """Apply learned take_profit/stop_loss to active strategies."""
+        """Apply learned take_profit/stop_loss and dynamic Kelly to active strategies."""
         if not self.performance_tracker:
             return
 
@@ -379,10 +401,59 @@ class KalshiTradingBot:
                 params = self.performance_tracker.get_adaptive_params(name)
                 if params and hasattr(state.strategy, 'apply_adaptive_params'):
                     state.strategy.apply_adaptive_params(params)
+                self._apply_dynamic_kelly(name)
         elif self.strategy and hasattr(self.strategy, 'apply_adaptive_params'):
             params = self.performance_tracker.get_adaptive_params("mean_reversion")
             if params:
                 self.strategy.apply_adaptive_params(params)
+            self._apply_dynamic_kelly("mean_reversion")
+
+    def _apply_dynamic_kelly(self, strategy_name: str) -> None:
+        """Calculate and apply Kelly fraction from blended performance stats.
+
+        Uses the Kelly Criterion: f* = p - q/b
+        where p = blended win rate, q = 1-p, b = avg_win/avg_loss.
+        Only overrides config when learning_confidence > 0.3 (enough observed data).
+        Clamped to [0.05, 0.5] to prevent ruin and maintain learning signal.
+        """
+        if not self.performance_tracker:
+            return
+
+        stats = self.performance_tracker.get_blended_stats(strategy_name)
+        prior = self.performance_tracker.get_prior(strategy_name)
+
+        # Calculate learning confidence: n / (n + k)
+        k = prior.prior_strength if prior else self.performance_tracker.prior_strength
+        n = self.performance_tracker._get_effective_trade_count(strategy_name)
+        learning_confidence = n / (n + k) if (n + k) > 0 else 0.0
+
+        if learning_confidence <= 0.3:
+            logger.debug(
+                f"[{strategy_name}] Dynamic Kelly skipped: "
+                f"learning_confidence={learning_confidence:.2f} <= 0.3"
+            )
+            return
+
+        blended_win_rate = stats["win_rate"]
+        avg_win = stats["avg_win_cents"]
+        avg_loss = stats["avg_loss_cents"]
+
+        if avg_loss <= 0:
+            logger.warning(f"[{strategy_name}] Dynamic Kelly skipped: avg_loss={avg_loss}")
+            return
+
+        win_loss_ratio = avg_win / avg_loss
+        raw_kelly = blended_win_rate - ((1 - blended_win_rate) / win_loss_ratio)
+        clamped_kelly = max(0.05, min(0.5, raw_kelly))
+
+        old_kelly = self._dynamic_kelly_fractions.get(strategy_name, self.config.kelly_fraction)
+        self._dynamic_kelly_fractions[strategy_name] = clamped_kelly
+
+        logger.info(
+            f"[{strategy_name}] Dynamic Kelly: {old_kelly:.3f} -> {clamped_kelly:.3f} "
+            f"(raw={raw_kelly:.3f}, win_rate={blended_win_rate:.3f}, "
+            f"W/L={win_loss_ratio:.2f}, confidence={learning_confidence:.2f})"
+        )
 
     async def _shutdown(self) -> None:
         """Clean shutdown of all components."""
@@ -410,6 +481,30 @@ class KalshiTradingBot:
                 summary = self.journal.generate_daily_summary()
                 logger.info(f"\n{summary}")
                 self.journal.save_daily_summary()
+
+            # Generate daily review (per-strategy metrics, patterns, blend comparison)
+            if self.performance_tracker:
+                review = self.performance_tracker.generate_daily_review()
+                if review["total_trades"] > 0:
+                    parts = [
+                        f"Daily Review: {review['total_trades']} trades, "
+                        f"${review['total_pnl_cents'] / 100:.2f} P&L",
+                    ]
+                    for strat, metrics in review["strategies"].items():
+                        parts.append(
+                            f"{strat}: {metrics['wins']}W/{metrics['losses']}L "
+                            f"(${metrics['total_pnl_cents'] / 100:.2f})"
+                        )
+                    for pattern in review["patterns"]:
+                        parts.append(f"Pattern: {pattern}")
+
+                    if self.dashboard:
+                        await self.dashboard.push_log(
+                            " | ".join(parts),
+                            level="INFO",
+                            strategy="daily_review",
+                        )
+                    logger.info(f"Daily review: {' | '.join(parts)}")
 
             # Close performance tracker
             if self.performance_tracker:
@@ -518,6 +613,18 @@ class KalshiTradingBot:
         # 1. Update state (always, even when paused)
         await self._update_state()
 
+        # 2. Check for strategies that need auto-disabling
+        await self._check_auto_disable()
+
+        # 2b. Evaluate health + hard circuit breakers (runs after _apply_adaptive_thresholds)
+        await self._check_strategy_health_and_breakers()
+
+        # 2c. Check if any auto-disabled strategies can be re-enabled after cooldown
+        await self._check_auto_reenable()
+
+        # 2d. Run daily review on date rollover (populates daily_reviews table)
+        await self._run_daily_review()
+
         # Skip market scanning if paused
         if self._paused:
             logger.debug("Bot paused — skipping market scan")
@@ -625,7 +732,13 @@ class KalshiTradingBot:
                             strategy_info["blended_win_rate"] = round(blended["win_rate"], 4)
                             strategy_info["learning_confidence"] = round(n / (n + k), 4) if (n + k) > 0 else 0
                             strategy_info["effective_trades"] = round(n, 1)
+                        health = self.performance_tracker.evaluate_health(name)
+                        strategy_info["blended_ev_cents"] = round(health.blended_ev_cents, 2)
+                        strategy_info["health_status"] = health.health_status
+                        # Store for cycle-based auto-disable check
+                        self._latest_health[name] = health
 
+                    strategy_info["auto_disabled"] = name in self._auto_disabled_strategies
                     strategies.append(strategy_info)
 
             await self.dashboard.push_state(
@@ -638,6 +751,7 @@ class KalshiTradingBot:
                     "daily_loss_limit": self.config.daily_loss_limit,
                     "max_position_size": self.config.max_position_size,
                     "kelly_fraction": self.config.kelly_fraction,
+                    "dynamic_kelly_fractions": dict(self._dynamic_kelly_fractions),
                 },
             )
 
@@ -679,6 +793,276 @@ class KalshiTradingBot:
                                 self._apply_adaptive_thresholds()
             except Exception as e:
                 logger.debug(f"Failed to push settlements: {e}")
+
+    async def _check_auto_disable(self) -> None:
+        """Check each strategy's health after push_state and auto-disable if critical persists.
+
+        Tracks consecutive cycles where health_status == 'critical'. After 3
+        consecutive critical cycles, disables the strategy and pushes a WARNING
+        log to Supabase so the dashboard can surface the kill.
+        """
+        if not self.strategy_manager or not self.performance_tracker:
+            return
+
+        for name, state in self.strategy_manager._strategies.items():
+            if not state.enabled:
+                continue
+
+            health = self._latest_health.get(name)
+            if not health:
+                continue
+
+            if health.health_status == "critical":
+                self._critical_cycle_counts[name] = self._critical_cycle_counts.get(name, 0) + 1
+            else:
+                self._critical_cycle_counts[name] = 0
+                continue
+
+            if self._critical_cycle_counts[name] >= 3:
+                self.strategy_manager.disable_strategy(name)
+                self._auto_disabled_strategies.add(name)
+                self._auto_disabled_at[name] = datetime.now()
+                self._critical_cycle_counts[name] = 0
+
+                logger.warning(
+                    f"AUTO-DISABLE: {name} critical for 3 consecutive cycles | "
+                    f"EV={health.blended_ev_cents:.2f}c, "
+                    f"win_rate={health.blended_win_rate:.1%}, "
+                    f"warnings={health.consecutive_warnings}"
+                )
+
+                if self.dashboard:
+                    await self.dashboard.push_log(
+                        f"Auto-disabled {name}: critical health for 3 consecutive cycles "
+                        f"(EV={health.blended_ev_cents:.2f}c, "
+                        f"win_rate={health.blended_win_rate:.1%})",
+                        level="WARNING",
+                        strategy=name,
+                    )
+
+    async def _check_auto_reenable(self) -> None:
+        """Re-evaluate auto-disabled strategies after cooldown period.
+
+        After _reenable_cooldown_hours of being disabled, re-check Bayesian
+        health. If the blend has recovered (no longer critical), cautiously
+        re-enable with tighter Kelly sizing. If still critical, double the
+        cooldown by resetting the timestamp.
+        """
+        if not self.strategy_manager or not self.performance_tracker:
+            return
+
+        now = datetime.now()
+        for name in list(self._auto_disabled_strategies):
+            disabled_at = self._auto_disabled_at.get(name)
+            if not disabled_at:
+                continue
+
+            hours_disabled = (now - disabled_at).total_seconds() / 3600
+            if hours_disabled < self._reenable_cooldown_hours:
+                continue
+
+            health = self.performance_tracker.evaluate_health(name)
+
+            if health.health_status == "critical":
+                # Still bad — double the cooldown by resetting timestamp
+                self._auto_disabled_at[name] = now
+                logger.info(
+                    f"Re-enable check: {name} still critical after {hours_disabled:.1f}h | "
+                    f"EV={health.blended_ev_cents:.2f}c — extending cooldown"
+                )
+                continue
+
+            # Health recovered — cautiously re-enable
+            self.strategy_manager.enable_strategy(name)
+            self._auto_disabled_strategies.discard(name)
+            del self._auto_disabled_at[name]
+
+            # Reset circuit breakers for a fresh start
+            self._strategy_circuit_breakers[name] = {
+                "consecutive_losses": 0,
+                "peak_pnl_cents": 0,
+                "total_pnl_cents": 0,
+            }
+            self._critical_cycle_counts[name] = 0
+
+            # Apply a more conservative Kelly fraction during probation
+            current_kelly = self._dynamic_kelly_fractions.get(
+                name, self.config.kelly_fraction
+            )
+            cautious_kelly = max(0.05, current_kelly * self._reenable_tighter_factor)
+            self._dynamic_kelly_fractions[name] = cautious_kelly
+
+            logger.warning(
+                f"AUTO-REENABLE: {name} after {hours_disabled:.1f}h cooldown | "
+                f"health={health.health_status}, EV={health.blended_ev_cents:.2f}c | "
+                f"kelly={cautious_kelly:.3f} (cautious)"
+            )
+
+            if self.dashboard:
+                await self.dashboard.push_log(
+                    f"Auto-reenabled {name} after {hours_disabled:.1f}h cooldown "
+                    f"(health={health.health_status}, EV={health.blended_ev_cents:.2f}c, "
+                    f"cautious kelly={cautious_kelly:.3f})",
+                    level="INFO",
+                    strategy=name,
+                )
+
+    async def _run_daily_review(self) -> None:
+        """Generate daily review if the date has rolled over since last check.
+
+        Calls performance_tracker.generate_daily_review() which aggregates
+        per-strategy metrics, detects patterns, and compares today's raw
+        stats against the all-time Bayesian blend. Results persist to the
+        daily_reviews SQLite table and get pushed to dashboard logs.
+        """
+        if not self.performance_tracker:
+            return
+
+        today = date.today().isoformat()
+        if self._last_daily_review_date == today:
+            return
+
+        # On first cycle after boot, set the date but don't generate
+        # (no full day of data yet)
+        if self._last_daily_review_date is None:
+            self._last_daily_review_date = today
+            return
+
+        review = self.performance_tracker.generate_daily_review()
+        self._last_daily_review_date = today
+
+        if self.dashboard and review["total_trades"] > 0:
+            patterns = review.get("patterns", [])
+            pattern_summary = f" | patterns: {', '.join(patterns)}" if patterns else ""
+            await self.dashboard.push_log(
+                f"Daily review: {review['total_trades']} trades, "
+                f"P&L={review['total_pnl_cents']:+d}c{pattern_summary}",
+                level="INFO",
+                strategy="system",
+            )
+
+    def _update_circuit_breaker_state(self, strategy_name: str, pnl_cents: int) -> None:
+        """Update per-strategy circuit breaker tracking after a trade closes."""
+        if strategy_name not in self._strategy_circuit_breakers:
+            self._strategy_circuit_breakers[strategy_name] = {
+                "consecutive_losses": 0,
+                "peak_pnl_cents": 0,
+                "total_pnl_cents": 0,
+            }
+
+        cb = self._strategy_circuit_breakers[strategy_name]
+        cb["total_pnl_cents"] += pnl_cents
+
+        if cb["total_pnl_cents"] > cb["peak_pnl_cents"]:
+            cb["peak_pnl_cents"] = cb["total_pnl_cents"]
+
+        if pnl_cents < 0:
+            cb["consecutive_losses"] += 1
+        else:
+            cb["consecutive_losses"] = 0
+
+    async def _check_strategy_health_and_breakers(self) -> None:
+        """Evaluate each strategy's health and apply hard circuit breakers.
+
+        Runs after _apply_adaptive_thresholds() each cycle. Two layers:
+        1. Performance tracker health: calls evaluate_health() and disables on "critical"
+        2. Hard circuit breakers (fire regardless of health eval):
+           - Win rate < 30% after 20+ trades
+           - 5 consecutive losses
+           - 15% drawdown from strategy's peak P&L
+        """
+        if not self.strategy_manager or not self.performance_tracker:
+            return
+
+        for name, state in list(self.strategy_manager._strategies.items()):
+            if not state.enabled:
+                continue
+
+            # --- Layer 1: Health evaluation ---
+            health = self.performance_tracker.evaluate_health(name)
+            self._latest_health[name] = health
+
+            if health.health_status == "critical":
+                self.strategy_manager.disable_strategy(name)
+                self._auto_disabled_strategies.add(name)
+                self._auto_disabled_at[name] = datetime.now()
+                logger.warning(
+                    f"AUTO-DISABLE [health]: {name} status=critical | "
+                    f"EV={health.blended_ev_cents:.2f}c, "
+                    f"win_rate={health.blended_win_rate:.1%}, "
+                    f"confidence={health.confidence:.1%}"
+                )
+                if self.dashboard:
+                    await self.dashboard.push_log(
+                        f"Auto-disabled {name}: critical health "
+                        f"(EV={health.blended_ev_cents:.2f}c, "
+                        f"win_rate={health.blended_win_rate:.1%})",
+                        level="WARNING",
+                        strategy=name,
+                    )
+                continue
+
+            # --- Layer 2: Hard circuit breakers ---
+            cb = self._strategy_circuit_breakers.get(name, {})
+
+            # Breaker 1: Win rate < 30% after 20+ trades
+            if (
+                health.observed_trade_count >= 20
+                and health.blended_win_rate < 0.30
+            ):
+                self.strategy_manager.disable_strategy(name)
+                self._auto_disabled_strategies.add(name)
+                self._auto_disabled_at[name] = datetime.now()
+                reason = (
+                    f"win_rate={health.blended_win_rate:.1%} < 30% "
+                    f"over {health.observed_trade_count} trades"
+                )
+                logger.warning(f"CIRCUIT BREAKER [win_rate]: {name} | {reason}")
+                if self.dashboard:
+                    await self.dashboard.push_log(
+                        f"Circuit breaker triggered for {name}: {reason}",
+                        level="WARNING",
+                        strategy=name,
+                    )
+                continue
+
+            # Breaker 2: 5 consecutive losses
+            consecutive_losses = cb.get("consecutive_losses", 0)
+            if consecutive_losses >= 5:
+                self.strategy_manager.disable_strategy(name)
+                self._auto_disabled_strategies.add(name)
+                self._auto_disabled_at[name] = datetime.now()
+                reason = f"{consecutive_losses} consecutive losses"
+                logger.warning(
+                    f"CIRCUIT BREAKER [consecutive_losses]: {name} | {reason}"
+                )
+                if self.dashboard:
+                    await self.dashboard.push_log(
+                        f"Circuit breaker triggered for {name}: {reason}",
+                        level="WARNING",
+                        strategy=name,
+                    )
+                continue
+
+            # Breaker 3: 15% drawdown from peak P&L
+            peak = cb.get("peak_pnl_cents", 0)
+            total = cb.get("total_pnl_cents", 0)
+            if peak > 0 and (peak - total) / peak >= 0.15:
+                self.strategy_manager.disable_strategy(name)
+                self._auto_disabled_strategies.add(name)
+                self._auto_disabled_at[name] = datetime.now()
+                drawdown_pct = (peak - total) / peak * 100
+                reason = (
+                    f"drawdown={drawdown_pct:.1f}% from peak "
+                    f"(peak={peak}c, current={total}c)"
+                )
+                logger.warning(f"CIRCUIT BREAKER [drawdown]: {name} | {reason}")
+                if self.dashboard:
+                    await self.dashboard.push_log(
+                        f"Circuit breaker triggered for {name}: {reason}",
+                        level="WARNING",
+                        strategy=name,
+                    )
 
     async def _sync_positions(self) -> None:
         """Sync local position tracking with exchange."""
@@ -820,6 +1204,11 @@ class KalshiTradingBot:
                     position_size_dollars=contracts,
                 )
 
+                # Update circuit breaker state for this strategy
+                self._update_circuit_breaker_state(
+                    position.get("strategy", "mean_reversion"), pnl
+                )
+
                 # Sync close to Supabase dashboard
                 if self.dashboard and position.get("order_id"):
                     await self.dashboard.push_trade_close(
@@ -849,6 +1238,8 @@ class KalshiTradingBot:
                     )
                     if self.strategy_manager:
                         self.strategy_manager.disable_strategy(strategy_name)
+                    self._auto_disabled_strategies.add(strategy_name)
+                    self._auto_disabled_at[strategy_name] = datetime.now()
                     if self.dashboard:
                         await self.dashboard.push_log(
                             f"Auto-disabled {strategy_name}: sustained negative EV "
@@ -940,11 +1331,13 @@ class KalshiTradingBot:
             stats = self.performance_tracker.get_blended_stats("mean_reversion")
         else:
             stats = self.strategy.get_historical_stats()
+        kelly_override = self._dynamic_kelly_fractions.get("mean_reversion")
         size_result = self.risk.calculate_position_size(
             win_rate=stats["win_rate"],
             avg_win_cents=stats["avg_win_cents"],
             avg_loss_cents=stats["avg_loss_cents"],
             ticker=ticker,
+            kelly_override=kelly_override,
         )
 
         contracts = size_result["contracts"]
@@ -982,11 +1375,13 @@ class KalshiTradingBot:
             stats = self.performance_tracker.get_blended_stats(strategy_name)
         else:
             stats = state.strategy.get_historical_stats()
+        kelly_override = self._dynamic_kelly_fractions.get(strategy_name)
         size_result = self.risk.calculate_position_size(
             win_rate=stats["win_rate"],
             avg_win_cents=stats["avg_win_cents"],
             avg_loss_cents=stats["avg_loss_cents"],
             ticker=ticker,
+            kelly_override=kelly_override,
         )
 
         contracts = size_result["contracts"]

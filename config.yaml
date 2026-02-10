@@ -75,6 +75,7 @@ strategies:
 
   # === Prediction Market Native Strategies (disabled by default) ===
 
+  # Disabled: 2-5c margins too thin, ties up capital for minimal return at scale
   - name: high_probability_bonds
     enabled: false            # Buy 93-98c contracts, hold to settlement
     markets:
@@ -89,6 +90,7 @@ strategies:
       take_profit_cents: 2
       min_score: 30
 
+  # Disabled: favorite-longshot bias unproven on Kalshi, no historical validation data
   - name: calibration_edge
     enabled: false            # Exploit favorite-longshot bias
     markets:
@@ -101,6 +103,7 @@ strategies:
       take_profit_cents: 6
       stop_loss_cents: 4
 
+  # Disabled: no model consensus pipeline built, untested theoretical edge
   - name: weather_aggregation
     enabled: false            # Trade weather markets via model consensus
     markets:
@@ -114,6 +117,7 @@ strategies:
       take_profit_cents: 7
       stop_loss_cents: 5
 
+  # Disabled: LLM cost per eval, overreaction detection needs backtesting before live capital
   - name: news_sentiment_fade
     enabled: false            # Fade overreactions (needs ANTHROPIC_API_KEY)
     markets:
@@ -172,6 +176,7 @@ strategies:
       min_volume: 50
       max_hold_minutes: 45
 
+  # Disabled: macro timing notoriously unreliable, long hold periods tie up capital
   - name: bear_macro
     enabled: false            # Economic indicator trading via FRED (needs FRED_API_KEY)
     markets:
@@ -191,6 +196,7 @@ strategies:
       min_volume: 50
       max_hold_hours: 168
 
+  # Disabled: proven loser, -$10.83 in 23 trades — spread capture bleeds in low-liquidity markets
   - name: market_making
     enabled: false            # Non-directional spread capture
     markets:
@@ -213,6 +219,7 @@ risk:
   max_position_size: 50       # Max dollars per trade
   daily_loss_limit: 100       # Stop trading after this daily loss
   kelly_fraction: 0.5         # Use half-Kelly for safety
+  max_per_series: 2           # Max opportunities per series (correlation cap)
 
 learning:
   prior_strength: 20          # Bayesian k: trades needed to equal prior weight
