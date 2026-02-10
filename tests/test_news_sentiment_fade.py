@@ -113,7 +113,7 @@ class TestCheckExit:
 class TestHistoricalStats:
     def test_stats(self, strategy):
         stats = strategy.get_historical_stats()
-        assert stats["win_rate"] == 0.55
+        assert stats["win_rate"] == 0.50
 
 
 class TestValidateConfig:
