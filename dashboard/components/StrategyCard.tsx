@@ -70,6 +70,28 @@ export default function StrategyCard({ strategy, onClick }: StrategyCardProps) {
 
       {/* Metrics */}
       <div className="space-y-2 md:space-y-4 flex-grow">
+        {strategy.blended_win_rate !== null && strategy.blended_win_rate !== undefined && (
+          <div className="flex justify-between items-center md:hover:bg-terminal-green md:hover:bg-opacity-5 md:px-2 md:-mx-2 py-1 md:py-2 transition-all duration-200 rounded">
+            <span className="text-[9px] md:text-sm text-terminal-dim tracking-wider">W/R:</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm md:text-lg font-mono tabular-nums terminal-glow transition-all duration-300">
+                {(strategy.blended_win_rate * 100).toFixed(1)}%
+              </span>
+              {strategy.health_status && strategy.health_status !== 'unknown' && (
+                <span className={`text-[8px] md:text-[10px] font-mono px-1 py-0.5 rounded ${
+                  strategy.health_status === 'healthy' ? 'text-terminal-green bg-terminal-green/10' :
+                  strategy.health_status === 'warning' ? 'text-terminal-amber bg-terminal-amber/10' :
+                  'text-terminal-red bg-terminal-red/10'
+                }`}>
+                  {strategy.blended_ev_cents !== null && strategy.blended_ev_cents !== undefined
+                    ? `${strategy.blended_ev_cents >= 0 ? '+' : ''}${strategy.blended_ev_cents.toFixed(1)}c`
+                    : strategy.health_status.toUpperCase()}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-between items-center md:hover:bg-terminal-green md:hover:bg-opacity-5 md:px-2 md:-mx-2 py-1 md:py-2 transition-all duration-200 rounded">
           <span className="text-[9px] md:text-sm text-terminal-dim tracking-wider">POS:</span>
           <span className="text-sm md:text-lg font-mono tabular-nums terminal-glow transition-all duration-300">

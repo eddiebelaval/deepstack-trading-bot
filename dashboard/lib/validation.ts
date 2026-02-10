@@ -116,6 +116,11 @@ export const DashboardStateSchema = z.object({
     opportunities_found: z.number().int().min(0),
     last_scan: z.string().nullable(),
     status: z.string(),
+    blended_win_rate: z.number().nullable().optional(),
+    learning_confidence: z.number().nullable().optional(),
+    effective_trades: z.number().nullable().optional(),
+    blended_ev_cents: z.number().nullable().optional(),
+    health_status: z.string().nullable().optional(),
   })),
 });
 

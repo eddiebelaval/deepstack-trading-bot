@@ -200,6 +200,67 @@ export default function StrategyDetailModal({ isOpen, onClose, strategy, onToggl
             <MiniStat label="WORST" value={formatCents(stats.worstTrade)} color="red" />
           </div>
 
+          {/* Learning Stats */}
+          {strategy.blended_win_rate !== null && (
+            <div className="border border-terminal-cyan/30 rounded p-3 mb-4 bg-terminal-cyan/5">
+              <div className="text-[10px] font-bold tracking-[0.15em] text-terminal-cyan mb-3">LEARNING STATS</div>
+              <div className="grid grid-cols-3 gap-3 mb-3">
+                <div className="text-center">
+                  <div className="text-[10px] text-terminal-dim mb-1">BLENDED WIN RATE</div>
+                  <div className={`text-lg font-bold ${
+                    (strategy.blended_win_rate ?? 0) >= 50 ? 'text-terminal-green-bright' : 'text-terminal-red'
+                  }`}>
+                    {(strategy.blended_win_rate ?? 0).toFixed(1)}%
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] text-terminal-dim mb-1">BLENDED EV</div>
+                  <div className={`text-lg font-bold ${
+                    (strategy.blended_ev_cents ?? 0) >= 0 ? 'text-terminal-amber-bright' : 'text-terminal-red'
+                  }`}>
+                    {(strategy.blended_ev_cents ?? 0) >= 0 ? '+' : ''}{((strategy.blended_ev_cents ?? 0) / 100).toFixed(2)}c
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[10px] text-terminal-dim mb-1">EFF. TRADES</div>
+                  <div className="text-lg font-bold text-terminal-cyan">
+                    {strategy.effective_trades ?? 0}
+                  </div>
+                </div>
+              </div>
+              <div className="mb-2">
+                <div className="flex justify-between text-[10px] mb-1">
+                  <span className="text-terminal-dim">CONFIDENCE</span>
+                  <span className="text-terminal-cyan">{((strategy.learning_confidence ?? 0) * 100).toFixed(0)}%</span>
+                </div>
+                <div className="w-full h-2 bg-terminal-bg-panel rounded-full overflow-hidden border border-terminal-dim/20">
+                  <div
+                    className="h-full bg-terminal-cyan rounded-full transition-all duration-500"
+                    style={{ width: `${(strategy.learning_confidence ?? 0) * 100}%` }}
+                  />
+                </div>
+              </div>
+              {strategy.health_status && (
+                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-terminal-cyan/20">
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    strategy.health_status === 'healthy' ? 'bg-terminal-green animate-pulse' :
+                    strategy.health_status === 'warning' ? 'bg-terminal-amber' :
+                    strategy.health_status === 'critical' ? 'bg-terminal-red animate-pulse' :
+                    'bg-terminal-dim'
+                  }`} />
+                  <span className={`text-[10px] font-bold tracking-wider ${
+                    strategy.health_status === 'healthy' ? 'text-terminal-green' :
+                    strategy.health_status === 'warning' ? 'text-terminal-amber' :
+                    strategy.health_status === 'critical' ? 'text-terminal-red' :
+                    'text-terminal-dim'
+                  }`}>
+                    {strategy.health_status.toUpperCase()}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Recent Trades */}
           <div className="border-t border-terminal-green pt-4">
             <div className="text-xs text-terminal-dim mb-2">RECENT TRADES</div>

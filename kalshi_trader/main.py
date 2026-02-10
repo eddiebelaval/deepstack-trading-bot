@@ -117,6 +117,11 @@ class KalshiTradingBot:
         # Track open positions
         self.open_positions: Dict[str, Dict[str, Any]] = {}
 
+        # Auto-disable: track consecutive critical cycles per strategy
+        self._critical_cycle_counts: Dict[str, int] = {}
+        self._auto_disabled_strategies: set = set()
+        self._latest_health: Dict[str, Any] = {}
+
         logger.info(
             f"KalshiTradingBot initialized | "
             f"Series: {self.config.market_series} | "
@@ -370,7 +375,7 @@ class KalshiTradingBot:
             logger.info(f"Learning loop attached: {self.strategy.name}")
 
     def _apply_adaptive_thresholds(self) -> None:
-        """Apply learned take_profit/stop_loss to active strategies."""
+        """Apply learned take_profit/stop_loss and dynamic Kelly to active strategies."""
         if not self.performance_tracker:
             return
 
@@ -379,10 +384,61 @@ class KalshiTradingBot:
                 params = self.performance_tracker.get_adaptive_params(name)
                 if params and hasattr(state.strategy, 'apply_adaptive_params'):
                     state.strategy.apply_adaptive_params(params)
+                self._apply_dynamic_kelly(name)
         elif self.strategy and hasattr(self.strategy, 'apply_adaptive_params'):
             params = self.performance_tracker.get_adaptive_params("mean_reversion")
             if params:
                 self.strategy.apply_adaptive_params(params)
+            self._apply_dynamic_kelly("mean_reversion")
+
+    def _apply_dynamic_kelly(self, strategy_name: str) -> None:
+        """Calculate and apply Kelly fraction from blended performance stats.
+
+        Uses the Kelly Criterion: f* = p - q/b
+        where p = blended win rate, q = 1-p, b = avg_win/avg_loss.
+        Only overrides config when learning_confidence > 0.3 (enough observed data).
+        Clamped to [0.05, 0.5] to prevent ruin and maintain learning signal.
+        """
+        if not self.performance_tracker:
+            return
+
+        stats = self.performance_tracker.get_blended_stats(strategy_name)
+        prior = self.performance_tracker.get_prior(strategy_name)
+
+        # Calculate learning confidence: n / (n + k)
+        k = prior.prior_strength if prior else self.performance_tracker.prior_strength
+        n = self.performance_tracker._get_effective_trade_count(strategy_name)
+        learning_confidence = n / (n + k) if (n + k) > 0 else 0.0
+
+        if learning_confidence <= 0.3:
+            logger.debug(
+                f"[{strategy_name}] Dynamic Kelly skipped: "
+                f"learning_confidence={learning_confidence:.2f} <= 0.3"
+            )
+            return
+
+        blended_win_rate = stats["win_rate"]
+        avg_win = stats["avg_win_cents"]
+        avg_loss = stats["avg_loss_cents"]
+
+        if avg_loss <= 0:
+            logger.warning(f"[{strategy_name}] Dynamic Kelly skipped: avg_loss={avg_loss}")
+            return
+
+        win_loss_ratio = avg_win / avg_loss
+        raw_kelly = blended_win_rate - ((1 - blended_win_rate) / win_loss_ratio)
+        clamped_kelly = max(0.05, min(0.5, raw_kelly))
+
+        old_kelly = self.config.kelly_fraction
+        self.config.kelly_fraction = clamped_kelly
+        if self.risk and hasattr(self.risk, 'kelly_sizer'):
+            self.risk.kelly_sizer.kelly_fraction = clamped_kelly
+
+        logger.info(
+            f"[{strategy_name}] Dynamic Kelly: {old_kelly:.3f} -> {clamped_kelly:.3f} "
+            f"(raw={raw_kelly:.3f}, win_rate={blended_win_rate:.3f}, "
+            f"W/L={win_loss_ratio:.2f}, confidence={learning_confidence:.2f})"
+        )
 
     async def _shutdown(self) -> None:
         """Clean shutdown of all components."""
@@ -518,6 +574,9 @@ class KalshiTradingBot:
         # 1. Update state (always, even when paused)
         await self._update_state()
 
+        # 2. Check for strategies that need auto-disabling
+        await self._check_auto_disable()
+
         # Skip market scanning if paused
         if self._paused:
             logger.debug("Bot paused — skipping market scan")
@@ -625,7 +684,13 @@ class KalshiTradingBot:
                             strategy_info["blended_win_rate"] = round(blended["win_rate"], 4)
                             strategy_info["learning_confidence"] = round(n / (n + k), 4) if (n + k) > 0 else 0
                             strategy_info["effective_trades"] = round(n, 1)
+                        health = self.performance_tracker.evaluate_health(name)
+                        strategy_info["blended_ev_cents"] = round(health.blended_ev_cents, 2)
+                        strategy_info["health_status"] = health.health_status
+                        # Store for cycle-based auto-disable check
+                        self._latest_health[name] = health
 
+                    strategy_info["auto_disabled"] = name in self._auto_disabled_strategies
                     strategies.append(strategy_info)
 
             await self.dashboard.push_state(
@@ -679,6 +744,51 @@ class KalshiTradingBot:
                                 self._apply_adaptive_thresholds()
             except Exception as e:
                 logger.debug(f"Failed to push settlements: {e}")
+
+    async def _check_auto_disable(self) -> None:
+        """Check each strategy's health after push_state and auto-disable if critical persists.
+
+        Tracks consecutive cycles where health_status == 'critical'. After 3
+        consecutive critical cycles, disables the strategy and pushes a WARNING
+        log to Supabase so the dashboard can surface the kill.
+        """
+        if not self.strategy_manager or not self.performance_tracker:
+            return
+
+        for name, state in self.strategy_manager._strategies.items():
+            if not state.enabled:
+                continue
+
+            health = self._latest_health.get(name)
+            if not health:
+                continue
+
+            if health.health_status == "critical":
+                self._critical_cycle_counts[name] = self._critical_cycle_counts.get(name, 0) + 1
+            else:
+                self._critical_cycle_counts[name] = 0
+                continue
+
+            if self._critical_cycle_counts[name] >= 3:
+                self.strategy_manager.disable_strategy(name)
+                self._auto_disabled_strategies.add(name)
+                self._critical_cycle_counts[name] = 0
+
+                logger.warning(
+                    f"AUTO-DISABLE: {name} critical for 3 consecutive cycles | "
+                    f"EV={health.blended_ev_cents:.2f}c, "
+                    f"win_rate={health.blended_win_rate:.1%}, "
+                    f"warnings={health.consecutive_warnings}"
+                )
+
+                if self.dashboard:
+                    await self.dashboard.push_log(
+                        f"Auto-disabled {name}: critical health for 3 consecutive cycles "
+                        f"(EV={health.blended_ev_cents:.2f}c, "
+                        f"win_rate={health.blended_win_rate:.1%})",
+                        level="WARNING",
+                        strategy=name,
+                    )
 
     async def _sync_positions(self) -> None:
         """Sync local position tracking with exchange."""
@@ -849,6 +959,7 @@ class KalshiTradingBot:
                     )
                     if self.strategy_manager:
                         self.strategy_manager.disable_strategy(strategy_name)
+                    self._auto_disabled_strategies.add(strategy_name)
                     if self.dashboard:
                         await self.dashboard.push_log(
                             f"Auto-disabled {strategy_name}: sustained negative EV "

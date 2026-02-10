@@ -240,7 +240,7 @@ export async function getLatestDashboardState(): Promise<DashboardState | null> 
   const row = rows[0];
   const strategies = await restGet<StrategyStatus>(
     'deepstack_strategy_status',
-    'select=name,enabled,active_positions,opportunities_found,last_scan,status&order=name'
+    'select=name,enabled,active_positions,opportunities_found,last_scan,status,blended_win_rate,learning_confidence,effective_trades,blended_ev_cents,health_status&order=name'
   );
 
   return {
@@ -271,7 +271,7 @@ export async function getLatestDashboardState(): Promise<DashboardState | null> 
 export async function getStrategies(): Promise<StrategyStatus[]> {
   return restGet<StrategyStatus>(
     'deepstack_strategy_status',
-    'select=name,enabled,active_positions,opportunities_found,last_scan,status&order=name'
+    'select=name,enabled,active_positions,opportunities_found,last_scan,status,blended_win_rate,learning_confidence,effective_trades,blended_ev_cents,health_status&order=name'
   );
 }
 
@@ -279,7 +279,7 @@ export async function updateStrategyStatus(
   name: string,
   updates: Partial<Omit<StrategyStatus, 'name'>>
 ): Promise<StrategyStatus | null> {
-  const allowed = ['enabled', 'active_positions', 'opportunities_found', 'last_scan', 'status'];
+  const allowed = ['enabled', 'active_positions', 'opportunities_found', 'last_scan', 'status', 'blended_win_rate', 'learning_confidence', 'effective_trades', 'blended_ev_cents', 'health_status'];
   const body: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(updates)) {
     if (allowed.includes(key)) body[key] = value;

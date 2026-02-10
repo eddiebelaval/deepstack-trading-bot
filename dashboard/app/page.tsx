@@ -335,19 +335,25 @@ export default function Dashboard() {
     }));
   }, [balanceHistory]);
 
-  // Win/loss stats from settlements (real settled P&L, not stale trades table)
-  const settlementStats = useMemo(() => {
-    if (settlements.length === 0) return { winRate: 0, total: 0, wins: 0, losses: 0 };
-    const wins = settlements.filter(s => (s.net_pnl_cents ?? 0) > 0).length;
-    const losses = settlements.filter(s => (s.net_pnl_cents ?? 0) < 0).length;
-    const total = wins + losses;
-    return {
-      winRate: total > 0 ? (wins / total) * 100 : 0,
-      total,
-      wins,
-      losses,
-    };
-  }, [settlements]);
+  // Win rate from bot's Bayesian learning system (weighted average across strategies)
+  const learningStats = useMemo(() => {
+    if (!dashboardState?.strategies) return { winRate: 0, total: 0, wins: 0, losses: 0 };
+    const withData = dashboardState.strategies.filter(s => s.blended_win_rate !== null && s.blended_win_rate !== undefined);
+    if (withData.length === 0) return { winRate: 0, total: 0, wins: 0, losses: 0 };
+
+    let weightedSum = 0;
+    let totalWeight = 0;
+    for (const s of withData) {
+      const weight = s.effective_trades ?? 1;
+      weightedSum += (s.blended_win_rate ?? 0) * weight;
+      totalWeight += weight;
+    }
+    const winRate = totalWeight > 0 ? (weightedSum / totalWeight) * 100 : 0;
+    const total = Math.round(totalWeight);
+    const wins = Math.round(total * (winRate / 100));
+    const losses = total - wins;
+    return { winRate, total, wins, losses };
+  }, [dashboardState?.strategies]);
 
   // Hourly activity aggregation from fills (for TradeActivity chart)
   const activityData = useMemo(() => {
@@ -467,10 +473,10 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
           <RiskMetricsCard metrics={dashboardState.risk} />
           <WinRateGauge
-            winRate={settlementStats.winRate}
-            totalTrades={settlementStats.total}
-            wins={settlementStats.wins}
-            losses={settlementStats.losses}
+            winRate={learningStats.winRate}
+            totalTrades={learningStats.total}
+            wins={learningStats.wins}
+            losses={learningStats.losses}
           />
           <TradeActivity data={activityData} onOpportunitiesClick={() => setShowOpportunities(true)} />
         </div>

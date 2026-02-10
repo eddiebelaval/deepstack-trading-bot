@@ -3,6 +3,9 @@ import { getLatestDashboardState, getStrategies, getPositions, saveDashboardStat
 import { DashboardState } from '@/lib/types';
 import { DashboardStateSchema } from '@/lib/validation';
 
+// Learning fields default to null (no data until bot populates them)
+const LEARNING_DEFAULTS = { blended_win_rate: null, learning_confidence: null, effective_trades: null, blended_ev_cents: null, health_status: null } as const;
+
 // Default state when no data exists
 const DEFAULT_STATE: DashboardState = {
   timestamp: new Date().toISOString(),
@@ -23,21 +26,21 @@ const DEFAULT_STATE: DashboardState = {
   },
   strategies: [
     // Original strategies
-    { name: 'mean_reversion', enabled: true, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
-    { name: 'momentum', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
-    { name: 'combinatorial_arbitrage', enabled: true, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
-    { name: 'cross_platform_arbitrage', enabled: true, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'mean_reversion', enabled: true, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'momentum', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'combinatorial_arbitrage', enabled: true, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'cross_platform_arbitrage', enabled: true, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
     // Prediction market strategies (disabled by default)
-    { name: 'high_probability_bonds', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
-    { name: 'calibration_edge', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
-    { name: 'weather_aggregation', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
-    { name: 'news_sentiment_fade', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
-    { name: 'correlated_event_arbitrage', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
-    { name: 'domain_specialization', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'high_probability_bonds', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'calibration_edge', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'weather_aggregation', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'news_sentiment_fade', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'correlated_event_arbitrage', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'domain_specialization', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
     // New strategies (Feb 2026)
-    { name: 'crypto_intraday', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
-    { name: 'bear_macro', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
-    { name: 'market_making', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive' },
+    { name: 'crypto_intraday', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'bear_macro', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'market_making', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
   ],
 };
 
