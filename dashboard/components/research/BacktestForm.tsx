@@ -1,15 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 interface BacktestFormProps {
   onSubmit: (url: string) => Promise<void>;
   loading: boolean;
   error: string | null;
+  defaultUrl?: string;
 }
 
-export default function BacktestForm({ onSubmit, loading, error }: BacktestFormProps) {
-  const [url, setUrl] = useState('');
+export default function BacktestForm({ onSubmit, loading, error, defaultUrl }: BacktestFormProps) {
+  const [url, setUrl] = useState(defaultUrl ?? '');
+
+  // Sync with defaultUrl when it changes (e.g., from URL param)
+  useEffect(() => {
+    if (defaultUrl) setUrl(defaultUrl);
+  }, [defaultUrl]);
 
   const isValid = url.includes('tradingview.com/script/');
 

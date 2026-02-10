@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import type { TvIndicator } from '@/lib/research-types';
+import { formatNum, formatPct, valueColor, tvLink } from '@/lib/research-utils';
 import IndicatorDetailPanel from './IndicatorDetailPanel';
 
 type SortKey = keyof TvIndicator;
@@ -9,30 +10,35 @@ type SortDir = 'asc' | 'desc';
 
 interface ScoreboardTableProps {
   indicators: TvIndicator[];
-  onSelectIndicator: (name: string) => void;
+  expandedScript?: string | null;
+  onToggleExpand?: (scriptName: string) => void;
 }
 
-function formatNum(val: number | null, decimals: number = 2): string {
-  if (val === null || val === undefined) return '--';
-  return val.toFixed(decimals);
+/** Inline SVG chevron — points up or down */
+function SortChevron({ direction, active }: { direction: 'up' | 'down'; active: boolean }) {
+  const color = active ? '#00FF41' : 'rgba(0,170,43,0.3)';
+  return (
+    <svg width="8" height="5" viewBox="0 0 8 5" fill="none" className="inline-block">
+      {direction === 'up' ? (
+        <path d="M4 0L8 5H0L4 0Z" fill={color} />
+      ) : (
+        <path d="M4 5L0 0H8L4 5Z" fill={color} />
+      )}
+    </svg>
+  );
 }
 
-function formatPct(val: number | null): string {
-  if (val === null || val === undefined) return '--';
-  return `${val.toFixed(1)}%`;
-}
-
-function valueColor(val: number | null): string {
-  if (val === null || val === undefined) return 'text-terminal-dim';
-  if (val > 0) return 'text-terminal-green';
-  if (val < 0) return 'text-terminal-red';
-  return 'text-terminal-amber';
-}
-
-export default function ScoreboardTable({ indicators, onSelectIndicator }: ScoreboardTableProps) {
+export default function ScoreboardTable({
+  indicators,
+  expandedScript: externalExpanded,
+  onToggleExpand,
+}: ScoreboardTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('composite_score');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [expandedScript, setExpandedScript] = useState<string | null>(null);
+  const [internalExpanded, setInternalExpanded] = useState<string | null>(null);
+
+  // Allow parent to control expanded state, fallback to internal
+  const expandedScript = externalExpanded !== undefined ? externalExpanded : internalExpanded;
 
   const sorted = useMemo(() => {
     return [...indicators].sort((a, b) => {
@@ -58,11 +64,10 @@ export default function ScoreboardTable({ indicators, onSelectIndicator }: Score
   }
 
   function handleRowClick(scriptName: string) {
-    if (expandedScript === scriptName) {
-      setExpandedScript(null);
+    if (onToggleExpand) {
+      onToggleExpand(scriptName);
     } else {
-      setExpandedScript(scriptName);
-      onSelectIndicator(scriptName);
+      setInternalExpanded(prev => prev === scriptName ? null : scriptName);
     }
   }
 
@@ -70,7 +75,7 @@ export default function ScoreboardTable({ indicators, onSelectIndicator }: Score
     return Math.max(...indicators.map(i => i.composite_score ?? 0), 1);
   }, [indicators]);
 
-  const columns: { key: SortKey; label: string; align?: string }[] = [
+  const columns: { key: SortKey; label: string }[] = [
     { key: 'rank', label: '#' },
     { key: 'script_name', label: 'SCRIPT NAME' },
     { key: 'category', label: 'CATEGORY' },
@@ -80,6 +85,7 @@ export default function ScoreboardTable({ indicators, onSelectIndicator }: Score
     { key: 'avg_win_rate', label: 'WIN RATE%' },
     { key: 'num_tickers_tested', label: 'TICKERS' },
     { key: 'best_ticker', label: 'BEST' },
+    { key: 'worst_ticker', label: 'WORST' },
   ];
 
   return (
@@ -95,11 +101,10 @@ export default function ScoreboardTable({ indicators, onSelectIndicator }: Score
               >
                 <span className="inline-flex items-center gap-1">
                   {col.label}
-                  {sortKey === col.key && (
-                    <span className="text-terminal-green text-[8px]">
-                      {sortDir === 'desc' ? 'V' : '^'}
-                    </span>
-                  )}
+                  <span className="inline-flex flex-col gap-px ml-0.5">
+                    <SortChevron direction="up" active={sortKey === col.key && sortDir === 'asc'} />
+                    <SortChevron direction="down" active={sortKey === col.key && sortDir === 'desc'} />
+                  </span>
                 </span>
               </th>
             ))}
@@ -107,23 +112,37 @@ export default function ScoreboardTable({ indicators, onSelectIndicator }: Score
         </thead>
         <tbody>
           {sorted.map((indicator, idx) => (
-            <>
+            <Fragment key={indicator.id}>
               <tr
-                key={indicator.id}
                 onClick={() => handleRowClick(indicator.script_name)}
-                className={`border-b border-terminal-green/10 cursor-pointer transition-colors ${
-                  idx % 2 === 0 ? 'bg-transparent' : 'bg-white/[0.01]'
-                } hover:bg-white/[0.03] ${
-                  expandedScript === indicator.script_name ? 'bg-terminal-cyan/[0.04] border-terminal-cyan/20' : ''
-                }`}
+                className={[
+                  'border-b border-terminal-green/10 cursor-pointer transition-all duration-200 hover:bg-white/[0.03]',
+                  idx % 2 === 0 ? 'bg-transparent' : 'bg-white/[0.01]',
+                  expandedScript === indicator.script_name && 'bg-terminal-cyan/[0.04] border-terminal-cyan/20',
+                  expandedScript && expandedScript !== indicator.script_name ? 'opacity-60' : 'opacity-100',
+                ].filter(Boolean).join(' ')}
               >
                 {/* Rank */}
                 <td className="px-3 py-2 text-xs tabular-nums text-terminal-dim">
                   {indicator.rank ?? idx + 1}
                 </td>
-                {/* Script Name */}
-                <td className="px-3 py-2 text-xs font-bold text-terminal-green truncate max-w-[200px]">
-                  {indicator.script_name}
+                {/* Script Name + TV link */}
+                <td className="px-3 py-2 text-xs font-bold text-terminal-green max-w-[200px]">
+                  <span className="flex items-center gap-1.5">
+                    <span className="truncate">{indicator.script_name}</span>
+                    <a
+                      href={tvLink(indicator.script_url, indicator.script_name)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex-shrink-0 text-terminal-cyan/50 hover:text-terminal-cyan transition-colors"
+                      title="View on TradingView"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M10 6.5V10a1 1 0 01-1 1H2a1 1 0 01-1-1V3a1 1 0 011-1h3.5M7 1h4v4M5 7l6-6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </a>
+                  </span>
                 </td>
                 {/* Category */}
                 <td className="px-3 py-2">
@@ -132,14 +151,14 @@ export default function ScoreboardTable({ indicators, onSelectIndicator }: Score
                   </span>
                 </td>
                 {/* Composite Score with bar */}
-                <td className="px-3 py-2">
+                <td className="px-3 py-2 min-w-[120px]">
                   <div className="flex items-center gap-2">
-                    <span className={`text-xs tabular-nums font-bold ${valueColor(indicator.composite_score)}`}>
+                    <span className={`text-sm tabular-nums font-bold terminal-glow ${valueColor(indicator.composite_score)}`}>
                       {formatNum(indicator.composite_score)}
                     </span>
-                    <div className="w-16 h-1.5 bg-terminal-bg-panel rounded-full overflow-hidden">
+                    <div className="w-16 h-1.5 bg-terminal-bg-panel rounded-full overflow-hidden group-hover:w-20 transition-all">
                       <div
-                        className="h-full bg-terminal-green rounded-full transition-all"
+                        className="h-full bg-terminal-green rounded-full transition-all duration-500"
                         style={{ width: `${Math.max(0, ((indicator.composite_score ?? 0) / maxScore) * 100)}%` }}
                       />
                     </div>
@@ -165,18 +184,23 @@ export default function ScoreboardTable({ indicators, onSelectIndicator }: Score
                 <td className="px-3 py-2 text-xs font-bold text-terminal-green-dim">
                   {indicator.best_ticker || '--'}
                 </td>
+                {/* Worst Ticker */}
+                <td className="px-3 py-2 text-xs font-bold text-terminal-red">
+                  {indicator.worst_ticker || '--'}
+                </td>
               </tr>
               {expandedScript === indicator.script_name && (
-                <tr key={`${indicator.id}-detail`}>
+                <tr>
                   <td colSpan={columns.length} className="p-0">
                     <IndicatorDetailPanel
                       scriptName={indicator.script_name}
-                      onClose={() => setExpandedScript(null)}
+                      scriptUrl={indicator.script_url ?? null}
+                      onClose={() => handleRowClick(indicator.script_name)}
                     />
                   </td>
                 </tr>
               )}
-            </>
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -184,7 +208,10 @@ export default function ScoreboardTable({ indicators, onSelectIndicator }: Score
         <div className="text-center py-12">
           <div className="text-terminal-dim text-sm">NO DATA</div>
           <div className="text-terminal-dim/50 text-xs mt-2">
-            Run the TV script pipeline to populate indicators
+            Run the TV script pipeline to populate indicators.{' '}
+            <a href="/research/backtest" className="text-terminal-cyan hover:underline">
+              Run a backtest
+            </a>
           </div>
         </div>
       )}

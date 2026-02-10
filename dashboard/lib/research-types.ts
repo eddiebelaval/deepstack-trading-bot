@@ -12,6 +12,7 @@ export interface TvIndicator {
   num_tickers_tested: number;
   best_ticker: string | null;
   worst_ticker: string | null;
+  script_url: string | null;
   rank: number | null;
   created_at: string;
   updated_at: string;
