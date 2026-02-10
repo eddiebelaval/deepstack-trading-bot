@@ -1,10 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { TvIndicator } from '@/lib/research-types';
 import ScoreboardTable from '@/components/research/ScoreboardTable';
+import ScoreboardSummary from '@/components/research/ScoreboardSummary';
 
-export default function ScoreboardPage() {
+function ScoreboardPageInner() {
+  const searchParams = useSearchParams();
+  const highlightRef = useRef<string | null>(searchParams.get('highlight'));
+
   const [indicators, setIndicators] = useState<TvIndicator[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -14,6 +19,12 @@ export default function ScoreboardPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [minSharpe, setMinSharpe] = useState<string>('');
   const [minTrades, setMinTrades] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Expanded row (controlled from page for highlight support)
+  const [expandedScript, setExpandedScript] = useState<string | null>(
+    highlightRef.current
+  );
 
   const fetchIndicators = useCallback(async () => {
     try {
@@ -44,7 +55,7 @@ export default function ScoreboardPage() {
     return () => clearInterval(interval);
   }, [fetchIndicators]);
 
-  // Client-side filtering for Sharpe and trades
+  // Client-side filtering
   const filtered = indicators.filter(ind => {
     if (minSharpe && (ind.avg_sharpe === null || ind.avg_sharpe < parseFloat(minSharpe))) {
       return false;
@@ -52,11 +63,19 @@ export default function ScoreboardPage() {
     if (minTrades && ind.num_tickers_tested < parseInt(minTrades, 10)) {
       return false;
     }
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!ind.script_name.toLowerCase().includes(q)) {
+        return false;
+      }
+    }
     return true;
   });
 
   // Extract unique categories for the dropdown
   const categories = [...new Set(indicators.map(i => i.category).filter(Boolean))].sort();
+
+  const hasFilters = !!(categoryFilter || minSharpe || minTrades || searchQuery);
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -81,8 +100,25 @@ export default function ScoreboardPage() {
         </div>
       </div>
 
+      {/* Summary dashboard */}
+      {!loading && !error && filtered.length > 0 && (
+        <ScoreboardSummary indicators={filtered} />
+      )}
+
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-4 mb-4 p-3 rounded border border-terminal-green/10 bg-terminal-bg-elevated/30">
+        <div>
+          <label className="block text-[9px] text-terminal-dim tracking-[0.15em] uppercase mb-1">
+            Search
+          </label>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Script name..."
+            className="bg-terminal-bg-panel border border-terminal-green/20 text-terminal-green text-xs px-2 py-1.5 rounded w-40 focus:border-terminal-cyan/50 focus:outline-none placeholder:text-terminal-dim/30"
+          />
+        </div>
         <div>
           <label className="block text-[9px] text-terminal-dim tracking-[0.15em] uppercase mb-1">
             Category
@@ -124,9 +160,9 @@ export default function ScoreboardPage() {
             className="bg-terminal-bg-panel border border-terminal-green/20 text-terminal-green text-xs px-2 py-1.5 rounded w-20 focus:border-terminal-cyan/50 focus:outline-none tabular-nums"
           />
         </div>
-        {(categoryFilter || minSharpe || minTrades) && (
+        {hasFilters && (
           <button
-            onClick={() => { setCategoryFilter(''); setMinSharpe(''); setMinTrades(''); }}
+            onClick={() => { setCategoryFilter(''); setMinSharpe(''); setMinTrades(''); setSearchQuery(''); }}
             className="text-[10px] text-terminal-dim hover:text-terminal-red px-2 py-1.5 border border-terminal-dim/20 rounded hover:border-terminal-red/30 transition-colors"
           >
             CLEAR
@@ -138,7 +174,9 @@ export default function ScoreboardPage() {
       <div className="panel">
         {loading ? (
           <div className="text-center py-12">
-            <div className="text-terminal-green text-sm animate-pulse">LOADING...</div>
+            <div className="text-terminal-green text-sm">
+              LOADING<span className="animate-cursor-blink">_</span>
+            </div>
           </div>
         ) : error ? (
           <div className="text-center py-12">
@@ -153,10 +191,25 @@ export default function ScoreboardPage() {
         ) : (
           <ScoreboardTable
             indicators={filtered}
-            onSelectIndicator={() => {}}
+            expandedScript={expandedScript}
+            onToggleExpand={(name) => setExpandedScript(prev => prev === name ? null : name)}
           />
         )}
       </div>
     </div>
+  );
+}
+
+export default function ScoreboardPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-6 max-w-[1400px] mx-auto">
+        <div className="text-terminal-green text-sm text-center py-12">
+          LOADING<span className="animate-cursor-blink">_</span>
+        </div>
+      </div>
+    }>
+      <ScoreboardPageInner />
+    </Suspense>
   );
 }

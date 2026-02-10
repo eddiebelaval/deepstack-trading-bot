@@ -2,26 +2,10 @@
 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import type { BacktestResult } from '@/lib/research-types';
+import { formatNum, formatPct, valueColor, CHART_COLORS, CHART_TOOLTIP_STYLE } from '@/lib/research-utils';
 
 interface BacktestReportProps {
   result: BacktestResult;
-}
-
-function formatNum(val: number | null, decimals: number = 2): string {
-  if (val === null || val === undefined) return '--';
-  return val.toFixed(decimals);
-}
-
-function formatPct(val: number | null): string {
-  if (val === null || val === undefined) return '--';
-  return `${val.toFixed(1)}%`;
-}
-
-function valueColor(val: number | null): string {
-  if (val === null || val === undefined) return 'text-terminal-dim';
-  if (val > 0) return 'text-terminal-green';
-  if (val < 0) return 'text-terminal-red';
-  return 'text-terminal-amber';
 }
 
 export default function BacktestReport({ result }: BacktestReportProps) {
@@ -53,11 +37,19 @@ export default function BacktestReport({ result }: BacktestReportProps) {
               </span>
             )}
           </div>
-          {result.saved_to_scoreboard && (
-            <span className="text-[9px] font-bold px-2 py-1 rounded border border-terminal-green/30 text-terminal-green bg-terminal-green/10">
-              SAVED TO SCOREBOARD
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {result.saved_to_scoreboard && (
+              <span className="text-[9px] font-bold px-2 py-1 rounded border border-terminal-green/30 text-terminal-green bg-terminal-green/10">
+                SAVED TO SCOREBOARD
+              </span>
+            )}
+            <a
+              href="/research/scoreboard"
+              className="text-[9px] font-bold px-2 py-1 rounded border border-terminal-cyan/30 text-terminal-cyan hover:bg-terminal-cyan/10 transition-colors"
+            >
+              VIEW SCOREBOARD
+            </a>
+          </div>
         </div>
 
         {/* Composite Score */}
@@ -154,31 +146,25 @@ export default function BacktestReport({ result }: BacktestReportProps) {
                 <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
                   <XAxis
                     dataKey="ticker"
-                    tick={{ fill: '#FFBF00', fontSize: 10 }}
-                    axisLine={{ stroke: 'rgba(0,255,65,0.2)' }}
+                    tick={{ fill: CHART_COLORS.amber, fontSize: 10 }}
+                    axisLine={{ stroke: CHART_COLORS.axisLine }}
                     tickLine={false}
                   />
                   <YAxis
-                    tick={{ fill: '#00AA2B', fontSize: 9 }}
-                    axisLine={{ stroke: 'rgba(0,255,65,0.2)' }}
+                    tick={{ fill: CHART_COLORS.greenDim, fontSize: 9 }}
+                    axisLine={{ stroke: CHART_COLORS.axisLine }}
                     tickLine={false}
                     tickFormatter={(v: number) => `${v}%`}
                   />
                   <Tooltip
-                    contentStyle={{
-                      background: '#16161f',
-                      border: '1px solid rgba(0,255,65,0.3)',
-                      borderRadius: '4px',
-                      fontSize: '11px',
-                      color: '#00FF41',
-                    }}
+                    contentStyle={CHART_TOOLTIP_STYLE}
                     formatter={(value: number | undefined) => [`${(value ?? 0).toFixed(1)}%`, 'ROI']}
                   />
                   <Bar dataKey="roi" radius={[2, 2, 0, 0]}>
                     {chartData.map((entry, idx) => (
                       <Cell
                         key={idx}
-                        fill={entry.roi >= 0 ? '#00FF41' : '#FF0000'}
+                        fill={entry.roi >= 0 ? CHART_COLORS.green : CHART_COLORS.red}
                         fillOpacity={0.7}
                       />
                     ))}

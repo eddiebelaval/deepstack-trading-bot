@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import type { BacktestResult, BacktestHistoryEntry } from '@/lib/research-types';
+import { valueColor } from '@/lib/research-utils';
 import BacktestForm from '@/components/research/BacktestForm';
 import BacktestReport from '@/components/research/BacktestReport';
 
@@ -24,7 +26,10 @@ function saveHistory(entry: BacktestHistoryEntry) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
 }
 
-export default function BacktestPage() {
+function BacktestPageInner() {
+  const searchParams = useSearchParams();
+  const defaultUrl = searchParams.get('url') ?? '';
+
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +98,7 @@ export default function BacktestPage() {
           onSubmit={handleSubmit}
           loading={loading}
           error={error}
+          defaultUrl={defaultUrl}
         />
       </div>
 
@@ -119,25 +125,42 @@ export default function BacktestPage() {
                   <span className="text-xs font-bold text-terminal-green truncate">
                     {entry.script_name}
                   </span>
-                  <span className={`text-xs tabular-nums font-bold ${
-                    entry.composite_score !== null && entry.composite_score > 0
-                      ? 'text-terminal-green'
-                      : entry.composite_score !== null && entry.composite_score < 0
-                        ? 'text-terminal-red'
-                        : 'text-terminal-dim'
-                  }`}>
+                  <span className={`text-xs tabular-nums font-bold ${valueColor(entry.composite_score)}`}>
                     {entry.composite_score !== null ? entry.composite_score.toFixed(2) : '--'}
                   </span>
                 </div>
-                <span className="text-[9px] text-terminal-dim/50 flex-shrink-0 ml-3">
-                  {new Date(entry.timestamp).toLocaleDateString()}{' '}
-                  {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                  <a
+                    href={`/research/scoreboard?highlight=${encodeURIComponent(entry.script_name)}`}
+                    className="text-[9px] text-terminal-cyan/50 hover:text-terminal-cyan transition-colors"
+                    title="View in Scoreboard"
+                  >
+                    SCOREBOARD
+                  </a>
+                  <span className="text-[9px] text-terminal-dim/50">
+                    {new Date(entry.timestamp).toLocaleDateString()}{' '}
+                    {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+export default function BacktestPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-6 max-w-[900px] mx-auto">
+        <div className="text-terminal-green text-sm text-center py-12">
+          LOADING<span className="animate-cursor-blink">_</span>
+        </div>
+      </div>
+    }>
+      <BacktestPageInner />
+    </Suspense>
   );
 }

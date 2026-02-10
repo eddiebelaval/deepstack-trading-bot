@@ -1,35 +1,58 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { useState, useEffect, useMemo } from 'react';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine,
+} from 'recharts';
 import type { TvBacktest } from '@/lib/research-types';
+import { formatNum, formatPct, valueColor, tvLink, mean, CHART_COLORS, CHART_TOOLTIP_STYLE } from '@/lib/research-utils';
+import IndicatorRadar from './IndicatorRadar';
 
 interface IndicatorDetailPanelProps {
   scriptName: string;
+  scriptUrl: string | null;
   onClose: () => void;
 }
 
-function formatNum(val: number | null, decimals: number = 2): string {
-  if (val === null || val === undefined) return '--';
-  return val.toFixed(decimals);
+/** Compute derived stats from backtests */
+function computeStats(backtests: TvBacktest[]) {
+  const success = backtests.filter(b => !b.error);
+  if (success.length === 0) return null;
+
+  const rois = success.map(b => b.roi_pct ?? 0);
+  const sharpes = success.map(b => b.sharpe_ratio ?? 0);
+  const winRates = success.map(b => b.win_rate_pct ?? 0);
+  const drawdowns = success.map(b => b.max_drawdown_pct ?? 0);
+
+  const avgRoi = mean(rois);
+  const roiStdDev = Math.sqrt(rois.reduce((sum, v) => sum + (v - avgRoi) ** 2, 0) / rois.length);
+
+  return {
+    avgRoi,
+    avgSharpe: mean(sharpes),
+    avgWinRate: mean(winRates),
+    worstDrawdown: Math.min(...drawdowns),
+    consistency: roiStdDev,
+  };
 }
 
-function formatPct(val: number | null): string {
-  if (val === null || val === undefined) return '--';
-  return `${val.toFixed(1)}%`;
+/** Group error messages by type for cleaner display */
+function groupErrors(backtests: TvBacktest[]): { error: string; tickers: string[] }[] {
+  const map = new Map<string, string[]>();
+  for (const bt of backtests) {
+    if (!bt.error) continue;
+    const tickers = map.get(bt.error) ?? [];
+    tickers.push(bt.ticker);
+    map.set(bt.error, tickers);
+  }
+  return Array.from(map.entries()).map(([error, tickers]) => ({ error, tickers }));
 }
 
-function valueColor(val: number | null): string {
-  if (val === null || val === undefined) return 'text-terminal-dim';
-  if (val > 0) return 'text-terminal-green';
-  if (val < 0) return 'text-terminal-red';
-  return 'text-terminal-amber';
-}
-
-export default function IndicatorDetailPanel({ scriptName, onClose }: IndicatorDetailPanelProps) {
+export default function IndicatorDetailPanel({ scriptName, scriptUrl, onClose }: IndicatorDetailPanelProps) {
   const [backtests, setBacktests] = useState<TvBacktest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorsExpanded, setErrorsExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,11 +79,27 @@ export default function IndicatorDetailPanel({ scriptName, onClose }: IndicatorD
 
   const successTests = backtests.filter(b => !b.error);
   const failedTests = backtests.filter(b => b.error);
+  const stats = useMemo(() => computeStats(backtests), [backtests]);
+  const groupedErrors = useMemo(() => groupErrors(backtests), [backtests]);
 
-  const chartData = successTests.map(b => ({
-    ticker: b.ticker,
-    roi: b.roi_pct ?? 0,
-  }));
+  const chartData = useMemo(() =>
+    [...successTests]
+      .sort((a, b) => (b.roi_pct ?? 0) - (a.roi_pct ?? 0))
+      .map(b => ({ ticker: b.ticker, roi: b.roi_pct ?? 0 })),
+    [successTests]
+  );
+
+  // Radar data: normalize each metric to 0-100
+  const radarData = useMemo(() => {
+    if (!stats) return null;
+    return [
+      { axis: 'Sharpe', value: Math.min(100, Math.max(0, stats.avgSharpe * 33.3)) },
+      { axis: 'ROI', value: Math.min(100, Math.max(0, stats.avgRoi * 2)) },
+      { axis: 'Win Rate', value: Math.min(100, Math.max(0, stats.avgWinRate)) },
+      { axis: 'DD Resist', value: Math.min(100, Math.max(0, 100 + stats.worstDrawdown)) },
+      { axis: 'Consistency', value: Math.min(100, Math.max(0, 100 - stats.consistency * 2)) },
+    ];
+  }, [stats]);
 
   return (
     <div className="border-t border-terminal-cyan/20 bg-terminal-bg-elevated/50 animate-fade-in">
@@ -81,9 +120,15 @@ export default function IndicatorDetailPanel({ scriptName, onClose }: IndicatorD
           </button>
         </div>
 
+        {/* Loading skeleton */}
         {loading && (
-          <div className="text-terminal-green text-xs animate-pulse py-4 text-center">
-            LOADING...
+          <div className="space-y-3 py-4">
+            <div className="grid grid-cols-5 gap-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-16 rounded bg-terminal-green/5 animate-pulse" />
+              ))}
+            </div>
+            <div className="h-40 rounded bg-terminal-green/5 animate-pulse" />
           </div>
         )}
 
@@ -95,6 +140,82 @@ export default function IndicatorDetailPanel({ scriptName, onClose }: IndicatorD
 
         {!loading && !error && (
           <div className="space-y-4">
+            {/* Summary stat cards */}
+            {stats && (
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {[
+                  { label: 'AVG ROI', value: formatPct(stats.avgRoi), color: valueColor(stats.avgRoi) },
+                  { label: 'AVG SHARPE', value: formatNum(stats.avgSharpe), color: valueColor(stats.avgSharpe) },
+                  { label: 'AVG WIN RATE', value: formatPct(stats.avgWinRate), color: valueColor(stats.avgWinRate - 50) },
+                  { label: 'WORST DD', value: formatPct(stats.worstDrawdown), color: 'text-terminal-red' },
+                  { label: 'CONSISTENCY', value: formatNum(stats.consistency, 1), color: stats.consistency < 15 ? 'text-terminal-green' : 'text-terminal-amber' },
+                ].map((card, i) => (
+                  <div
+                    key={card.label}
+                    className="p-2.5 rounded border border-terminal-green/10 bg-terminal-bg-panel/40"
+                    style={{ animationDelay: `${i * 80}ms` }}
+                  >
+                    <div className="text-[8px] text-terminal-dim tracking-[0.15em] uppercase">{card.label}</div>
+                    <div className={`text-lg font-bold tabular-nums ${card.color}`}>{card.value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Charts row: Radar + Bar */}
+            <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-4">
+              {/* Radar chart — hidden on mobile */}
+              {radarData && (
+                <div className="hidden md:block">
+                  <div className="text-[9px] text-terminal-dim tracking-[0.15em] uppercase mb-2">
+                    QUALITY SHAPE
+                  </div>
+                  <IndicatorRadar data={radarData} />
+                </div>
+              )}
+
+              {/* ROI bar chart */}
+              {chartData.length > 0 && (
+                <div>
+                  <div className="text-[9px] text-terminal-dim tracking-[0.15em] uppercase mb-2">
+                    ROI% by Ticker
+                  </div>
+                  <div className="h-40">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                        <XAxis
+                          dataKey="ticker"
+                          tick={{ fill: CHART_COLORS.amber, fontSize: 10 }}
+                          axisLine={{ stroke: CHART_COLORS.axisLine }}
+                          tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fill: CHART_COLORS.greenDim, fontSize: 9 }}
+                          axisLine={{ stroke: CHART_COLORS.axisLine }}
+                          tickLine={false}
+                          tickFormatter={(v: number) => `${v}%`}
+                        />
+                        <ReferenceLine y={0} stroke={CHART_COLORS.greenDim} strokeDasharray="3 3" />
+                        <Tooltip
+                          contentStyle={CHART_TOOLTIP_STYLE}
+                          formatter={(value: number | undefined) => [`${(value ?? 0).toFixed(1)}%`, 'ROI']}
+                        />
+                        <Bar dataKey="roi" radius={[2, 2, 0, 0]}>
+                          {chartData.map((entry, idx) => (
+                            <Cell
+                              key={idx}
+                              fill={entry.roi >= 0 ? CHART_COLORS.green : CHART_COLORS.red}
+                              fillOpacity={0.7}
+                            />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Per-ticker stats table */}
             {successTests.length > 0 && (
               <div className="overflow-x-auto">
@@ -137,66 +258,30 @@ export default function IndicatorDetailPanel({ scriptName, onClose }: IndicatorD
               </div>
             )}
 
-            {/* ROI bar chart */}
-            {chartData.length > 0 && (
+            {/* Grouped errors */}
+            {groupedErrors.length > 0 && (
               <div className="mt-2">
-                <div className="text-[9px] text-terminal-dim tracking-[0.15em] uppercase mb-2">
-                  ROI% by Ticker
-                </div>
-                <div className="h-32">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-                      <XAxis
-                        dataKey="ticker"
-                        tick={{ fill: '#FFBF00', fontSize: 10 }}
-                        axisLine={{ stroke: 'rgba(0,255,65,0.2)' }}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        tick={{ fill: '#00AA2B', fontSize: 9 }}
-                        axisLine={{ stroke: 'rgba(0,255,65,0.2)' }}
-                        tickLine={false}
-                        tickFormatter={(v: number) => `${v}%`}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          background: '#16161f',
-                          border: '1px solid rgba(0,255,65,0.3)',
-                          borderRadius: '4px',
-                          fontSize: '11px',
-                          color: '#00FF41',
-                        }}
-                        formatter={(value: number | undefined) => [`${(value ?? 0).toFixed(1)}%`, 'ROI']}
-                      />
-                      <Bar dataKey="roi" radius={[2, 2, 0, 0]}>
-                        {chartData.map((entry, idx) => (
-                          <Cell
-                            key={idx}
-                            fill={entry.roi >= 0 ? '#00FF41' : '#FF0000'}
-                            fillOpacity={0.7}
-                          />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-
-            {/* Failed tickers */}
-            {failedTests.length > 0 && (
-              <div className="mt-2">
-                <div className="text-[9px] text-terminal-amber tracking-[0.15em] uppercase mb-1">
-                  Errors ({failedTests.length})
-                </div>
+                <button
+                  onClick={() => setErrorsExpanded(!errorsExpanded)}
+                  className="text-[9px] text-terminal-amber tracking-[0.15em] uppercase mb-1 flex items-center gap-1 hover:text-terminal-amber-bright transition-colors"
+                >
+                  ERRORS ({failedTests.length})
+                  <svg width="8" height="5" viewBox="0 0 8 5" fill="none" className={`transition-transform ${errorsExpanded ? 'rotate-180' : ''}`}>
+                    <path d="M4 5L0 0H8L4 5Z" fill="currentColor" />
+                  </svg>
+                </button>
                 <div className="space-y-1">
-                  {failedTests.map(bt => (
+                  {groupedErrors.map(group => (
                     <div
-                      key={bt.id}
+                      key={group.error}
                       className="text-[10px] px-2 py-1 rounded bg-terminal-red/5 border border-terminal-red/20"
                     >
-                      <span className="text-terminal-amber font-bold">{bt.ticker}</span>
-                      <span className="text-terminal-red/70 ml-2">{bt.error}</span>
+                      <span className="text-terminal-red/70">{group.tickers.length}x &quot;{group.error}&quot;</span>
+                      {errorsExpanded && (
+                        <span className="text-terminal-amber font-bold ml-2">
+                          [{group.tickers.join(', ')}]
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -208,6 +293,33 @@ export default function IndicatorDetailPanel({ scriptName, onClose }: IndicatorD
                 No backtest data available
               </div>
             )}
+
+            {/* Action buttons */}
+            <div className="flex gap-3 mt-2">
+              <a
+                href={tvLink(scriptUrl, scriptName)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 flex items-center justify-center gap-2 py-2 text-[10px] font-bold tracking-wider border border-terminal-cyan/40 text-terminal-cyan rounded hover:bg-terminal-cyan/10 hover:border-terminal-cyan transition-all"
+              >
+                VIEW ON TRADINGVIEW
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M10 6.5V10a1 1 0 01-1 1H2a1 1 0 01-1-1V3a1 1 0 011-1h3.5M7 1h4v4M5 7l6-6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </a>
+              {scriptUrl && (
+                <a
+                  href={`/research/backtest?url=${encodeURIComponent(scriptUrl)}`}
+                  className="flex-1 flex items-center justify-center gap-2 py-2 text-[10px] font-bold tracking-wider border border-terminal-green/40 text-terminal-green rounded hover:bg-terminal-green/10 hover:border-terminal-green transition-all"
+                >
+                  RE-RUN BACKTEST
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M1 6a5 5 0 019-3M11 6a5 5 0 01-9 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+                    <path d="M10 1v2h-2M2 11V9h2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </a>
+              )}
+            </div>
           </div>
         )}
       </div>
