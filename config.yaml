@@ -263,3 +263,13 @@ cryexc:
   reconnect:
     base_seconds: 1.0         # Initial retry delay
     max_seconds: 30.0         # Max retry delay (exponential backoff)
+
+# Claude intelligence layer — qualitative analysis of trade journal data.
+# Sends closed trades to Claude for strategy assessment, pattern detection,
+# and Kelly fraction recommendations. Requires ANTHROPIC_API_KEY.
+analysis:
+  enabled: true
+  model: "claude-sonnet-4-5-20250929"
+  auto_apply_kelly: true       # Auto-adjust Kelly fractions from analysis
+  auto_apply_params: false     # Strategy param changes require human review
+  min_trades_for_analysis: 10  # Skip analysis with fewer closed trades
