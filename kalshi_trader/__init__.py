@@ -54,6 +54,14 @@ from .deepstack_integration import DeepStackIntegration
 from .strategy import MeanReversionStrategy
 from .journal import TradeJournal
 from .main import KalshiTradingBot
+from .market_governor import (
+    BleedDetector,
+    CycleAnalyzer,
+    GovernanceEngine,
+    MarketRegime,
+    RegimePrediction,
+    StrategyRouter,
+)
 from .strategy_manager import StrategyManager
 from .trade_analyzer import TradeAnalyzer
 
@@ -71,6 +79,12 @@ __all__ = [
     "DeepStackIntegration",
     "MeanReversionStrategy",
     "TradeJournal",
+    "BleedDetector",
+    "CycleAnalyzer",
+    "GovernanceEngine",
+    "MarketRegime",
+    "RegimePrediction",
+    "StrategyRouter",
     "StrategyManager",
     "TradeAnalyzer",
     # Exceptions

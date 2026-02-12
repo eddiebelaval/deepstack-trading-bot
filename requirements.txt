@@ -21,5 +21,8 @@ python-dotenv>=1.0.0
 # Optional: Better RSS feed parsing for news_sentiment_fade
 # feedparser>=6.0.0
 
+# Market data for governance cycle analysis (optional)
+yfinance>=0.2.30
+
 # Note: This bot also requires DeepStack for risk management
 # DeepStack path is configured in deepstack_integration.py

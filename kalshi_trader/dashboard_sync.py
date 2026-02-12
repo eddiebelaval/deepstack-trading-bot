@@ -456,3 +456,43 @@ class DashboardSync:
                 "fee_cost": s.get("fee_cost"),
                 "value": s.get("value"),
             }, on_conflict="ticker")
+
+    async def push_regime(
+        self,
+        regime: str,
+        confidence: float,
+        volatility: float,
+        trend_strength: float,
+        mean_reversion_score: float,
+        volume_ratio: float,
+        num_markets: int,
+    ) -> None:
+        """Push a regime snapshot to Supabase for dashboard visualization."""
+        await self._post("regime_history", {
+            "regime": regime,
+            "confidence": confidence,
+            "volatility": volatility,
+            "trend_strength": trend_strength,
+            "mean_reversion_score": mean_reversion_score,
+            "volume_ratio": volume_ratio,
+            "num_markets_sampled": num_markets,
+        })
+
+    async def push_governance_decision(
+        self,
+        regime: str,
+        confidence: float,
+        action: str,
+        strategy_name: Optional[str],
+        reason: str,
+        mode: str,
+    ) -> None:
+        """Push a governance decision to Supabase for audit trail."""
+        await self._post("governance_decisions", {
+            "regime": regime,
+            "regime_confidence": confidence,
+            "action": action,
+            "strategy_name": strategy_name,
+            "reason": reason,
+            "mode": mode,
+        })

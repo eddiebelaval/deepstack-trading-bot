@@ -35,6 +35,7 @@ from .dashboard_sync import DashboardSync
 from .kalshi_client import AuthenticatedKalshiClient
 from .deepstack_integration import DeepStackIntegration
 from .journal import TradeJournal
+from .market_governor import GovernanceEngine, MarketSnapshot
 from .performance_tracker import PerformanceTracker
 from .exceptions import (
     KalshiTradingError,
@@ -108,6 +109,9 @@ class KalshiTradingBot:
         self.strategy = None  # Legacy single strategy
         self.strategy_manager = None  # Multi-strategy manager
         self.market = None  # Market adapter for StrategyManager
+
+        # Market governance engine (optional, regime-aware strategy routing)
+        self.market_governor: Optional[GovernanceEngine] = None
 
         # CryExc real-time exchange data bridge (optional, enabled via config)
         self._cryexc_bridge = None
@@ -247,6 +251,28 @@ class KalshiTradingBot:
                 self.trade_analyzer = None
         else:
             logger.info("Trade analyzer disabled (analysis.enabled=false)")
+
+        # 5d. Initialize market governance engine (optional)
+        if yaml_cfg and yaml_cfg.governance.enabled:
+            gov_cfg = yaml_cfg.governance
+            self.market_governor = GovernanceEngine(
+                db_path=self.config.journal_db_path,
+                enabled=True,
+                mode=gov_cfg.mode,
+                lookback_periods=gov_cfg.lookback_periods,
+                min_confidence=gov_cfg.min_confidence,
+                fitness_min_trades=gov_cfg.fitness_min_trades,
+                enable_threshold=gov_cfg.enable_threshold,
+                disable_threshold=gov_cfg.disable_threshold,
+                bleed_window_hours=gov_cfg.bleed_window_hours,
+                bleed_threshold_cents=gov_cfg.bleed_threshold_cents,
+                bleed_slope_threshold=gov_cfg.bleed_slope_threshold,
+                max_strategies_disabled_pct=gov_cfg.max_strategies_disabled_pct,
+                reenable_cooldown_hours=gov_cfg.reenable_cooldown_hours,
+            )
+            logger.info("Market governor initialized (mode=%s)", gov_cfg.mode)
+        else:
+            logger.info("Market governor disabled (governance.enabled=false)")
 
         # 6. Initialize dashboard sync (Supabase, fire-and-forget)
         self.dashboard = DashboardSync()
@@ -654,6 +680,9 @@ class KalshiTradingBot:
         # 2e. Run AI analysis on timer (every 30 min when enabled)
         await self._run_ai_analysis()
 
+        # 2f. Run market governance (regime detection + strategy routing)
+        await self._run_governance()
+
         # Skip market scanning if paused
         if self._paused:
             logger.debug("Bot paused — skipping market scan")
@@ -1033,6 +1062,41 @@ class KalshiTradingBot:
         except Exception as e:
             logger.warning(f"AI analysis failed: {e}")
 
+    async def _run_governance(self) -> None:
+        """Run market governance cycle: feed data, detect regime, apply decisions."""
+        if not self.market_governor:
+            return
+
+        # Build market snapshots from current open positions and recent market data
+        snapshots = []
+        for ticker, pos in self.open_positions.items():
+            try:
+                market = await self.client.get_market(ticker)
+                snapshots.append(MarketSnapshot(
+                    timestamp=datetime.now(),
+                    ticker=ticker,
+                    yes_price=float(market.get("last_price", 50)),
+                    volume=int(market.get("volume", 0)),
+                ))
+            except Exception:
+                pass
+
+        if snapshots:
+            self.market_governor.feed_market_data(snapshots)
+
+        # Gather strategy info for routing
+        active_strategies = []
+        safety_disabled = set()
+        if self.strategy_manager:
+            active_strategies = list(self.strategy_manager._strategies.keys())
+            safety_disabled = self._auto_disabled_strategies
+
+        await self.market_governor.run_cycle(
+            active_strategies=active_strategies,
+            safety_disabled=safety_disabled,
+            strategy_manager=self.strategy_manager,
+        )
+
     def _update_circuit_breaker_state(self, strategy_name: str, pnl_cents: int) -> None:
         """Update per-strategy circuit breaker tracking after a trade closes."""
         if strategy_name not in self._strategy_circuit_breakers:
@@ -1300,6 +1364,12 @@ class KalshiTradingBot:
                 self._update_circuit_breaker_state(
                     position.get("strategy", "mean_reversion"), pnl
                 )
+
+                # Record outcome for governance fitness attribution
+                if self.market_governor:
+                    self.market_governor.record_trade_outcome(
+                        position.get("strategy", "mean_reversion"), pnl
+                    )
 
                 # Sync close to Supabase dashboard
                 if self.dashboard and position.get("order_id"):

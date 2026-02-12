@@ -146,6 +146,82 @@ class AnalysisConfig(BaseModel):
     )
 
 
+class GovernanceConfig(BaseModel):
+    """Market governance engine configuration."""
+
+    enabled: bool = Field(default=False, description="Enable governance engine")
+    mode: str = Field(
+        default="advisory",
+        description="Operating mode: advisory (log only), autonomous (act), manual (suggest)",
+    )
+    lookback_periods: int = Field(
+        default=20,
+        description="Number of market snapshots for rolling window",
+        ge=5,
+        le=100,
+    )
+    min_confidence: float = Field(
+        default=0.6,
+        description="Minimum regime confidence to act on",
+        ge=0.0,
+        le=1.0,
+    )
+    fitness_min_trades: int = Field(
+        default=5,
+        description="Trades needed per regime to trust fitness score",
+        ge=1,
+        le=100,
+    )
+    enable_threshold: float = Field(
+        default=0.5,
+        description="Fitness above this enables a strategy for this regime",
+        ge=0.0,
+        le=1.0,
+    )
+    disable_threshold: float = Field(
+        default=0.3,
+        description="Fitness below this disables a strategy for this regime",
+        ge=0.0,
+        le=1.0,
+    )
+    bleed_window_hours: int = Field(
+        default=24,
+        description="Hours of P&L history for bleed detection",
+        ge=1,
+        le=168,
+    )
+    bleed_threshold_cents: float = Field(
+        default=-50.0,
+        description="Cumulative loss threshold in cents for bleed alert",
+        le=0.0,
+    )
+    bleed_slope_threshold: float = Field(
+        default=-0.5,
+        description="P&L slope (cents/hour) threshold for bleed alert",
+        le=0.0,
+    )
+    max_strategies_disabled_pct: float = Field(
+        default=0.75,
+        description="Never disable more than this fraction of strategies",
+        ge=0.0,
+        le=1.0,
+    )
+    reenable_cooldown_hours: int = Field(
+        default=6,
+        description="Minimum hours before re-enabling a governance-disabled strategy",
+        ge=1,
+        le=48,
+    )
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        valid_modes = {"advisory", "autonomous", "manual"}
+        if v not in valid_modes:
+            raise ValueError(f"Invalid governance mode '{v}'. Must be one of: {valid_modes}")
+        return v
+
+
 class CryExcSymbolConfig(BaseModel):
     """Configuration for a single CryExc symbol subscription."""
 
@@ -220,6 +296,10 @@ class YAMLConfig(BaseModel):
     analysis: AnalysisConfig = Field(
         default_factory=AnalysisConfig,
         description="Claude intelligence layer settings",
+    )
+    governance: GovernanceConfig = Field(
+        default_factory=GovernanceConfig,
+        description="Market governance engine settings",
     )
 
 

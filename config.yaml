@@ -273,3 +273,20 @@ analysis:
   auto_apply_kelly: true       # Auto-adjust Kelly fractions from analysis
   auto_apply_params: false     # Strategy param changes require human review
   min_trades_for_analysis: 10  # Skip analysis with fewer closed trades
+
+# Market governance engine — proactive regime detection and strategy routing.
+# Detects market conditions (trending, mean-reverting, choppy, calm) and
+# enables/disables strategies accordingly. Never overrides safety layers.
+governance:
+  enabled: false                # Start disabled until validated
+  mode: advisory                # advisory (log only), autonomous (act), manual (suggest)
+  lookback_periods: 20          # Market snapshots for rolling window
+  min_confidence: 0.6           # Minimum regime confidence to act
+  fitness_min_trades: 5         # Trades per regime to trust fitness score
+  enable_threshold: 0.5         # Fitness above this = enable strategy
+  disable_threshold: 0.3        # Fitness below this = disable strategy
+  bleed_window_hours: 24        # P&L trend window for bleed detection
+  bleed_threshold_cents: -50    # Cumulative loss threshold
+  bleed_slope_threshold: -0.5   # Cents/hour slope threshold
+  max_strategies_disabled_pct: 0.75  # Never disable more than 75%
+  reenable_cooldown_hours: 6    # Minimum cooldown for re-enable
