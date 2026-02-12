@@ -66,11 +66,7 @@ CREATE INDEX IF NOT EXISTS idx_deepstack_orders_synced ON deepstack_orders (sync
 CREATE INDEX IF NOT EXISTS idx_deepstack_fills_created ON deepstack_fills (created_time DESC);
 CREATE INDEX IF NOT EXISTS idx_deepstack_fills_ticker ON deepstack_fills (ticker);
 
--- Enable RLS with permissive policies for service role
+-- Enable RLS — policies are managed by 20260212_fix_rls_policies.sql
 ALTER TABLE deepstack_positions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deepstack_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE deepstack_fills ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Service role full access positions" ON deepstack_positions FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Service role full access orders" ON deepstack_orders FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Service role full access fills" ON deepstack_fills FOR ALL USING (true) WITH CHECK (true);
