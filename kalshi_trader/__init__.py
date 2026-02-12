@@ -54,7 +54,17 @@ from .deepstack_integration import DeepStackIntegration
 from .strategy import MeanReversionStrategy
 from .journal import TradeJournal
 from .main import KalshiTradingBot
+from .market_governor import (
+    BleedDetector,
+    CycleAnalyzer,
+    GovernanceEngine,
+    MarketRegime,
+    RegimePrediction,
+    StrategyRouter,
+)
 from .strategy_manager import StrategyManager
+from .captains_log import CaptainsLog, NarrationEvent, EventPriority
+from .trade_analyzer import TradeAnalyzer
 
 __all__ = [
     # Main bot
@@ -70,7 +80,17 @@ __all__ = [
     "DeepStackIntegration",
     "MeanReversionStrategy",
     "TradeJournal",
+    "BleedDetector",
+    "CycleAnalyzer",
+    "GovernanceEngine",
+    "MarketRegime",
+    "RegimePrediction",
+    "StrategyRouter",
     "StrategyManager",
+    "TradeAnalyzer",
+    "CaptainsLog",
+    "NarrationEvent",
+    "EventPriority",
     # Exceptions
     "KalshiTradingError",
     "KalshiAuthError",

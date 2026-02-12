@@ -679,3 +679,108 @@ class TradeJournal:
             conn.commit()
 
         logger.info(f"Daily summary saved for {summary_date}")
+
+    def export_for_analysis(
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        include_open: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Export trade data in an LLM-optimized format for Claude analysis.
+
+        Returns a structured dict with trades grouped by strategy, including
+        the qualitative reasoning/exit_reason fields that the Bayesian
+        tracker ignores.
+
+        Args:
+            start_date: Start of period (default: all time)
+            end_date: End of period (default: today)
+            include_open: Whether to include open (unsettled) trades
+
+        Returns:
+            Dict with period, summary stats, full trades, and by-strategy grouping
+        """
+        end_date = end_date or date.today()
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Build date filter
+            status_filter = "IN ('closed', 'open')" if include_open else "= 'closed'"
+            if start_date:
+                date_filter = "AND session_date BETWEEN ? AND ?"
+                params: tuple = (start_date, end_date)
+            else:
+                date_filter = "AND session_date <= ?"
+                params = (end_date,)
+
+            cursor.execute(
+                f"""
+                SELECT * FROM trades
+                WHERE status {status_filter} {date_filter}
+                ORDER BY created_at
+                """,
+                params,
+            )
+            trades = [dict(row) for row in cursor.fetchall()]
+
+        if not trades:
+            return {
+                "period": {
+                    "start": str(start_date) if start_date else "all_time",
+                    "end": str(end_date),
+                },
+                "summary": self.get_trade_statistics(start_date, end_date),
+                "trades": [],
+                "by_strategy": {},
+            }
+
+        # Convert datetime objects to strings for JSON serialization
+        for trade in trades:
+            for key in ("created_at", "updated_at"):
+                if trade.get(key) and not isinstance(trade[key], str):
+                    trade[key] = str(trade[key])
+
+        # Group trades by strategy
+        by_strategy: Dict[str, Dict[str, Any]] = {}
+        strategy_trades: Dict[str, List[Dict]] = {}
+
+        for trade in trades:
+            strat = trade.get("strategy") or "unknown"
+            if strat not in strategy_trades:
+                strategy_trades[strat] = []
+            strategy_trades[strat].append(trade)
+
+        for strat_name, strat_trades in strategy_trades.items():
+            closed = [t for t in strat_trades if t["status"] == "closed"]
+            winners = [t for t in closed if (t.get("pnl_cents") or 0) > 0]
+            losers = [t for t in closed if (t.get("pnl_cents") or 0) < 0]
+            total_pnl = sum(t.get("pnl_cents", 0) or 0 for t in closed)
+
+            by_strategy[strat_name] = {
+                "trades": strat_trades,
+                "stats": {
+                    "total_trades": len(closed),
+                    "winning_trades": len(winners),
+                    "losing_trades": len(losers),
+                    "win_rate": len(winners) / len(closed) if closed else 0,
+                    "total_pnl_cents": total_pnl,
+                    "avg_pnl_cents": total_pnl / len(closed) if closed else 0,
+                },
+            }
+
+        # Determine actual date range from data
+        dates = [t["session_date"] for t in trades if t.get("session_date")]
+        actual_start = min(dates) if dates else start_date
+        actual_end = max(dates) if dates else end_date
+
+        return {
+            "period": {
+                "start": str(actual_start) if actual_start else "all_time",
+                "end": str(actual_end) if actual_end else str(end_date),
+            },
+            "summary": self.get_trade_statistics(start_date, end_date),
+            "trades": trades,
+            "by_strategy": by_strategy,
+        }

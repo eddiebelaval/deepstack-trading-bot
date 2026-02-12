@@ -15,6 +15,7 @@ import {
   Order,
   Fill,
   Settlement,
+  CaptainsLogEntry,
 } from './types';
 
 // PostgREST uses URL query params for filtering/sorting.
@@ -438,4 +439,29 @@ export async function getFills(limit: number = 100): Promise<Fill[]> {
 
 export async function getSettlements(limit: number = 100): Promise<Settlement[]> {
   return restGet<Settlement>('deepstack_settlements', `order=settled_time.desc&limit=${limit}`);
+}
+
+// ============================================================================
+// CAPTAIN'S LOG (Bot narration + user messages)
+// ============================================================================
+
+export async function getCaptainsLogEntries(
+  limit: number = 50,
+  after?: string,
+): Promise<CaptainsLogEntry[]> {
+  let params = `order=created_at.desc&limit=${limit}`;
+  if (after) {
+    params = `created_at=gt.${after}&${params}`;
+  }
+  const entries = await restGet<CaptainsLogEntry>('deepstack_captains_log', params);
+  return entries.reverse(); // Chronological order for chat display
+}
+
+export async function createCaptainsLogEntry(content: string): Promise<CaptainsLogEntry> {
+  return restInsert<CaptainsLogEntry>('deepstack_captains_log', {
+    role: 'user',
+    content,
+    event_type: 'user_response',
+    priority: 'significant',
+  });
 }

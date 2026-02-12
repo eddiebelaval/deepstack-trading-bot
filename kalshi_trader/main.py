@@ -25,15 +25,18 @@ import asyncio
 import logging
 import signal
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from .command_processor import CommandProcessor
+from .captains_log import CaptainsLog, NarrationEvent, EventPriority
 from .config import KalshiConfig, load_config, get_strategy_configs, load_yaml_config, CryExcConfig
+from .trade_analyzer import TradeAnalyzer
 from .dashboard_sync import DashboardSync
 from .kalshi_client import AuthenticatedKalshiClient
 from .deepstack_integration import DeepStackIntegration
 from .journal import TradeJournal
+from .market_governor import GovernanceEngine, MarketSnapshot
 from .performance_tracker import PerformanceTracker
 from .exceptions import (
     KalshiTradingError,
@@ -99,6 +102,7 @@ class KalshiTradingBot:
         self.risk: Optional[DeepStackIntegration] = None
         self.journal: Optional[TradeJournal] = None
         self.performance_tracker: Optional[PerformanceTracker] = None
+        self.trade_analyzer: Optional[TradeAnalyzer] = None
         self.dashboard: Optional[DashboardSync] = None
         self.command_processor: Optional[CommandProcessor] = None
 
@@ -106,6 +110,12 @@ class KalshiTradingBot:
         self.strategy = None  # Legacy single strategy
         self.strategy_manager = None  # Multi-strategy manager
         self.market = None  # Market adapter for StrategyManager
+
+        # Market governance engine (optional, regime-aware strategy routing)
+        self.market_governor: Optional[GovernanceEngine] = None
+
+        # Captain's Log narration engine (optional, enabled via config)
+        self.captains_log: Optional[CaptainsLog] = None
 
         # CryExc real-time exchange data bridge (optional, enabled via config)
         self._cryexc_bridge = None
@@ -137,6 +147,13 @@ class KalshiTradingBot:
 
         # Daily review: track last review date to trigger once per day
         self._last_daily_review_date: Optional[str] = None
+
+        # Captain's Log: track balance for >1% change detection
+        self._last_captains_log_balance: Optional[float] = None
+
+        # Claude analysis: track last analysis time (run every 30 min)
+        self._last_analysis_time: Optional[datetime] = None
+        self._analysis_interval_minutes: int = 30
 
         logger.info(
             f"KalshiTradingBot initialized | "
@@ -226,9 +243,78 @@ class KalshiTradingBot:
         self._register_strategy_priors()
         self._apply_adaptive_thresholds()
 
+        # 5c. Initialize Claude analysis (optional, enabled via config)
+        yaml_cfg = load_yaml_config()
+        if yaml_cfg and yaml_cfg.analysis.enabled:
+            analysis_dict = yaml_cfg.analysis.model_dump()
+            self.trade_analyzer = TradeAnalyzer({"analysis": analysis_dict})
+            if self.trade_analyzer.is_available:
+                logger.info(
+                    "Trade analyzer initialized (model=%s)",
+                    analysis_dict.get("model"),
+                )
+            else:
+                logger.warning("Trade analyzer enabled but ANTHROPIC_API_KEY not set")
+                self.trade_analyzer = None
+        else:
+            logger.info("Trade analyzer disabled (analysis.enabled=false)")
+
+        # 5d. Initialize market governance engine (optional)
+        if yaml_cfg and yaml_cfg.governance.enabled:
+            gov_cfg = yaml_cfg.governance
+            self.market_governor = GovernanceEngine(
+                db_path=self.config.journal_db_path,
+                enabled=True,
+                mode=gov_cfg.mode,
+                lookback_periods=gov_cfg.lookback_periods,
+                min_confidence=gov_cfg.min_confidence,
+                fitness_min_trades=gov_cfg.fitness_min_trades,
+                enable_threshold=gov_cfg.enable_threshold,
+                disable_threshold=gov_cfg.disable_threshold,
+                bleed_window_hours=gov_cfg.bleed_window_hours,
+                bleed_threshold_cents=gov_cfg.bleed_threshold_cents,
+                bleed_slope_threshold=gov_cfg.bleed_slope_threshold,
+                max_strategies_disabled_pct=gov_cfg.max_strategies_disabled_pct,
+                reenable_cooldown_hours=gov_cfg.reenable_cooldown_hours,
+            )
+            logger.info("Market governor initialized (mode=%s)", gov_cfg.mode)
+        else:
+            logger.info("Market governor disabled (governance.enabled=false)")
+
+        # 5e. Initialize Captain's Log narration engine (optional)
+        self.config_yaml = yaml_cfg  # Store for later use
+        if yaml_cfg and yaml_cfg.captains_log.enabled:
+            self.captains_log = CaptainsLog(
+                config=yaml_cfg.captains_log.model_dump(),
+                dashboard_sync=None,  # Will be set after dashboard init
+            )
+            if self.captains_log.is_available:
+                logger.info("Captain's Log enabled (will connect after dashboard init)")
+            else:
+                logger.warning("Captain's Log enabled but ANTHROPIC_API_KEY not set")
+                self.captains_log = None
+        else:
+            logger.info("Captain's Log disabled (captains_log.enabled=false)")
+
         # 6. Initialize dashboard sync (Supabase, fire-and-forget)
         self.dashboard = DashboardSync()
         await self.dashboard.connect()
+
+        # 6a. Wire Captain's Log to dashboard sync and connect
+        if self.captains_log:
+            self.captains_log._dashboard = self.dashboard
+            await self.captains_log.connect()
+            self.captains_log.record_event(NarrationEvent(
+                event_type="startup",
+                priority=EventPriority.SIGNIFICANT,
+                timestamp=datetime.now(timezone.utc),
+                summary=(
+                    f"DeepStack online. Balance: ${self.risk.account_balance:.2f}. "
+                    f"{len(self.strategy_manager._strategies) if self.strategy_manager else 1} strategies loaded."
+                ),
+                strategy=None,
+                metadata={},
+            ))
 
         # 6b. Restore strategy enabled states from Supabase (persists user toggles across restarts)
         if self.strategy_manager:
@@ -460,6 +546,27 @@ class KalshiTradingBot:
         logger.info("Shutting down...")
 
         try:
+            # Record shutdown in Captain's Log
+            if self.captains_log:
+                self.captains_log.record_event(NarrationEvent(
+                    event_type="shutdown",
+                    priority=EventPriority.SIGNIFICANT,
+                    timestamp=datetime.now(timezone.utc),
+                    summary="DeepStack shutting down.",
+                    strategy=None,
+                    metadata={},
+                ))
+                # Force narrate the shutdown event
+                bot_state = {
+                    "balance": self.risk.account_balance if self.risk else 0,
+                    "daily_pnl": self.risk.get_daily_stats()["daily_pnl"] if self.risk else 0,
+                    "open_positions": len(self.open_positions),
+                    "regime": "shutdown",
+                    "active_strategies": [],
+                }
+                await self.captains_log.narrate_if_ready(bot_state)
+                await self.captains_log.disconnect()
+
             # Push shutdown state to Supabase
             if self.command_processor:
                 await self.command_processor.update_mode("stopped")
@@ -505,6 +612,10 @@ class KalshiTradingBot:
                             strategy="daily_review",
                         )
                     logger.info(f"Daily review: {' | '.join(parts)}")
+
+            # Close trade analyzer
+            if self.trade_analyzer:
+                await self.trade_analyzer.close()
 
             # Close performance tracker
             if self.performance_tracker:
@@ -625,6 +736,12 @@ class KalshiTradingBot:
         # 2d. Run daily review on date rollover (populates daily_reviews table)
         await self._run_daily_review()
 
+        # 2e. Run AI analysis on timer (every 30 min when enabled)
+        await self._run_ai_analysis()
+
+        # 2f. Run market governance (regime detection + strategy routing)
+        await self._run_governance()
+
         # Skip market scanning if paused
         if self._paused:
             logger.debug("Bot paused — skipping market scan")
@@ -644,6 +761,19 @@ class KalshiTradingBot:
             await self._scan_and_trade_multi()
         else:
             await self._scan_and_trade_legacy()
+
+        # 5. Captain's Log — narrate if conditions met
+        if self.captains_log:
+            bot_state = {
+                "balance": self.risk.account_balance,
+                "daily_pnl": self.risk.get_daily_stats()["daily_pnl"],
+                "open_positions": len(self.open_positions),
+                "regime": getattr(self, '_current_regime', 'unknown'),
+                "active_strategies": [
+                    name for name, s in self.strategy_manager._strategies.items() if s.enabled
+                ] if self.strategy_manager else [],
+            }
+            await self.captains_log.narrate_if_ready(bot_state)
 
         logger.debug("Trading cycle complete")
 
@@ -755,6 +885,28 @@ class KalshiTradingBot:
                 },
             )
 
+            # Captain's Log: balance change >1%
+            if self.captains_log:
+                current_balance = balance_cents / 100.0
+                if self._last_captains_log_balance is not None and self._last_captains_log_balance > 0:
+                    pct_change = abs(current_balance - self._last_captains_log_balance) / self._last_captains_log_balance
+                    if pct_change >= 0.01:
+                        direction = "up" if current_balance > self._last_captains_log_balance else "down"
+                        self.captains_log.record_event(NarrationEvent(
+                            event_type="market_observation",
+                            priority=EventPriority.ROUTINE,
+                            timestamp=datetime.now(timezone.utc),
+                            summary=(
+                                f"Balance {direction} {pct_change:.1%}: "
+                                f"${self._last_captains_log_balance:.2f} -> ${current_balance:.2f}."
+                            ),
+                            strategy=None,
+                            metadata={},
+                        ))
+                        self._last_captains_log_balance = current_balance
+                else:
+                    self._last_captains_log_balance = current_balance
+
             # Push enriched positions, orders, and fills for dashboard parity
             try:
                 await self.dashboard.push_positions(enriched_positions)
@@ -831,6 +983,20 @@ class KalshiTradingBot:
                     f"warnings={health.consecutive_warnings}"
                 )
 
+                # Captain's Log: strategy auto-disabled
+                if self.captains_log:
+                    self.captains_log.record_event(NarrationEvent(
+                        event_type="strategy_change",
+                        priority=EventPriority.CRITICAL,
+                        timestamp=datetime.now(timezone.utc),
+                        summary=(
+                            f"Auto-disabled {name}: critical health for 3 consecutive cycles. "
+                            f"EV={health.blended_ev_cents:.2f}c, WR={health.blended_win_rate:.1%}."
+                        ),
+                        strategy=name,
+                        metadata={},
+                    ))
+
                 if self.dashboard:
                     await self.dashboard.push_log(
                         f"Auto-disabled {name}: critical health for 3 consecutive cycles "
@@ -892,6 +1058,21 @@ class KalshiTradingBot:
             cautious_kelly = max(0.05, current_kelly * self._reenable_tighter_factor)
             self._dynamic_kelly_fractions[name] = cautious_kelly
 
+            # Captain's Log: strategy re-enabled
+            if self.captains_log:
+                self.captains_log.record_event(NarrationEvent(
+                    event_type="strategy_change",
+                    priority=EventPriority.SIGNIFICANT,
+                    timestamp=datetime.now(timezone.utc),
+                    summary=(
+                        f"Re-enabled {name} after {hours_disabled:.1f}h cooldown. "
+                        f"Health={health.health_status}, EV={health.blended_ev_cents:.2f}c. "
+                        f"Cautious kelly={cautious_kelly:.3f}."
+                    ),
+                    strategy=name,
+                    metadata={},
+                ))
+
             logger.warning(
                 f"AUTO-REENABLE: {name} after {hours_disabled:.1f}h cooldown | "
                 f"health={health.health_status}, EV={health.blended_ev_cents:.2f}c | "
@@ -940,6 +1121,148 @@ class KalshiTradingBot:
                 level="INFO",
                 strategy="system",
             )
+
+    async def _run_ai_analysis(self) -> None:
+        """Run Claude analysis on trade data if enough time has passed.
+
+        Feeds PerformanceTracker data into TradeAnalyzer at a configurable
+        interval (default 30 min). If Claude suggests Kelly adjustments and
+        auto_apply_kelly is enabled, applies them to the per-strategy
+        dynamic Kelly fractions.
+        """
+        if not self.trade_analyzer or not self.journal:
+            return
+
+        now = datetime.now()
+        if self._last_analysis_time and (
+            now - self._last_analysis_time
+        ).total_seconds() < self._analysis_interval_minutes * 60:
+            return
+
+        export = self.journal.export_for_analysis()
+        min_trades = self.trade_analyzer._min_trades
+        if export["summary"]["total_trades"] < min_trades:
+            return
+
+        # Build config context for Claude
+        config_context = {
+            "strategies": get_strategy_configs() if self.use_strategy_manager else [],
+            "risk": {
+                "kelly_fraction": self.config.kelly_fraction,
+                "max_position_size": self.config.max_position_size,
+                "daily_loss_limit": self.config.daily_loss_limit,
+            },
+        }
+
+        try:
+            # Inject Captain's Log context for recursive learning
+            log_context = None
+            if self.captains_log:
+                log_context = await self.captains_log.get_recent_entries_for_analysis_async(5)
+            result = await self.trade_analyzer.analyze(export, config_context, log_context)
+            self._last_analysis_time = now
+
+            # Apply Kelly adjustments if available
+            kelly_adj = self.trade_analyzer.get_kelly_adjustments(result)
+            if kelly_adj:
+                for strategy_name, suggested_kelly in kelly_adj.items():
+                    old_kelly = self._dynamic_kelly_fractions.get(
+                        strategy_name, self.config.kelly_fraction
+                    )
+                    clamped = max(0.05, min(0.5, suggested_kelly))
+                    self._dynamic_kelly_fractions[strategy_name] = clamped
+                    logger.info(
+                        f"[AI Analysis] {strategy_name} kelly: "
+                        f"{old_kelly:.3f} -> {clamped:.3f}"
+                    )
+
+            # Captain's Log: AI analysis completed
+            if self.captains_log:
+                self.captains_log.record_event(NarrationEvent(
+                    event_type="analysis",
+                    priority=EventPriority.SIGNIFICANT,
+                    timestamp=datetime.now(timezone.utc),
+                    summary=f"AI analysis: {result.overall_summary[:200]}",
+                    strategy=None,
+                    metadata={"confidence": result.confidence},
+                ))
+
+            report = self.trade_analyzer.format_report(result)
+            logger.info(f"AI Analysis complete:\n{report}")
+
+            if self.dashboard:
+                await self.dashboard.push_log(
+                    f"AI analysis: {result.overall_summary[:200]}",
+                    level="INFO",
+                    strategy="analysis",
+                )
+
+        except Exception as e:
+            logger.warning(f"AI analysis failed: {e}")
+
+    async def _run_governance(self) -> None:
+        """Run market governance cycle: feed data, detect regime, apply decisions."""
+        if not self.market_governor:
+            return
+
+        # Build market snapshots from current open positions and recent market data
+        snapshots = []
+        for ticker, pos in self.open_positions.items():
+            try:
+                market = await self.client.get_market(ticker)
+                snapshots.append(MarketSnapshot(
+                    timestamp=datetime.now(),
+                    ticker=ticker,
+                    yes_price=float(market.get("last_price", 50)),
+                    volume=int(market.get("volume", 0)),
+                ))
+            except Exception:
+                pass
+
+        if snapshots:
+            self.market_governor.feed_market_data(snapshots)
+
+        # Gather strategy info for routing
+        active_strategies = []
+        safety_disabled = set()
+        if self.strategy_manager:
+            active_strategies = list(self.strategy_manager._strategies.keys())
+            safety_disabled = self._auto_disabled_strategies
+
+        # Capture pre-cycle regime for change detection
+        pre_regime = getattr(self.market_governor, '_current_regime', None)
+
+        await self.market_governor.run_cycle(
+            active_strategies=active_strategies,
+            safety_disabled=safety_disabled,
+            strategy_manager=self.strategy_manager,
+        )
+
+        # Captain's Log: detect regime changes and bleed alerts
+        if self.captains_log:
+            post_regime = getattr(self.market_governor, '_current_regime', None)
+            if pre_regime and post_regime and pre_regime != post_regime:
+                self.captains_log.record_event(NarrationEvent(
+                    event_type="regime_shift",
+                    priority=EventPriority.SIGNIFICANT,
+                    timestamp=datetime.now(timezone.utc),
+                    summary=f"Regime shift: {pre_regime} -> {post_regime}.",
+                    strategy=None,
+                    metadata={"from": str(pre_regime), "to": str(post_regime)},
+                ))
+
+            # Check for bleed alerts from governance
+            bleed = getattr(self.market_governor, '_last_bleed_alert', None)
+            if bleed:
+                self.captains_log.record_event(NarrationEvent(
+                    event_type="bleed",
+                    priority=EventPriority.SIGNIFICANT,
+                    timestamp=datetime.now(timezone.utc),
+                    summary=f"Bleed detected: {bleed}",
+                    strategy=None,
+                    metadata={},
+                ))
+                self.market_governor._last_bleed_alert = None  # Clear after logging
 
     def _update_circuit_breaker_state(self, strategy_name: str, pnl_cents: int) -> None:
         """Update per-strategy circuit breaker tracking after a trade closes."""
@@ -992,6 +1315,19 @@ class KalshiTradingBot:
                     f"win_rate={health.blended_win_rate:.1%}, "
                     f"confidence={health.confidence:.1%}"
                 )
+                # Captain's Log: circuit breaker / health critical
+                if self.captains_log:
+                    self.captains_log.record_event(NarrationEvent(
+                        event_type="strategy_change",
+                        priority=EventPriority.CRITICAL,
+                        timestamp=datetime.now(timezone.utc),
+                        summary=(
+                            f"Circuit breaker tripped for {name}. Health=critical, "
+                            f"EV={health.blended_ev_cents:.2f}c, WR={health.blended_win_rate:.1%}."
+                        ),
+                        strategy=name,
+                        metadata={},
+                    ))
                 if self.dashboard:
                     await self.dashboard.push_log(
                         f"Auto-disabled {name}: critical health "
@@ -1209,6 +1545,12 @@ class KalshiTradingBot:
                     position.get("strategy", "mean_reversion"), pnl
                 )
 
+                # Record outcome for governance fitness attribution
+                if self.market_governor:
+                    self.market_governor.record_trade_outcome(
+                        position.get("strategy", "mean_reversion"), pnl
+                    )
+
                 # Sync close to Supabase dashboard
                 if self.dashboard and position.get("order_id"):
                     await self.dashboard.push_trade_close(
@@ -1217,6 +1559,20 @@ class KalshiTradingBot:
                         pnl_cents=pnl,
                         exit_reason=exit_signal.exit_type,
                     )
+
+            # Captain's Log: trade closed
+            if self.captains_log and trade_id:
+                self.captains_log.record_event(NarrationEvent(
+                    event_type="trade",
+                    priority=EventPriority.SIGNIFICANT,
+                    timestamp=datetime.now(timezone.utc),
+                    summary=(
+                        f"Closed {ticker} ({exit_signal.exit_type}). "
+                        f"P&L: {pnl:+d}c (${pnl / 100:+.2f})."
+                    ),
+                    strategy=position.get("strategy", "mean_reversion"),
+                    metadata={"ticker": ticker, "pnl_cents": pnl, "exit_type": exit_signal.exit_type},
+                ))
 
             # Remove from tracking
             del self.open_positions[ticker]
@@ -1458,6 +1814,20 @@ class KalshiTradingBot:
                     order_id=order.get("order_id"),
                     reasoning=opp.reasoning,
                 )
+
+            # Captain's Log: trade opened
+            if self.captains_log:
+                self.captains_log.record_event(NarrationEvent(
+                    event_type="trade",
+                    priority=EventPriority.SIGNIFICANT,
+                    timestamp=datetime.now(timezone.utc),
+                    summary=(
+                        f"Opened {opp.side.upper()} {contracts} @ {opp.entry_price_cents}c on {ticker}. "
+                        f"Score: {opp.score:.1f}. {opp.reasoning[:100]}"
+                    ),
+                    strategy=strategy_name,
+                    metadata={"ticker": ticker, "side": opp.side, "price": opp.entry_price_cents},
+                ))
 
             logger.info(
                 f"Trade executed: {ticker} | {opp.side} {contracts} @ {opp.entry_price_cents}c | "

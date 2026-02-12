@@ -162,6 +162,46 @@ class PerformanceTracker:
             )
         """)
 
+        # Governance tables (Phase 1)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS regime_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                regime TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                timestamp TEXT NOT NULL,
+                volatility REAL,
+                trend_strength REAL,
+                mean_reversion_score REAL,
+                volume_ratio REAL,
+                num_markets_sampled INTEGER
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS strategy_regime_fitness (
+                strategy_name TEXT NOT NULL,
+                regime TEXT NOT NULL,
+                fitness_score REAL DEFAULT 0.5,
+                trade_count INTEGER DEFAULT 0,
+                total_pnl_cents REAL DEFAULT 0.0,
+                last_updated TEXT,
+                PRIMARY KEY (strategy_name, regime)
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS governance_decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                regime TEXT NOT NULL,
+                regime_confidence REAL,
+                action TEXT NOT NULL,
+                strategy_name TEXT,
+                reason TEXT,
+                mode TEXT
+            )
+        """)
+
         conn.commit()
 
     def register_prior(self, strategy_name: str, stats: Dict[str, float]) -> None:

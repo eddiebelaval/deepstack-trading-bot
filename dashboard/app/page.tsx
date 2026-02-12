@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
-import StrategyCard from '@/components/StrategyCard';
+import StrategyRow from '@/components/StrategyRow';
+import CaptainsLog from '@/components/CaptainsLog';
 import LiveFeed from '@/components/LiveFeed';
 import RiskMetricsCard from '@/components/RiskMetrics';
 import TradeJournal from '@/components/TradeJournal';
@@ -458,67 +459,95 @@ export default function Dashboard() {
           <PerformanceHero balanceHistory={balanceHistory} />
         </div>
 
-        {/* Strategy Status Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-4 mb-4 md:mb-6">
-          {dashboardState.strategies.map((strategy) => (
-            <StrategyCard
-              key={strategy.name}
-              strategy={strategy}
-              onClick={() => setSelectedStrategy(strategy)}
-            />
-          ))}
-        </div>
+        {/* Main Content: Left (60%) + DeepStack's Log (40%) */}
+        <div className="flex gap-4">
+          {/* Left Column — strategies, metrics, charts, portfolio */}
+          <div className="flex-1 min-w-0">
+            {/* Strategy Rows (compact list) */}
+            <div className="panel mb-4 md:mb-6">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-green/30">
+                <span className="text-xs font-bold tracking-wider terminal-glow">STRATEGIES</span>
+                <span className="text-[10px] text-terminal-dim">{dashboardState.strategies.length} LOADED</span>
+              </div>
+              <div className="divide-y divide-terminal-green/10">
+                {dashboardState.strategies.map((strategy) => (
+                  <StrategyRow
+                    key={strategy.name}
+                    strategy={strategy}
+                    onClick={() => setSelectedStrategy(strategy)}
+                  />
+                ))}
+              </div>
+            </div>
 
-        {/* Metrics Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
-          <RiskMetricsCard metrics={dashboardState.risk} />
-          <WinRateGauge
-            winRate={learningStats.winRate}
-            totalTrades={learningStats.total}
-            wins={learningStats.wins}
-            losses={learningStats.losses}
-          />
-          <TradeActivity data={activityData} onOpportunitiesClick={() => setShowOpportunities(true)} />
-        </div>
+            {/* DeepStack's Log — mobile only (below strategies) */}
+            <div className="lg:hidden mb-4 md:mb-6">
+              <div className="h-[400px]">
+                <LiveFeed />
+              </div>
+            </div>
 
-        {/* Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 md:gap-4 mb-4 md:mb-6">
-          <PnLChart data={pnlData} />
-          <LiveFeed />
-        </div>
+            {/* Metrics Row */}
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
+              <RiskMetricsCard metrics={dashboardState.risk} />
+              <WinRateGauge
+                winRate={learningStats.winRate}
+                totalTrades={learningStats.total}
+                wins={learningStats.wins}
+                losses={learningStats.losses}
+              />
+              <TradeActivity data={activityData} onOpportunitiesClick={() => setShowOpportunities(true)} />
+            </div>
 
-        {/* Portfolio Tabs: Positions | Orders | Fills | Journal */}
-        <div className="mb-4 md:mb-6">
-          <div className="flex gap-1 mb-3 border-b border-terminal-green/30 pb-1">
-            {(['positions', 'orders', 'fills', 'settlements', 'journal'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setPortfolioTab(tab)}
-                className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider transition-colors ${
-                  portfolioTab === tab
-                    ? 'text-terminal-green border-b-2 border-terminal-green'
-                    : 'text-terminal-dim hover:text-terminal-green/70'
-                }`}
-              >
-                {tab}
-                {tab === 'positions' && positions.length > 0 && (
-                  <span className="ml-1 text-terminal-dim">({positions.length})</span>
-                )}
-                {tab === 'orders' && orders.filter(o => o.status === 'resting').length > 0 && (
-                  <span className="ml-1 text-terminal-cyan-bright">({orders.filter(o => o.status === 'resting').length})</span>
-                )}
-                {tab === 'settlements' && settlements.length > 0 && (
-                  <span className="ml-1 text-terminal-dim">({settlements.length})</span>
-                )}
-              </button>
-            ))}
+            {/* Charts + Comms */}
+            <div className="space-y-2 md:space-y-4 mb-4 md:mb-6">
+              <PnLChart data={pnlData} />
+              <div className="h-[300px]">
+                <CaptainsLog />
+              </div>
+            </div>
+
+            {/* Portfolio Tabs: Positions | Orders | Fills | Journal */}
+            <div className="mb-4 md:mb-6">
+              <div className="flex gap-1 mb-3 border-b border-terminal-green/30 pb-1">
+                {(['positions', 'orders', 'fills', 'settlements', 'journal'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setPortfolioTab(tab)}
+                    className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider transition-colors ${
+                      portfolioTab === tab
+                        ? 'text-terminal-green border-b-2 border-terminal-green'
+                        : 'text-terminal-dim hover:text-terminal-green/70'
+                    }`}
+                  >
+                    {tab}
+                    {tab === 'positions' && positions.length > 0 && (
+                      <span className="ml-1 text-terminal-dim">({positions.length})</span>
+                    )}
+                    {tab === 'orders' && orders.filter(o => o.status === 'resting').length > 0 && (
+                      <span className="ml-1 text-terminal-cyan-bright">({orders.filter(o => o.status === 'resting').length})</span>
+                    )}
+                    {tab === 'settlements' && settlements.length > 0 && (
+                      <span className="ml-1 text-terminal-dim">({settlements.length})</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {portfolioTab === 'positions' && <PositionsTable positions={positions} />}
+              {portfolioTab === 'orders' && <OrdersTable orders={orders} />}
+              {portfolioTab === 'fills' && <FillsHistory fills={fills} />}
+              {portfolioTab === 'settlements' && <SettlementsHistory settlements={settlements} />}
+              {portfolioTab === 'journal' && <TradeJournal trades={trades} onTradeClick={(trade) => setSelectedTrade(trade)} />}
+            </div>
           </div>
 
-          {portfolioTab === 'positions' && <PositionsTable positions={positions} />}
-          {portfolioTab === 'orders' && <OrdersTable orders={orders} />}
-          {portfolioTab === 'fills' && <FillsHistory fills={fills} />}
-          {portfolioTab === 'settlements' && <SettlementsHistory settlements={settlements} />}
-          {portfolioTab === 'journal' && <TradeJournal trades={trades} onTradeClick={(trade) => setSelectedTrade(trade)} />}
+          {/* Right Column — DeepStack's Log (desktop only, sticky) */}
+          <div className="hidden lg:block w-[400px] shrink-0">
+            <div className="sticky top-6" style={{ height: 'calc(100vh - 3rem)' }}>
+              <LiveFeed />
+            </div>
+          </div>
         </div>
 
         {/* Footer */}

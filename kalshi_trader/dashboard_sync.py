@@ -456,3 +456,71 @@ class DashboardSync:
                 "fee_cost": s.get("fee_cost"),
                 "value": s.get("value"),
             }, on_conflict="ticker")
+
+    async def push_captains_log(
+        self,
+        content: str,
+        role: str = "bot",
+        event_type: Optional[str] = None,
+        priority: str = "routine",
+        strategy: Optional[str] = None,
+        regime: Optional[str] = None,
+        model_used: Optional[str] = None,
+        tokens_used: Optional[int] = None,
+    ) -> None:
+        """Push a Captain's Log entry to Supabase."""
+        entry: Dict[str, Any] = {
+            "role": role,
+            "content": content,
+            "event_type": event_type,
+            "priority": priority,
+        }
+        if strategy:
+            entry["strategy"] = strategy
+        if regime:
+            entry["regime"] = regime
+        if model_used:
+            entry["model_used"] = model_used
+        if tokens_used is not None:
+            entry["tokens_used"] = tokens_used
+        await self._post("captains_log", entry)
+
+    async def push_regime(
+        self,
+        regime: str,
+        confidence: float,
+        volatility: float,
+        trend_strength: float,
+        mean_reversion_score: float,
+        volume_ratio: float,
+        num_markets: int,
+    ) -> None:
+        """Push a regime snapshot to Supabase for dashboard visualization."""
+        await self._post("regime_history", {
+            "regime": regime,
+            "confidence": confidence,
+            "volatility": volatility,
+            "trend_strength": trend_strength,
+            "mean_reversion_score": mean_reversion_score,
+            "volume_ratio": volume_ratio,
+            "num_markets_sampled": num_markets,
+        })
+
+    async def push_governance_decision(
+        self,
+        regime: str,
+        confidence: float,
+        action: str,
+        strategy_name: Optional[str],
+        reason: str,
+        mode: str,
+    ) -> None:
+        """Push a governance decision to Supabase for audit trail."""
+        await self._post("governance_decisions", {
+            "regime": regime,
+            "regime_confidence": confidence,
+            "action": action,
+            "strategy_name": strategy_name,
+            "reason": reason,
+            "mode": mode,
+        })

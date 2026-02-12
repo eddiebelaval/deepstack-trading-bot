@@ -12,6 +12,7 @@ Priority: YAML > Environment > Defaults
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -121,6 +122,136 @@ class LearningConfig(BaseModel):
     )
 
 
+class AnalysisConfig(BaseModel):
+    """Claude intelligence layer configuration."""
+
+    enabled: bool = Field(default=False, description="Enable Claude trade analysis")
+    model: str = Field(
+        default="claude-sonnet-4-5-20250929",
+        description="Anthropic model ID for analysis",
+    )
+    auto_apply_kelly: bool = Field(
+        default=True,
+        description="Auto-apply Kelly fraction adjustments from Claude",
+    )
+    auto_apply_params: bool = Field(
+        default=False,
+        description="Auto-apply parameter suggestions (requires human review)",
+    )
+    min_trades_for_analysis: int = Field(
+        default=10,
+        description="Minimum closed trades before triggering analysis",
+        ge=5,
+        le=100,
+    )
+
+
+class GovernanceConfig(BaseModel):
+    """Market governance engine configuration."""
+
+    enabled: bool = Field(default=False, description="Enable governance engine")
+    mode: str = Field(
+        default="advisory",
+        description="Operating mode: advisory (log only), autonomous (act), manual (suggest)",
+    )
+    lookback_periods: int = Field(
+        default=20,
+        description="Number of market snapshots for rolling window",
+        ge=5,
+        le=100,
+    )
+    min_confidence: float = Field(
+        default=0.6,
+        description="Minimum regime confidence to act on",
+        ge=0.0,
+        le=1.0,
+    )
+    fitness_min_trades: int = Field(
+        default=5,
+        description="Trades needed per regime to trust fitness score",
+        ge=1,
+        le=100,
+    )
+    enable_threshold: float = Field(
+        default=0.5,
+        description="Fitness above this enables a strategy for this regime",
+        ge=0.0,
+        le=1.0,
+    )
+    disable_threshold: float = Field(
+        default=0.3,
+        description="Fitness below this disables a strategy for this regime",
+        ge=0.0,
+        le=1.0,
+    )
+    bleed_window_hours: int = Field(
+        default=24,
+        description="Hours of P&L history for bleed detection",
+        ge=1,
+        le=168,
+    )
+    bleed_threshold_cents: float = Field(
+        default=-50.0,
+        description="Cumulative loss threshold in cents for bleed alert",
+        le=0.0,
+    )
+    bleed_slope_threshold: float = Field(
+        default=-0.5,
+        description="P&L slope (cents/hour) threshold for bleed alert",
+        le=0.0,
+    )
+    max_strategies_disabled_pct: float = Field(
+        default=0.75,
+        description="Never disable more than this fraction of strategies",
+        ge=0.0,
+        le=1.0,
+    )
+    reenable_cooldown_hours: int = Field(
+        default=6,
+        description="Minimum hours before re-enabling a governance-disabled strategy",
+        ge=1,
+        le=48,
+    )
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v: str) -> str:
+        valid_modes = {"advisory", "autonomous", "manual"}
+        if v not in valid_modes:
+            raise ValueError(f"Invalid governance mode '{v}'. Must be one of: {valid_modes}")
+        return v
+
+
+class CaptainsLogConfig(BaseModel):
+    """Captain's Log narration engine configuration."""
+
+    enabled: bool = Field(default=False, description="Enable Captain's Log narration")
+    routine_interval_seconds: int = Field(
+        default=120,
+        description="Minimum seconds between routine narrations",
+        ge=30,
+        le=600,
+    )
+    significant_interval_seconds: int = Field(
+        default=60,
+        description="Minimum seconds between significant narrations",
+        ge=15,
+        le=300,
+    )
+    max_tokens: int = Field(
+        default=300,
+        description="Maximum tokens per narration",
+        ge=50,
+        le=1000,
+    )
+    max_context_entries: int = Field(
+        default=20,
+        description="Maximum recent log entries to include as context",
+        ge=5,
+        le=50,
+    )
+
+
 class CryExcSymbolConfig(BaseModel):
     """Configuration for a single CryExc symbol subscription."""
 
@@ -191,6 +322,18 @@ class YAMLConfig(BaseModel):
     cryexc: CryExcConfig = Field(
         default_factory=CryExcConfig,
         description="CryExc real-time exchange data settings",
+    )
+    analysis: AnalysisConfig = Field(
+        default_factory=AnalysisConfig,
+        description="Claude intelligence layer settings",
+    )
+    governance: GovernanceConfig = Field(
+        default_factory=GovernanceConfig,
+        description="Market governance engine settings",
+    )
+    captains_log: CaptainsLogConfig = Field(
+        default_factory=CaptainsLogConfig,
+        description="Captain's Log narration engine settings",
     )
 
 
@@ -466,8 +609,16 @@ def load_profile(profile_name: str, profiles_dir: str = DEFAULT_PROFILES_DIR) ->
 
     Returns:
         Profile configuration dict, empty if not found
+
+    Raises:
+        ValueError: If profile_name contains invalid characters or escapes the profiles directory
     """
-    profile_path = Path(profiles_dir) / f"{profile_name}.yaml"
+    if not re.match(r'^[a-zA-Z0-9_-]+$', profile_name):
+        raise ValueError(f"Invalid profile name: {profile_name}")
+
+    profile_path = (Path(profiles_dir) / f"{profile_name}.yaml").resolve()
+    if not profile_path.is_relative_to(Path(profiles_dir).resolve()):
+        raise ValueError("Profile path escapes profiles directory")
 
     if not profile_path.exists():
         logger.warning(f"Profile not found: {profile_path}")

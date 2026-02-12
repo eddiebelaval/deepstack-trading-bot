@@ -41,6 +41,14 @@ export default function LiveFeed() {
     }
   };
 
+  const formatTimestamp = (ts: string) => {
+    try {
+      return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch {
+      return ts.slice(11, 19) || ts;
+    }
+  };
+
   const getLevelSymbol = (level: string) => {
     switch (level) {
       case 'INFO':
@@ -75,7 +83,7 @@ export default function LiveFeed() {
       <div className="border-b border-terminal-green pb-2 mb-3 transition-all duration-300">
         <div className="flex items-center justify-between">
           <div className="text-lg font-bold terminal-glow tracking-wide transition-all duration-300 hover:terminal-glow-bright">
-            LIVE FEED
+            DEEPSTACK&apos;S LOG
           </div>
           <div className={`text-xs ${feedError ? 'text-terminal-red' : 'text-terminal-dim'}`}>
             {feedError ? 'DISCONNECTED' : <>STREAMING <span className="cursor animate-cursor-blink">_</span></>}
@@ -87,7 +95,7 @@ export default function LiveFeed() {
       <div
         ref={scrollRef}
         className="flex-grow overflow-y-auto font-mono text-sm leading-relaxed space-y-2"
-        style={{ maxHeight: '400px' }}
+        style={{ maxHeight: 'none' }}
       >
         {logs.length === 0 ? (
           <div className="text-terminal-dim animate-fade-in">
@@ -95,21 +103,23 @@ export default function LiveFeed() {
           </div>
         ) : (
           logs.map((log, idx) => (
-            <div key={idx} className="flex gap-3 animate-fade-in hover:bg-terminal-green hover:bg-opacity-5 px-2 -mx-2 py-1 transition-all duration-200 rounded">
-              <span className="text-terminal-cyan-dim shrink-0">
-                {log.timestamp}
-              </span>
-              <span className={`shrink-0 ${getLevelClass(log.level)}`}>
-                {getLevelSymbol(log.level)}
-              </span>
-              {log.strategy && (
-                <span className="text-terminal-amber shrink-0">
-                  [{log.strategy}]
+            <div key={idx} className="animate-fade-in hover:bg-terminal-green hover:bg-opacity-5 px-2 -mx-2 py-1 transition-all duration-200 rounded">
+              <div className="flex items-baseline gap-2 text-[10px] mb-0.5">
+                <span className="text-terminal-cyan-dim shrink-0">
+                  {formatTimestamp(log.timestamp)}
                 </span>
-              )}
-              <span className="text-terminal-green break-all">
+                <span className={`shrink-0 ${getLevelClass(log.level)}`}>
+                  {getLevelSymbol(log.level)}
+                </span>
+                {log.strategy && (
+                  <span className="text-terminal-amber truncate">
+                    [{log.strategy}]
+                  </span>
+                )}
+              </div>
+              <div className="text-terminal-green text-xs break-words">
                 {log.message}
-              </span>
+              </div>
             </div>
           ))
         )}
