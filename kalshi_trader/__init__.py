@@ -55,6 +55,7 @@ from .strategy import MeanReversionStrategy
 from .journal import TradeJournal
 from .main import KalshiTradingBot
 from .strategy_manager import StrategyManager
+from .trade_analyzer import TradeAnalyzer
 
 __all__ = [
     # Main bot
@@ -71,6 +72,7 @@ __all__ = [
     "MeanReversionStrategy",
     "TradeJournal",
     "StrategyManager",
+    "TradeAnalyzer",
     # Exceptions
     "KalshiTradingError",
     "KalshiAuthError",

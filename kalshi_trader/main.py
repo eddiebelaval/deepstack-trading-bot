@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional
 
 from .command_processor import CommandProcessor
 from .config import KalshiConfig, load_config, get_strategy_configs, load_yaml_config, CryExcConfig
+from .trade_analyzer import TradeAnalyzer
 from .dashboard_sync import DashboardSync
 from .kalshi_client import AuthenticatedKalshiClient
 from .deepstack_integration import DeepStackIntegration
@@ -99,6 +100,7 @@ class KalshiTradingBot:
         self.risk: Optional[DeepStackIntegration] = None
         self.journal: Optional[TradeJournal] = None
         self.performance_tracker: Optional[PerformanceTracker] = None
+        self.trade_analyzer: Optional[TradeAnalyzer] = None
         self.dashboard: Optional[DashboardSync] = None
         self.command_processor: Optional[CommandProcessor] = None
 
@@ -137,6 +139,10 @@ class KalshiTradingBot:
 
         # Daily review: track last review date to trigger once per day
         self._last_daily_review_date: Optional[str] = None
+
+        # Claude analysis: track last analysis time (run every 30 min)
+        self._last_analysis_time: Optional[datetime] = None
+        self._analysis_interval_minutes: int = 30
 
         logger.info(
             f"KalshiTradingBot initialized | "
@@ -225,6 +231,22 @@ class KalshiTradingBot:
         )
         self._register_strategy_priors()
         self._apply_adaptive_thresholds()
+
+        # 5c. Initialize Claude analysis (optional, enabled via config)
+        yaml_cfg = load_yaml_config()
+        if yaml_cfg and yaml_cfg.analysis.enabled:
+            analysis_dict = yaml_cfg.analysis.model_dump()
+            self.trade_analyzer = TradeAnalyzer({"analysis": analysis_dict})
+            if self.trade_analyzer.is_available:
+                logger.info(
+                    "Trade analyzer initialized (model=%s)",
+                    analysis_dict.get("model"),
+                )
+            else:
+                logger.warning("Trade analyzer enabled but ANTHROPIC_API_KEY not set")
+                self.trade_analyzer = None
+        else:
+            logger.info("Trade analyzer disabled (analysis.enabled=false)")
 
         # 6. Initialize dashboard sync (Supabase, fire-and-forget)
         self.dashboard = DashboardSync()
@@ -506,6 +528,10 @@ class KalshiTradingBot:
                         )
                     logger.info(f"Daily review: {' | '.join(parts)}")
 
+            # Close trade analyzer
+            if self.trade_analyzer:
+                await self.trade_analyzer.close()
+
             # Close performance tracker
             if self.performance_tracker:
                 self.performance_tracker.close()
@@ -624,6 +650,9 @@ class KalshiTradingBot:
 
         # 2d. Run daily review on date rollover (populates daily_reviews table)
         await self._run_daily_review()
+
+        # 2e. Run AI analysis on timer (every 30 min when enabled)
+        await self._run_ai_analysis()
 
         # Skip market scanning if paused
         if self._paused:
@@ -940,6 +969,69 @@ class KalshiTradingBot:
                 level="INFO",
                 strategy="system",
             )
+
+    async def _run_ai_analysis(self) -> None:
+        """Run Claude analysis on trade data if enough time has passed.
+
+        Feeds PerformanceTracker data into TradeAnalyzer at a configurable
+        interval (default 30 min). If Claude suggests Kelly adjustments and
+        auto_apply_kelly is enabled, applies them to the per-strategy
+        dynamic Kelly fractions.
+        """
+        if not self.trade_analyzer or not self.journal:
+            return
+
+        now = datetime.now()
+        if self._last_analysis_time and (
+            now - self._last_analysis_time
+        ).total_seconds() < self._analysis_interval_minutes * 60:
+            return
+
+        export = self.journal.export_for_analysis()
+        min_trades = self.trade_analyzer._min_trades
+        if export["summary"]["total_trades"] < min_trades:
+            return
+
+        # Build config context for Claude
+        config_context = {
+            "strategies": get_strategy_configs() if self.use_strategy_manager else [],
+            "risk": {
+                "kelly_fraction": self.config.kelly_fraction,
+                "max_position_size": self.config.max_position_size,
+                "daily_loss_limit": self.config.daily_loss_limit,
+            },
+        }
+
+        try:
+            result = await self.trade_analyzer.analyze(export, config_context)
+            self._last_analysis_time = now
+
+            # Apply Kelly adjustments if available
+            kelly_adj = self.trade_analyzer.get_kelly_adjustments(result)
+            if kelly_adj:
+                for strategy_name, suggested_kelly in kelly_adj.items():
+                    old_kelly = self._dynamic_kelly_fractions.get(
+                        strategy_name, self.config.kelly_fraction
+                    )
+                    clamped = max(0.05, min(0.5, suggested_kelly))
+                    self._dynamic_kelly_fractions[strategy_name] = clamped
+                    logger.info(
+                        f"[AI Analysis] {strategy_name} kelly: "
+                        f"{old_kelly:.3f} -> {clamped:.3f}"
+                    )
+
+            report = self.trade_analyzer.format_report(result)
+            logger.info(f"AI Analysis complete:\n{report}")
+
+            if self.dashboard:
+                await self.dashboard.push_log(
+                    f"AI analysis: {result.overall_summary[:200]}",
+                    level="INFO",
+                    strategy="analysis",
+                )
+
+        except Exception as e:
+            logger.warning(f"AI analysis failed: {e}")
 
     def _update_circuit_breaker_state(self, strategy_name: str, pnl_cents: int) -> None:
         """Update per-strategy circuit breaker tracking after a trade closes."""

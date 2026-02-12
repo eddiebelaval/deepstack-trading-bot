@@ -9,6 +9,7 @@ giving sub-3-second response time to dashboard commands.
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional
 
@@ -83,6 +84,15 @@ class CommandProcessor:
             await self._client.aclose()
             self._client = None
 
+    @staticmethod
+    def _sanitize_error(error: Exception) -> str:
+        """Strip sensitive info from error messages before writing to Supabase."""
+        msg = str(error)[:200]
+        msg = re.sub(r'(/Users/\S+)', '[REDACTED_PATH]', msg)
+        msg = re.sub(r'(/home/\S+)', '[REDACTED_PATH]', msg)
+        msg = re.sub(r'(key|token|secret|password)\S*', '[REDACTED]', msg, flags=re.IGNORECASE)
+        return msg
+
     def _setup_handlers(self) -> None:
         """Register command handlers."""
         self._handlers = {
@@ -155,7 +165,7 @@ class CommandProcessor:
         except Exception as e:
             logger.error(f"Command {command_type} failed: {e}")
             await self._update_command_status(
-                command_id, "failed", {"error": str(e)}
+                command_id, "failed", {"error": self._sanitize_error(e)}
             )
 
     async def _update_command_status(
@@ -266,26 +276,38 @@ class CommandProcessor:
         return {"strategy": strategy_name, "enabled": enabled}
 
     async def _handle_update_risk(self, params: dict) -> dict:
-        """Update risk parameters at runtime."""
+        """Update risk parameters at runtime with bounds validation."""
         updated = {}
+        errors = []
 
         if "kelly_fraction" in params:
             kf = float(params["kelly_fraction"])
-            self.bot.config.kelly_fraction = kf
-            if self.bot.risk:
-                self.bot.risk.kelly_sizer.kelly_fraction = kf
-            updated["kelly_fraction"] = kf
+            if not (0.1 <= kf <= 1.0):
+                errors.append(f"kelly_fraction={kf} out of range [0.1, 1.0]")
+            else:
+                self.bot.config.kelly_fraction = kf
+                if self.bot.risk:
+                    self.bot.risk.kelly_sizer.kelly_fraction = kf
+                updated["kelly_fraction"] = kf
 
         if "max_position_size" in params:
             mps = float(params["max_position_size"])
-            self.bot.config.max_position_size = mps
-            updated["max_position_size"] = mps
+            if not (1 <= mps <= 500):
+                errors.append(f"max_position_size={mps} out of range [1, 500]")
+            else:
+                self.bot.config.max_position_size = mps
+                updated["max_position_size"] = mps
 
         if "daily_loss_limit" in params:
             dll = float(params["daily_loss_limit"])
-            self.bot.config.daily_loss_limit = dll
-            updated["daily_loss_limit"] = dll
+            if not (10 <= dll <= 1000):
+                errors.append(f"daily_loss_limit={dll} out of range [10, 1000]")
+            else:
+                self.bot.config.daily_loss_limit = dll
+                updated["daily_loss_limit"] = dll
 
+        if errors:
+            return {"updated": updated, "errors": errors}
         return {"updated": updated}
 
     async def _handle_force_close(self, params: dict) -> dict:
@@ -317,6 +339,10 @@ class CommandProcessor:
         from .config import load_profile
 
         profile_name = params.get("profile", "default")
+
+        if not re.match(r'^[a-zA-Z0-9_-]+$', profile_name):
+            return {"error": f"Invalid profile name: {profile_name}"}
+
         profile_config = load_profile(profile_name)
 
         if not profile_config:
@@ -346,7 +372,7 @@ class CommandProcessor:
             await self.bot._trading_cycle()
             return {"status": "scan_completed"}
         except Exception as e:
-            return {"status": "scan_failed", "error": str(e)}
+            return {"status": "scan_failed", "error": self._sanitize_error(e)}
 
     async def _handle_place_trade(self, params: dict) -> dict:
         """Manual trade routed through bot's risk management."""
@@ -356,6 +382,9 @@ class CommandProcessor:
 
         if not ticker:
             return {"error": "ticker is required"}
+
+        if contracts < 1 or contracts > 10:
+            return {"error": f"contracts={contracts} out of range [1, 10]"}
 
         # Run through risk checks
         risk_check = self.bot.risk.check_trade_allowed(

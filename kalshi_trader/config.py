@@ -12,6 +12,7 @@ Priority: YAML > Environment > Defaults
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -121,6 +122,30 @@ class LearningConfig(BaseModel):
     )
 
 
+class AnalysisConfig(BaseModel):
+    """Claude intelligence layer configuration."""
+
+    enabled: bool = Field(default=False, description="Enable Claude trade analysis")
+    model: str = Field(
+        default="claude-sonnet-4-5-20250929",
+        description="Anthropic model ID for analysis",
+    )
+    auto_apply_kelly: bool = Field(
+        default=True,
+        description="Auto-apply Kelly fraction adjustments from Claude",
+    )
+    auto_apply_params: bool = Field(
+        default=False,
+        description="Auto-apply parameter suggestions (requires human review)",
+    )
+    min_trades_for_analysis: int = Field(
+        default=10,
+        description="Minimum closed trades before triggering analysis",
+        ge=5,
+        le=100,
+    )
+
+
 class CryExcSymbolConfig(BaseModel):
     """Configuration for a single CryExc symbol subscription."""
 
@@ -191,6 +216,10 @@ class YAMLConfig(BaseModel):
     cryexc: CryExcConfig = Field(
         default_factory=CryExcConfig,
         description="CryExc real-time exchange data settings",
+    )
+    analysis: AnalysisConfig = Field(
+        default_factory=AnalysisConfig,
+        description="Claude intelligence layer settings",
     )
 
 
@@ -466,8 +495,16 @@ def load_profile(profile_name: str, profiles_dir: str = DEFAULT_PROFILES_DIR) ->
 
     Returns:
         Profile configuration dict, empty if not found
+
+    Raises:
+        ValueError: If profile_name contains invalid characters or escapes the profiles directory
     """
-    profile_path = Path(profiles_dir) / f"{profile_name}.yaml"
+    if not re.match(r'^[a-zA-Z0-9_-]+$', profile_name):
+        raise ValueError(f"Invalid profile name: {profile_name}")
+
+    profile_path = (Path(profiles_dir) / f"{profile_name}.yaml").resolve()
+    if not profile_path.is_relative_to(Path(profiles_dir).resolve()):
+        raise ValueError("Profile path escapes profiles directory")
 
     if not profile_path.exists():
         logger.warning(f"Profile not found: {profile_path}")

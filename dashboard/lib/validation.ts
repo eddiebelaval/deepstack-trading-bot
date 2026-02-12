@@ -182,7 +182,7 @@ const PlaceTradeCommandSchema = z.object({
 const SwitchProfileCommandSchema = z.object({
   command: z.literal('switch_profile'),
   params: z.object({
-    profile: z.string().min(1).max(50),
+    profile: z.string().min(1).max(50).regex(/^[a-zA-Z0-9_-]+$/, 'Invalid profile name'),
   }),
 });
 
