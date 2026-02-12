@@ -222,6 +222,36 @@ class GovernanceConfig(BaseModel):
         return v
 
 
+class CaptainsLogConfig(BaseModel):
+    """Captain's Log narration engine configuration."""
+
+    enabled: bool = Field(default=False, description="Enable Captain's Log narration")
+    routine_interval_seconds: int = Field(
+        default=120,
+        description="Minimum seconds between routine narrations",
+        ge=30,
+        le=600,
+    )
+    significant_interval_seconds: int = Field(
+        default=60,
+        description="Minimum seconds between significant narrations",
+        ge=15,
+        le=300,
+    )
+    max_tokens: int = Field(
+        default=300,
+        description="Maximum tokens per narration",
+        ge=50,
+        le=1000,
+    )
+    max_context_entries: int = Field(
+        default=20,
+        description="Maximum recent log entries to include as context",
+        ge=5,
+        le=50,
+    )
+
+
 class CryExcSymbolConfig(BaseModel):
     """Configuration for a single CryExc symbol subscription."""
 
@@ -300,6 +330,10 @@ class YAMLConfig(BaseModel):
     governance: GovernanceConfig = Field(
         default_factory=GovernanceConfig,
         description="Market governance engine settings",
+    )
+    captains_log: CaptainsLogConfig = Field(
+        default_factory=CaptainsLogConfig,
+        description="Captain's Log narration engine settings",
     )
 
 

@@ -278,7 +278,7 @@ analysis:
 # Detects market conditions (trending, mean-reverting, choppy, calm) and
 # enables/disables strategies accordingly. Never overrides safety layers.
 governance:
-  enabled: false                # Start disabled until validated
+  enabled: true                 # Advisory mode — log only, no strategy changes
   mode: advisory                # advisory (log only), autonomous (act), manual (suggest)
   lookback_periods: 20          # Market snapshots for rolling window
   min_confidence: 0.6           # Minimum regime confidence to act
@@ -290,3 +290,13 @@ governance:
   bleed_slope_threshold: -0.5   # Cents/hour slope threshold
   max_strategies_disabled_pct: 0.75  # Never disable more than 75%
   reenable_cooldown_hours: 6    # Minimum cooldown for re-enable
+
+# Captain's Log — streaming AI narration of bot observations and decisions.
+# The bot narrates what it sees, thinks, and decides in real-time.
+# Entries appear in a chat panel on the dashboard. User can reply.
+captains_log:
+  enabled: true
+  routine_interval_seconds: 120   # Min seconds between routine narrations
+  significant_interval_seconds: 60 # Min seconds between significant narrations
+  max_tokens: 300                 # Max tokens per narration
+  max_context_entries: 20         # Recent log entries for context window

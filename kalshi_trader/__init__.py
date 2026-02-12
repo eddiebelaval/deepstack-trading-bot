@@ -63,6 +63,7 @@ from .market_governor import (
     StrategyRouter,
 )
 from .strategy_manager import StrategyManager
+from .captains_log import CaptainsLog, NarrationEvent, EventPriority
 from .trade_analyzer import TradeAnalyzer
 
 __all__ = [
@@ -87,6 +88,9 @@ __all__ = [
     "StrategyRouter",
     "StrategyManager",
     "TradeAnalyzer",
+    "CaptainsLog",
+    "NarrationEvent",
+    "EventPriority",
     # Exceptions
     "KalshiTradingError",
     "KalshiAuthError",

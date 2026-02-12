@@ -147,6 +147,7 @@ class TradeAnalyzer:
         self,
         trade_export: Dict[str, Any],
         current_config: Dict[str, Any],
+        captains_log_context: Optional[List[str]] = None,
     ) -> AnalysisResult:
         """
         Run Claude analysis on exported trade data.
@@ -199,7 +200,7 @@ class TradeAnalyzer:
             )
 
         try:
-            user_message = self._build_user_message(trade_export, current_config)
+            user_message = self._build_user_message(trade_export, current_config, captains_log_context)
             result = await self._call_claude(user_message)
             self._cache[cache_key] = (time.time(), result)
             return result
@@ -217,6 +218,7 @@ class TradeAnalyzer:
         self,
         trade_export: Dict[str, Any],
         current_config: Dict[str, Any],
+        captains_log_context: Optional[List[str]] = None,
     ) -> str:
         """Build the user message with trade data and current config."""
         lines = []
@@ -291,6 +293,15 @@ class TradeAnalyzer:
                 cfg = s.get("config", {})
                 params = ", ".join(f"{k}={v}" for k, v in cfg.items())
                 lines.append(f"- **{name}**: {params}")
+            lines.append("")
+
+        # Append Captain's Log observations for recursive learning
+        if captains_log_context:
+            lines.append("### Recent Captain's Log Observations")
+            lines.append("These are the bot's own recent narrations — use them as qualitative context:")
+            lines.append("")
+            for entry in captains_log_context:
+                lines.append(f"- {entry}")
             lines.append("")
 
         return "\n".join(lines)

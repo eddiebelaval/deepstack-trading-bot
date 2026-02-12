@@ -268,6 +268,20 @@ export interface Settlement {
   synced_at: string;
 }
 
+// Captain's Log entry (bot narration or user message)
+export interface CaptainsLogEntry {
+  id: string;
+  created_at: string;
+  role: 'bot' | 'user';
+  content: string;
+  event_type: string | null;
+  priority: 'critical' | 'significant' | 'routine';
+  strategy: string | null;
+  regime: string | null;
+  model_used: string | null;
+  tokens_used: number | null;
+}
+
 export type BotMode = 'running' | 'stopped' | 'paused' | 'dry_run';
 
 export interface BotConfig {

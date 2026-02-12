@@ -457,6 +457,34 @@ class DashboardSync:
                 "value": s.get("value"),
             }, on_conflict="ticker")
 
+    async def push_captains_log(
+        self,
+        content: str,
+        role: str = "bot",
+        event_type: Optional[str] = None,
+        priority: str = "routine",
+        strategy: Optional[str] = None,
+        regime: Optional[str] = None,
+        model_used: Optional[str] = None,
+        tokens_used: Optional[int] = None,
+    ) -> None:
+        """Push a Captain's Log entry to Supabase."""
+        entry: Dict[str, Any] = {
+            "role": role,
+            "content": content,
+            "event_type": event_type,
+            "priority": priority,
+        }
+        if strategy:
+            entry["strategy"] = strategy
+        if regime:
+            entry["regime"] = regime
+        if model_used:
+            entry["model_used"] = model_used
+        if tokens_used is not None:
+            entry["tokens_used"] = tokens_used
+        await self._post("captains_log", entry)
+
     async def push_regime(
         self,
         regime: str,
