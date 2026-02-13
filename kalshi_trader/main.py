@@ -33,6 +33,7 @@ from .captains_log import CaptainsLog, NarrationEvent, EventPriority
 from .config import KalshiConfig, load_config, get_strategy_configs, load_yaml_config, CryExcConfig
 from .trade_analyzer import TradeAnalyzer
 from .dashboard_sync import DashboardSync
+from .health_monitor import HealthMonitor
 from .kalshi_client import AuthenticatedKalshiClient
 from .deepstack_integration import DeepStackIntegration
 from .journal import TradeJournal
@@ -120,12 +121,18 @@ class KalshiTradingBot:
         # CryExc real-time exchange data bridge (optional, enabled via config)
         self._cryexc_bridge = None
 
+        # Health monitor (self-healing watchdog)
+        self.health_monitor: Optional[HealthMonitor] = None
+
         self._running = False
         self._paused = False
         self._shutdown_event = asyncio.Event()
 
         # Track open positions
         self.open_positions: Dict[str, Dict[str, Any]] = {}
+
+        # Cache of last scanned market data for governance feed (cold-start fix)
+        self._last_scanned_markets: List[Dict[str, Any]] = []
 
         # Per-strategy dynamic Kelly fractions (prevents last-strategy-wins bug)
         self._dynamic_kelly_fractions: Dict[str, float] = {}
@@ -180,18 +187,20 @@ class KalshiTradingBot:
             # Initialize components
             await self._initialize()
 
-            # Start both loops concurrently
+            # Start all loops concurrently
             self._running = True
             command_task = asyncio.create_task(self._command_loop())
             trading_task = asyncio.create_task(self._trading_loop())
+            health_task = asyncio.create_task(self._health_monitor_loop())
 
-            # Wait for trading loop to finish (command loop stops when _running=False)
+            # Wait for trading loop to finish (others stop when _running=False)
             await trading_task
-            command_task.cancel()
-            try:
-                await command_task
-            except asyncio.CancelledError:
-                pass
+            for task in (command_task, health_task):
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
         except Exception as e:
             logger.error(f"Fatal error: {e}", exc_info=True)
@@ -337,7 +346,14 @@ class KalshiTradingBot:
         # 8. Load existing positions
         await self._sync_positions()
 
-        # 9. Update bot config to running
+        # 9. Initialize health monitor
+        self.health_monitor = HealthMonitor(
+            bot=self,
+            db_path=self.config.journal_db_path,
+        )
+        logger.info("Health monitor initialized")
+
+        # 10. Update bot config to running
         await self.command_processor.update_mode("running")
         await self.dashboard.push_log("Bot initialized — connected to Kalshi API", strategy="system")
 
@@ -678,6 +694,17 @@ class KalshiTradingBot:
 
         logger.info("Command loop stopped")
 
+    async def _health_monitor_loop(self) -> None:
+        """Health monitor loop — runs alongside trading and command loops."""
+        if not self.health_monitor:
+            return
+        try:
+            await self.health_monitor.run_loop(self._shutdown_event)
+        except asyncio.CancelledError:
+            logger.info("Health monitor loop cancelled")
+        except Exception as e:
+            logger.error(f"Health monitor loop crashed: {e}", exc_info=True)
+
     async def _trading_loop(self) -> None:
         """Main trading loop."""
         logger.info(
@@ -946,6 +973,36 @@ class KalshiTradingBot:
             except Exception as e:
                 logger.debug(f"Failed to push settlements: {e}")
 
+    async def _auto_disable_strategy(self, name: str, reason: str, log_prefix: str = "AUTO-DISABLE") -> None:
+        """Disable a strategy, record the event, and notify Captain's Log + dashboard.
+
+        Consolidates the repeated disable-and-notify pattern used by health checks,
+        circuit breakers, and performance evaluation.
+        """
+        if self.strategy_manager:
+            self.strategy_manager.disable_strategy(name)
+        self._auto_disabled_strategies.add(name)
+        self._auto_disabled_at[name] = datetime.now()
+
+        logger.warning(f"{log_prefix}: {name} | {reason}")
+
+        if self.captains_log:
+            self.captains_log.record_event(NarrationEvent(
+                event_type="strategy_change",
+                priority=EventPriority.CRITICAL,
+                timestamp=datetime.now(timezone.utc),
+                summary=f"{log_prefix}: {name}. {reason}",
+                strategy=name,
+                metadata={},
+            ))
+
+        if self.dashboard:
+            await self.dashboard.push_log(
+                f"{log_prefix}: {name} — {reason}",
+                level="WARNING",
+                strategy=name,
+            )
+
     async def _check_auto_disable(self) -> None:
         """Check each strategy's health after push_state and auto-disable if critical persists.
 
@@ -971,40 +1028,14 @@ class KalshiTradingBot:
                 continue
 
             if self._critical_cycle_counts[name] >= 3:
-                self.strategy_manager.disable_strategy(name)
-                self._auto_disabled_strategies.add(name)
-                self._auto_disabled_at[name] = datetime.now()
                 self._critical_cycle_counts[name] = 0
-
-                logger.warning(
-                    f"AUTO-DISABLE: {name} critical for 3 consecutive cycles | "
-                    f"EV={health.blended_ev_cents:.2f}c, "
-                    f"win_rate={health.blended_win_rate:.1%}, "
-                    f"warnings={health.consecutive_warnings}"
+                await self._auto_disable_strategy(
+                    name,
+                    reason=(
+                        f"critical health for 3 consecutive cycles "
+                        f"(EV={health.blended_ev_cents:.2f}c, WR={health.blended_win_rate:.1%})"
+                    ),
                 )
-
-                # Captain's Log: strategy auto-disabled
-                if self.captains_log:
-                    self.captains_log.record_event(NarrationEvent(
-                        event_type="strategy_change",
-                        priority=EventPriority.CRITICAL,
-                        timestamp=datetime.now(timezone.utc),
-                        summary=(
-                            f"Auto-disabled {name}: critical health for 3 consecutive cycles. "
-                            f"EV={health.blended_ev_cents:.2f}c, WR={health.blended_win_rate:.1%}."
-                        ),
-                        strategy=name,
-                        metadata={},
-                    ))
-
-                if self.dashboard:
-                    await self.dashboard.push_log(
-                        f"Auto-disabled {name}: critical health for 3 consecutive cycles "
-                        f"(EV={health.blended_ev_cents:.2f}c, "
-                        f"win_rate={health.blended_win_rate:.1%})",
-                        level="WARNING",
-                        strategy=name,
-                    )
 
     async def _check_auto_reenable(self) -> None:
         """Re-evaluate auto-disabled strategies after cooldown period.
@@ -1158,7 +1189,7 @@ class KalshiTradingBot:
             # Inject Captain's Log context for recursive learning
             log_context = None
             if self.captains_log:
-                log_context = await self.captains_log.get_recent_entries_for_analysis_async(5)
+                log_context = await self.captains_log.get_recent_entries_for_analysis_async(3)
             result = await self.trade_analyzer.analyze(export, config_context, log_context)
             self._last_analysis_time = now
 
@@ -1200,13 +1231,31 @@ class KalshiTradingBot:
         except Exception as e:
             logger.warning(f"AI analysis failed: {e}")
 
+    def _collect_scanned_market_snapshots(self) -> List[Dict[str, Any]]:
+        """Collect cached market data from strategy manager for governance feed.
+
+        Solves the governance cold-start problem: when we have 0 open positions,
+        the governor still needs market data to detect regimes.
+        """
+        if not self.strategy_manager:
+            return []
+
+        collected = []
+        # Snapshot the dict to avoid RuntimeError if cache is modified concurrently
+        for key, entry in list(self.strategy_manager._market_cache._cache.items()):
+            if key.startswith("markets:") and not entry.is_expired and isinstance(entry.value, list):
+                collected.extend(entry.value)
+        return collected
+
     async def _run_governance(self) -> None:
         """Run market governance cycle: feed data, detect regime, apply decisions."""
         if not self.market_governor:
             return
 
-        # Build market snapshots from current open positions and recent market data
+        # Build market snapshots from open positions AND recently scanned markets
         snapshots = []
+
+        # 1. Snapshots from open positions (existing behavior)
         for ticker, pos in self.open_positions.items():
             try:
                 market = await self.client.get_market(ticker)
@@ -1219,15 +1268,32 @@ class KalshiTradingBot:
             except Exception:
                 pass
 
+        # 2. Snapshots from scanned markets (cold-start fix)
+        # When we have 0 positions, this ensures the governor still gets data
+        seen_tickers = {s.ticker for s in snapshots}
+        for market_data in self._last_scanned_markets:
+            ticker = market_data.get("ticker", "")
+            if ticker and ticker not in seen_tickers:
+                try:
+                    snapshots.append(MarketSnapshot(
+                        timestamp=datetime.now(),
+                        ticker=ticker,
+                        yes_price=float(market_data.get("last_price", market_data.get("yes_price", 50))),
+                        volume=int(market_data.get("volume", 0)),
+                    ))
+                    seen_tickers.add(ticker)
+                except (ValueError, TypeError):
+                    pass
+
         if snapshots:
             self.market_governor.feed_market_data(snapshots)
 
         # Gather strategy info for routing
-        active_strategies = []
-        safety_disabled = set()
-        if self.strategy_manager:
-            active_strategies = list(self.strategy_manager._strategies.keys())
-            safety_disabled = self._auto_disabled_strategies
+        active_strategies = (
+            list(self.strategy_manager._strategies.keys())
+            if self.strategy_manager else []
+        )
+        safety_disabled = self._auto_disabled_strategies if self.strategy_manager else set()
 
         # Capture pre-cycle regime for change detection
         pre_regime = getattr(self.market_governor, '_current_regime', None)
@@ -1306,99 +1372,56 @@ class KalshiTradingBot:
             self._latest_health[name] = health
 
             if health.health_status == "critical":
-                self.strategy_manager.disable_strategy(name)
-                self._auto_disabled_strategies.add(name)
-                self._auto_disabled_at[name] = datetime.now()
-                logger.warning(
-                    f"AUTO-DISABLE [health]: {name} status=critical | "
-                    f"EV={health.blended_ev_cents:.2f}c, "
-                    f"win_rate={health.blended_win_rate:.1%}, "
-                    f"confidence={health.confidence:.1%}"
-                )
-                # Captain's Log: circuit breaker / health critical
-                if self.captains_log:
-                    self.captains_log.record_event(NarrationEvent(
-                        event_type="strategy_change",
-                        priority=EventPriority.CRITICAL,
-                        timestamp=datetime.now(timezone.utc),
-                        summary=(
-                            f"Circuit breaker tripped for {name}. Health=critical, "
-                            f"EV={health.blended_ev_cents:.2f}c, WR={health.blended_win_rate:.1%}."
-                        ),
-                        strategy=name,
-                        metadata={},
-                    ))
-                if self.dashboard:
-                    await self.dashboard.push_log(
-                        f"Auto-disabled {name}: critical health "
+                await self._auto_disable_strategy(
+                    name,
+                    reason=(
+                        f"critical health "
                         f"(EV={health.blended_ev_cents:.2f}c, "
-                        f"win_rate={health.blended_win_rate:.1%})",
-                        level="WARNING",
-                        strategy=name,
-                    )
+                        f"WR={health.blended_win_rate:.1%}, "
+                        f"confidence={health.confidence:.1%})"
+                    ),
+                    log_prefix="CIRCUIT BREAKER [health]",
+                )
                 continue
 
             # --- Layer 2: Hard circuit breakers ---
             cb = self._strategy_circuit_breakers.get(name, {})
 
             # Breaker 1: Win rate < 30% after 20+ trades
-            if (
-                health.observed_trade_count >= 20
-                and health.blended_win_rate < 0.30
-            ):
-                self.strategy_manager.disable_strategy(name)
-                self._auto_disabled_strategies.add(name)
-                self._auto_disabled_at[name] = datetime.now()
-                reason = (
-                    f"win_rate={health.blended_win_rate:.1%} < 30% "
-                    f"over {health.observed_trade_count} trades"
+            if health.observed_trade_count >= 20 and health.blended_win_rate < 0.30:
+                await self._auto_disable_strategy(
+                    name,
+                    reason=(
+                        f"win_rate={health.blended_win_rate:.1%} < 30% "
+                        f"over {health.observed_trade_count} trades"
+                    ),
+                    log_prefix="CIRCUIT BREAKER [win_rate]",
                 )
-                logger.warning(f"CIRCUIT BREAKER [win_rate]: {name} | {reason}")
-                if self.dashboard:
-                    await self.dashboard.push_log(
-                        f"Circuit breaker triggered for {name}: {reason}",
-                        level="WARNING",
-                        strategy=name,
-                    )
                 continue
 
             # Breaker 2: 5 consecutive losses
             consecutive_losses = cb.get("consecutive_losses", 0)
             if consecutive_losses >= 5:
-                self.strategy_manager.disable_strategy(name)
-                self._auto_disabled_strategies.add(name)
-                self._auto_disabled_at[name] = datetime.now()
-                reason = f"{consecutive_losses} consecutive losses"
-                logger.warning(
-                    f"CIRCUIT BREAKER [consecutive_losses]: {name} | {reason}"
+                await self._auto_disable_strategy(
+                    name,
+                    reason=f"{consecutive_losses} consecutive losses",
+                    log_prefix="CIRCUIT BREAKER [consecutive_losses]",
                 )
-                if self.dashboard:
-                    await self.dashboard.push_log(
-                        f"Circuit breaker triggered for {name}: {reason}",
-                        level="WARNING",
-                        strategy=name,
-                    )
                 continue
 
             # Breaker 3: 15% drawdown from peak P&L
             peak = cb.get("peak_pnl_cents", 0)
             total = cb.get("total_pnl_cents", 0)
             if peak > 0 and (peak - total) / peak >= 0.15:
-                self.strategy_manager.disable_strategy(name)
-                self._auto_disabled_strategies.add(name)
-                self._auto_disabled_at[name] = datetime.now()
                 drawdown_pct = (peak - total) / peak * 100
-                reason = (
-                    f"drawdown={drawdown_pct:.1f}% from peak "
-                    f"(peak={peak}c, current={total}c)"
+                await self._auto_disable_strategy(
+                    name,
+                    reason=(
+                        f"drawdown={drawdown_pct:.1f}% from peak "
+                        f"(peak={peak}c, current={total}c)"
+                    ),
+                    log_prefix="CIRCUIT BREAKER [drawdown]",
                 )
-                logger.warning(f"CIRCUIT BREAKER [drawdown]: {name} | {reason}")
-                if self.dashboard:
-                    await self.dashboard.push_log(
-                        f"Circuit breaker triggered for {name}: {reason}",
-                        level="WARNING",
-                        strategy=name,
-                    )
 
     async def _sync_positions(self) -> None:
         """Sync local position tracking with exchange."""
@@ -1586,24 +1609,13 @@ class KalshiTradingBot:
             if self.performance_tracker:
                 health = self.performance_tracker.evaluate_health(strategy_name)
                 if health.health_status == "critical" and self.performance_tracker.auto_disable:
-                    logger.warning(
-                        f"Strategy {strategy_name} CRITICAL — auto-disabling | "
-                        f"EV={health.blended_ev_cents:.2f}c, "
-                        f"confidence={health.confidence:.1%}, "
-                        f"warnings={health.consecutive_warnings}"
+                    await self._auto_disable_strategy(
+                        strategy_name,
+                        reason=(
+                            f"sustained negative EV ({health.blended_ev_cents:.2f}c) "
+                            f"over {health.consecutive_warnings} evaluations"
+                        ),
                     )
-                    if self.strategy_manager:
-                        self.strategy_manager.disable_strategy(strategy_name)
-                    self._auto_disabled_strategies.add(strategy_name)
-                    self._auto_disabled_at[strategy_name] = datetime.now()
-                    if self.dashboard:
-                        await self.dashboard.push_log(
-                            f"Auto-disabled {strategy_name}: sustained negative EV "
-                            f"({health.blended_ev_cents:.2f}c) over "
-                            f"{health.consecutive_warnings} evaluations",
-                            level="WARNING",
-                            strategy=strategy_name,
-                        )
                 elif health.health_status != "healthy":
                     logger.warning(
                         f"Strategy {strategy_name}: {health.health_status} | "
@@ -1655,6 +1667,14 @@ class KalshiTradingBot:
         opportunities = await self.strategy_manager.scan_all_opportunities(
             existing_positions=self.open_positions,
         )
+
+        # Cache scanned market data for governance feed (cold-start fix)
+        # Pull from strategy manager's market cache to feed the governor
+        self._last_scanned_markets = self._collect_scanned_market_snapshots()
+
+        # Record cycle for health monitor
+        if self.health_monitor:
+            self.health_monitor.record_cycle(found_opportunities=bool(opportunities))
 
         if not opportunities:
             logger.info("Scan complete — no opportunities across all strategies")
@@ -1828,6 +1848,10 @@ class KalshiTradingBot:
                     strategy=strategy_name,
                     metadata={"ticker": ticker, "side": opp.side, "price": opp.entry_price_cents},
                 ))
+
+            # Record trade for health monitor (resets zero-opp counter, reverts threshold widening)
+            if self.health_monitor:
+                self.health_monitor.record_trade()
 
             logger.info(
                 f"Trade executed: {ticker} | {opp.side} {contracts} @ {opp.entry_price_cents}c | "

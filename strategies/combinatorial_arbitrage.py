@@ -458,7 +458,7 @@ class ArbitrageScanner:
     def __init__(
         self,
         min_profit_cents: int = 2,
-        min_liquidity: int = 100,
+        min_liquidity: int = 25,
         max_spread: int = 5,
     ):
         """
@@ -741,7 +741,7 @@ class CombinatorialArbitrageStrategy(Strategy):
         # Strategy-specific parameters
         self.min_profit_cents = config.get("min_profit_cents", 2)
         self.max_exposure = config.get("max_exposure_per_arb", 100)
-        self.min_liquidity = config.get("min_liquidity", 100)
+        self.min_liquidity = config.get("min_liquidity", 25)
         self.max_spread = config.get("max_spread_cents", 5)
         self.max_legs = config.get("max_legs", 5)
         self.confidence_threshold = config.get("confidence_threshold", 0.8)
