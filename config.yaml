@@ -14,13 +14,17 @@ strategies:
     markets:
       - platform: kalshi
         series: INXD          # S&P 500 hourly contracts
+      - platform: kalshi
+        series: KXBTC         # Bitcoin — trades 24/7
+      - platform: kalshi
+        series: KXETH         # Ethereum — trades 24/7
     config:
-      price_floor_cents: 45   # Min YES price to consider
-      price_ceiling_cents: 55 # Max YES price to consider
+      price_floor_cents: 40   # Min YES price to consider (widened from 45)
+      price_ceiling_cents: 60 # Max YES price to consider (widened from 55)
       take_profit_cents: 8    # Exit with profit at +8c
       stop_loss_cents: 5      # Exit with loss at -5c
-      min_volume: 100         # Minimum market volume
-      min_score: 30           # Minimum opportunity score
+      min_volume: 50          # Minimum market volume (lowered from 100)
+      min_score: 20           # Minimum opportunity score (lowered from 30)
 
   - name: momentum
     enabled: true             # ENABLED for multi-strategy test
@@ -32,7 +36,8 @@ strategies:
       momentum_threshold: 0.03
       take_profit_cents: 10
       stop_loss_cents: 6
-      min_volume: 200
+      min_volume: 50          # Lowered from 200 — was eliminating 90% of markets
+      min_score: 20           # Lowered from base default 30 — typical scores max ~25
       reversal_threshold: 0.02
 
   - name: combinatorial_arbitrage
@@ -43,7 +48,7 @@ strategies:
     config:
       min_profit_cents: 2     # Min guaranteed profit
       max_exposure_per_arb: 100
-      min_liquidity: 50
+      min_liquidity: 25       # Lowered from 50 — Kalshi markets are thin
       max_spread_cents: 5
       max_legs: 5
       confidence_threshold: 0.8
@@ -60,10 +65,10 @@ strategies:
       # Price difference threshold to trigger signal
       price_diff_threshold_cents: 5
       # Market matching configuration
-      min_match_score: 0.6    # Minimum fuzzy match confidence (0-1)
+      min_match_score: 0.45   # Lowered from 0.6 — fuzzy matching too strict cross-platform
       max_expiry_diff_days: 7 # Max days between expiry dates for match
       # Volume filters
-      min_polymarket_volume: 10000  # Min Polymarket 24h volume in dollars
+      min_polymarket_volume: 2000   # Lowered from 10000 — only ~50 markets above $10k
       min_kalshi_volume: 100        # Min Kalshi volume
       # Volume momentum confirmation
       use_volume_confirmation: true

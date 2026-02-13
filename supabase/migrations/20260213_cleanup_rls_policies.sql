@@ -14,19 +14,23 @@ DROP POLICY IF EXISTS "service_role_all" ON deepstack_market_snapshots;
 DROP POLICY IF EXISTS "service_role_all" ON deepstack_performance_metrics;
 
 -- Phase 2: Add service-role-only policies to 3 previously uncovered tables
+-- (idempotent: drop before create to avoid "already exists" errors)
 ALTER TABLE deepstack_daily_summary ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role only daily_summary" ON deepstack_daily_summary;
 CREATE POLICY "Service role only daily_summary"
   ON deepstack_daily_summary FOR ALL
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
 
 ALTER TABLE deepstack_market_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role only market_snapshots" ON deepstack_market_snapshots;
 CREATE POLICY "Service role only market_snapshots"
   ON deepstack_market_snapshots FOR ALL
   USING (auth.role() = 'service_role')
   WITH CHECK (auth.role() = 'service_role');
 
 ALTER TABLE deepstack_performance_metrics ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Service role only performance_metrics" ON deepstack_performance_metrics;
 CREATE POLICY "Service role only performance_metrics"
   ON deepstack_performance_metrics FOR ALL
   USING (auth.role() = 'service_role')

@@ -250,8 +250,8 @@ class TradeAnalyzer:
             lines.append(f"- Avg P&L: {stats.get('avg_pnl_cents', 0):.1f}c")
             lines.append("")
 
-            # Trade details table (capped to avoid token explosion)
-            display_trades = trades[:50]
+            # Trade details table (capped to last 20 to avoid token explosion)
+            display_trades = trades[-20:]
             lines.append("| Ticker | Side | Action | Entry | Exit | P&L | Exit Reason | Reasoning |")
             lines.append("|--------|------|--------|-------|------|-----|-------------|-----------|")
             for t in display_trades:
@@ -271,8 +271,8 @@ class TradeAnalyzer:
                     f"| {exit_reason} "
                     f"| {reasoning} |"
                 )
-            if len(trades) > 50:
-                lines.append(f"| ... {len(trades) - 50} more trades omitted ... |")
+            if len(trades) > 20:
+                lines.append(f"| ... {len(trades) - 20} older trades omitted ... |")
             lines.append("")
 
         # Current config context
@@ -315,7 +315,7 @@ class TradeAnalyzer:
             "https://api.anthropic.com/v1/messages",
             json={
                 "model": self._model,
-                "max_tokens": 4096,
+                "max_tokens": 8192,
                 "system": ANALYSIS_SYSTEM_PROMPT,
                 "messages": [{"role": "user", "content": user_message}],
             },
