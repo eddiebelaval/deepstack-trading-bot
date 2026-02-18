@@ -64,7 +64,7 @@ class TestUpdateRiskBounds:
 
     @pytest.mark.asyncio
     async def test_kelly_fraction_too_low_rejected(self, processor):
-        result = await processor._handle_update_risk({"kelly_fraction": 0.01})
+        result = await processor._handle_update_risk({"kelly_fraction": 0.001})
         assert "errors" in result
         assert any("kelly_fraction" in e for e in result["errors"])
 

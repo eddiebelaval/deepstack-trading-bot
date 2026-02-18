@@ -238,7 +238,7 @@ strategies:
 risk:
   max_position_size: 50       # Max dollars per trade
   daily_loss_limit: 100       # Stop trading after this daily loss
-  kelly_fraction: 0.5         # Use half-Kelly for safety
+  kelly_fraction: 0.02        # Half-Kelly of optimal 4.1% at 15% win rate. Recalculate monthly.
   max_per_series: 2           # Max opportunities per series (correlation cap)
 
 learning:

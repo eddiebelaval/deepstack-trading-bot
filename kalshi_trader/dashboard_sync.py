@@ -213,7 +213,7 @@ class DashboardSync:
             "max_position_size_cents": int(
                 risk_config.get("max_position_size", 50) * 100
             ),
-            "kelly_fraction": risk_config.get("kelly_fraction", 0.5),
+            "kelly_fraction": risk_config.get("kelly_fraction", 0.02),
             "positions_at_risk": total_positions,
             "risk_percentage": round(
                 (

@@ -71,9 +71,9 @@ class RiskConfig(BaseModel):
         ge=0.0,
     )
     kelly_fraction: float = Field(
-        default=0.5,
+        default=0.02,
         description="Fraction of Kelly criterion to use",
-        ge=0.1,
+        ge=0.005,
         le=1.0,
     )
     min_position_size: float = Field(
@@ -374,9 +374,9 @@ class KalshiConfig(BaseModel):
         ge=0.0,
     )
     kelly_fraction: float = Field(
-        default=0.5,
-        description="Fraction of Kelly criterion to use (0.5 = half-Kelly)",
-        ge=0.1,
+        default=0.02,
+        description="Fraction of Kelly criterion to use (0.02 = half-Kelly at 15% win rate)",
+        ge=0.005,
         le=1.0,
     )
     min_position_size: float = Field(
@@ -738,7 +738,7 @@ strategies:
 risk:
   max_position_size: 50
   daily_loss_limit: 100
-  kelly_fraction: 0.5
+  kelly_fraction: 0.02
 """
 
     with open(output_path, "w") as f:
