@@ -1002,6 +1002,9 @@ class KalshiTradingBot:
                 level="WARNING",
                 strategy=name,
             )
+            await self.dashboard.update_strategy_disabled(
+                name=name, reason=reason, disabled_by=log_prefix,
+            )
 
     async def _check_auto_disable(self) -> None:
         """Check each strategy's health after push_state and auto-disable if critical persists.

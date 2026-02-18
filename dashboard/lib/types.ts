@@ -53,6 +53,10 @@ export interface StrategyStatus {
   effective_trades: number | null;
   blended_ev_cents: number | null;
   health_status: 'healthy' | 'warning' | 'critical' | 'unknown' | null;
+  auto_disabled?: boolean;
+  disabled_reason?: string | null;
+  disabled_at?: string | null;
+  disabled_by?: string | null;
 }
 
 // Alias for components that use Strategy

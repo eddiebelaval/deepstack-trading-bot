@@ -506,6 +506,24 @@ class DashboardSync:
             "num_markets_sampled": num_markets,
         })
 
+    async def update_strategy_disabled(
+        self,
+        name: str,
+        reason: str,
+        disabled_by: str = "auto",
+    ) -> None:
+        """Persist disabled_reason to strategy_status so it survives bot restarts."""
+        await self._patch(
+            "strategy_status",
+            f"name=eq.{name}",
+            {
+                "auto_disabled": True,
+                "disabled_reason": reason,
+                "disabled_at": datetime.now(timezone.utc).isoformat(),
+                "disabled_by": disabled_by,
+            },
+        )
+
     async def push_governance_decision(
         self,
         regime: str,

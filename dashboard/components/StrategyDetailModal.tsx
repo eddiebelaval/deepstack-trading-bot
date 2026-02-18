@@ -104,6 +104,19 @@ export default function StrategyDetailModal({ isOpen, onClose, strategy, onToggl
         )}
       </div>
 
+      {/* Auto-disabled reason */}
+      {strategy.auto_disabled && strategy.disabled_reason && (
+        <div className="flex items-start gap-2 p-3 mb-4 border border-terminal-amber/40 rounded bg-terminal-amber/5">
+          <span className="text-terminal-amber text-xs font-bold whitespace-nowrap">AUTO-KILLED</span>
+          <span className="text-terminal-dim text-xs">{strategy.disabled_reason}</span>
+          {strategy.disabled_at && (
+            <span className="text-terminal-dim/50 text-xs ml-auto whitespace-nowrap">
+              {new Date(strategy.disabled_at).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Strategy Info */}
       <div className="border border-terminal-green/30 rounded p-3 mb-4 bg-terminal-bg-panel/30">
         <div className="flex items-center gap-3 mb-2">
