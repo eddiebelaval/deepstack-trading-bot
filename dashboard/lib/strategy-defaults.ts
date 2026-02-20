@@ -87,6 +87,15 @@ export const STRATEGY_DEFAULTS: Record<string, StrategyConfig> = {
     bear_mode_only: false,
     max_hold_hours: 72,
   },
+  settlement_betting: {
+    ...UNIVERSAL_DEFAULTS,
+    take_profit_cents: 2,
+    stop_loss_cents: 5,
+    min_spread_cents: 2,
+    max_spread_cents: 8,
+    inventory_limit: 20,
+    skew_per_contract: 0.5,
+  },
   market_making: {
     ...UNIVERSAL_DEFAULTS,
     take_profit_cents: 2,

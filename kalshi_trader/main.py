@@ -546,7 +546,7 @@ class KalshiTradingBot:
 
         win_loss_ratio = avg_win / avg_loss
         raw_kelly = blended_win_rate - ((1 - blended_win_rate) / win_loss_ratio)
-        clamped_kelly = max(0.05, min(0.5, raw_kelly))
+        clamped_kelly = max(0.005, min(0.05, raw_kelly))
 
         old_kelly = self._dynamic_kelly_fractions.get(strategy_name, self.config.kelly_fraction)
         self._dynamic_kelly_fractions[strategy_name] = clamped_kelly
@@ -1002,6 +1002,9 @@ class KalshiTradingBot:
                 level="WARNING",
                 strategy=name,
             )
+            await self.dashboard.update_strategy_disabled(
+                name=name, reason=reason, disabled_by=log_prefix,
+            )
 
     async def _check_auto_disable(self) -> None:
         """Check each strategy's health after push_state and auto-disable if critical persists.
@@ -1200,7 +1203,7 @@ class KalshiTradingBot:
                     old_kelly = self._dynamic_kelly_fractions.get(
                         strategy_name, self.config.kelly_fraction
                     )
-                    clamped = max(0.05, min(0.5, suggested_kelly))
+                    clamped = max(0.005, min(0.05, suggested_kelly))
                     self._dynamic_kelly_fractions[strategy_name] = clamped
                     logger.info(
                         f"[AI Analysis] {strategy_name} kelly: "

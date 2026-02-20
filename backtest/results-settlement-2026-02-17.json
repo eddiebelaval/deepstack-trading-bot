@@ -1,0 +1,44 @@
+{
+  "strategy": "settlement_betting",
+  "data_source": "Kalshi API (30d, KXBTC, KXETH)",
+  "days": 30,
+  "series": [
+    "KXBTC",
+    "KXETH"
+  ],
+  "total_snapshots": 1280,
+  "total_trades": 0,
+  "win_rate": 0.0,
+  "total_pnl_cents": 0,
+  "sharpe_ratio": 0.0,
+  "profit_factor": 0.0,
+  "max_drawdown_pct": 0.0,
+  "initial_balance_cents": 15200,
+  "final_balance_cents": 15200,
+  "evaluation": {
+    "decision": "KEEP DISABLED",
+    "checks": {
+      "win_rate": {
+        "actual": 0.0,
+        "threshold": 0.25,
+        "passed": false
+      },
+      "profit_factor": {
+        "actual": 0.0,
+        "threshold": 1.2,
+        "passed": false
+      },
+      "sharpe_ratio": {
+        "actual": 0.0,
+        "threshold": 0.5,
+        "passed": false
+      },
+      "trade_count": {
+        "actual": 0,
+        "threshold": 50,
+        "passed": false
+      }
+    },
+    "passed": false
+  }
+}

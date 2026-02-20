@@ -86,7 +86,8 @@ STRATEGY_REGISTRY = {
     "domain_specialization": DomainSpecializationStrategy,
     "crypto_intraday": CryptoIntradayStrategy,
     "bear_macro": BearMacroStrategy,
-    "market_making": MarketMakingStrategy,
+    "settlement_betting": MarketMakingStrategy,
+    "market_making": MarketMakingStrategy,  # Legacy alias for historical data
     "tv_signals": TvSignalsStrategy,
 }
 

@@ -78,7 +78,7 @@ class MarketMakingStrategy(Strategy):
 
     @property
     def name(self) -> str:
-        return "market_making"
+        return "settlement_betting"
 
     @property
     def description(self) -> str:

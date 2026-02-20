@@ -201,9 +201,9 @@ strategies:
       min_volume: 50
       max_hold_hours: 168
 
-  # Disabled: proven loser, -$10.83 in 23 trades — spread capture bleeds in low-liquidity markets
-  - name: market_making
-    enabled: false            # Non-directional spread capture
+  # Disabled: proven loser, -$10.83 in 23 trades — buys cheap contracts hoping for settlement, not actual market making
+  - name: settlement_betting
+    enabled: false            # Buys cheap YES contracts near expiry hoping for settlement
     markets:
       - platform: kalshi
         series: "KXBTC"
@@ -238,7 +238,7 @@ strategies:
 risk:
   max_position_size: 50       # Max dollars per trade
   daily_loss_limit: 100       # Stop trading after this daily loss
-  kelly_fraction: 0.5         # Use half-Kelly for safety
+  kelly_fraction: 0.02        # Half-Kelly of optimal 4.1% at 15% win rate. Recalculate monthly.
   max_per_series: 2           # Max opportunities per series (correlation cap)
 
 learning:

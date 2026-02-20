@@ -40,7 +40,7 @@ const DEFAULT_STATE: DashboardState = {
     // New strategies (Feb 2026)
     { name: 'crypto_intraday', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
     { name: 'bear_macro', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
-    { name: 'market_making', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
+    { name: 'settlement_betting', enabled: false, active_positions: 0, opportunities_found: 0, last_scan: null, status: 'inactive', ...LEARNING_DEFAULTS },
   ],
 };
 

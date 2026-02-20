@@ -409,7 +409,7 @@ class StrategyRouter:
             "trending_up": 0.3, "trending_down": 0.8,
             "mean_reverting": 0.4, "high_vol_choppy": 0.5, "low_vol_calm": 0.4,
         },
-        "market_making": {
+        "settlement_betting": {
             "trending_up": 0.4, "trending_down": 0.4,
             "mean_reverting": 0.7, "high_vol_choppy": 0.3, "low_vol_calm": 0.8,
         },

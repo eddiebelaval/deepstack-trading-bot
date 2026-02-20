@@ -55,7 +55,8 @@ class TestStrategyRegistry:
     def test_new_strategies_registered(self):
         assert "crypto_intraday" in STRATEGY_REGISTRY
         assert "bear_macro" in STRATEGY_REGISTRY
-        assert "market_making" in STRATEGY_REGISTRY
+        assert "settlement_betting" in STRATEGY_REGISTRY
+        assert "market_making" in STRATEGY_REGISTRY  # Legacy alias
 
 
 # ─── Crypto Intraday ──────────────────────────────────────────────────────
@@ -337,7 +338,7 @@ class TestMarketMaking:
         # Simulate existing YES inventory (long YES)
         existing = {
             "SKEW-TEST": {
-                "strategy_name": "market_making",
+                "strategy_name": "settlement_betting",
                 "side": "yes",
                 "contracts": 3,
             }
@@ -408,7 +409,7 @@ class TestMarketMaking:
         # YES inventory at limit
         existing = {
             "LIMIT-TEST": {
-                "strategy_name": "market_making",
+                "strategy_name": "settlement_betting",
                 "side": "yes",
                 "contracts": 2,
             }

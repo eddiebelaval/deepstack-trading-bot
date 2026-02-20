@@ -282,8 +282,8 @@ class CommandProcessor:
 
         if "kelly_fraction" in params:
             kf = float(params["kelly_fraction"])
-            if not (0.1 <= kf <= 1.0):
-                errors.append(f"kelly_fraction={kf} out of range [0.1, 1.0]")
+            if not (0.005 <= kf <= 1.0):
+                errors.append(f"kelly_fraction={kf} out of range [0.005, 1.0]")
             else:
                 self.bot.config.kelly_fraction = kf
                 if self.bot.risk:
