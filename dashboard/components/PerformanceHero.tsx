@@ -11,6 +11,12 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from 'recharts';
+import {
+  formatDollars,
+  formatChartLabel,
+  resolvePeriod,
+} from '@/lib/analytics';
+import type { PeriodName, ChartInterval } from '@/lib/analytics';
 
 type TimeFrame = '1D' | '1W' | '1M' | '3M' | '1Y' | 'ALL';
 
@@ -29,24 +35,19 @@ const COLORS = {
   loss: { line: '#ef4444', glow: 'rgba(239, 68, 68, 0.5)' },
 };
 
-const TIMEFRAME_MS: Record<TimeFrame, number> = {
-  '1D': 86_400_000,
-  '1W': 7 * 86_400_000,
-  '1M': 30 * 86_400_000,
-  '3M': 90 * 86_400_000,
-  '1Y': 365 * 86_400_000,
-  'ALL': 0,
+// Map existing UI timeframes to PeriodName values
+const TIMEFRAME_TO_PERIOD: Record<TimeFrame, PeriodName> = {
+  '1D': '1D',
+  '1W': '7D',
+  '1M': '30D',
+  '3M': '90D',
+  '1Y': 'YTD',
+  'ALL': 'ALL',
 };
 
-function formatDollars(cents: number): string {
-  return `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatLabel(ts: string, timeframe: TimeFrame): string {
-  const d = new Date(ts);
-  if (timeframe === '1D') return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (timeframe === '1W') return d.toLocaleDateString([], { weekday: 'short', hour: '2-digit' });
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+// Map UI timeframes to chart intervals for label formatting
+function getChartInterval(tf: TimeFrame): ChartInterval {
+  return resolvePeriod(TIMEFRAME_TO_PERIOD[tf]).interval;
 }
 
 export default function PerformanceHero({ balanceHistory }: PerformanceHeroProps) {
@@ -56,11 +57,11 @@ export default function PerformanceHero({ balanceHistory }: PerformanceHeroProps
   // Filter balance history by selected timeframe
   const filteredData = useMemo(() => {
     if (!balanceHistory?.length) return [];
-    // API returns desc order — reverse to chronological
+    // API returns desc order -- reverse to chronological
     const chrono = [...balanceHistory].reverse();
     if (timeframe === 'ALL') return chrono;
-    const cutoff = Date.now() - TIMEFRAME_MS[timeframe];
-    return chrono.filter(d => new Date(d.timestamp).getTime() >= cutoff);
+    const period = resolvePeriod(TIMEFRAME_TO_PERIOD[timeframe]);
+    return chrono.filter(d => new Date(d.timestamp) >= period.startDate);
   }, [balanceHistory, timeframe]);
 
   // Compute chart data + stats from the filtered window
@@ -73,12 +74,13 @@ export default function PerformanceHero({ balanceHistory }: PerformanceHeroProps
     const changePct = startCents > 0 ? (changeCents / startCents) * 100 : 0;
     const endEntry = filteredData[filteredData.length - 1];
     const positionCents = endEntry.balance_cents - endEntry.available_balance_cents;
+    const interval = getChartInterval(timeframe);
 
     return {
       chartData: filteredData.map(entry => ({
         timestamp: entry.timestamp,
         value: entry.balance_cents / 100,
-        label: formatLabel(entry.timestamp, timeframe),
+        label: formatChartLabel(entry.timestamp, interval),
       })),
       stats: {
         currentCents: endCents,

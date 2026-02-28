@@ -301,3 +301,79 @@ export interface BotConfig {
   last_heartbeat: string | null;
   updated_at: string;
 }
+
+// ============================================================================
+// Multi-asset types (added for IBKR expansion)
+// ============================================================================
+
+export interface Security {
+  id: number;
+  ticker: string;
+  name: string | null;
+  exchange: string;
+  asset_class: 'stock' | 'prediction_market';
+  current_price_cents: number | null;
+  logo_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Holding {
+  id: number;
+  ticker: string;
+  asset_class: string;
+  qty: number;
+  avg_cost_cents: number;
+  current_price_cents: number | null;
+  unrealized_pnl_cents: number;
+  realized_pnl_cents: number;
+  day_change_cents: number;
+  platform: 'ibkr' | 'kalshi';
+  synced_at: string;
+}
+
+export interface BalanceSnapshot {
+  id: number;
+  date: string;
+  platform: 'kalshi' | 'ibkr' | 'all';
+  start_balance_cents: number;
+  end_balance_cents: number;
+  realized_pnl_cents: number;
+  unrealized_pnl_cents: number;
+  fees_cents: number;
+  contributions_cents: number;
+  withdrawals_cents: number;
+  created_at: string;
+}
+
+export interface StockTrade {
+  id: string;
+  ticker: string;
+  action: 'buy' | 'sell';
+  qty: number;
+  price_cents: number;
+  commission_cents: number;
+  order_id: string | null;
+  status: string;
+  strategy: string | null;
+  reasoning: string | null;
+  pnl_cents: number | null;
+  session_date: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InvestmentStatement {
+  id: number;
+  period_start: string;
+  period_end: string;
+  platform: string;
+  portfolio_value_cents: number;
+  holdings_value_cents: number;
+  cash_balance_cents: number;
+  realized_pnl_cents: number;
+  unrealized_pnl_cents: number;
+  fees_cents: number;
+  created_at: string;
+}

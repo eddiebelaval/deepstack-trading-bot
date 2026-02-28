@@ -43,7 +43,7 @@ class TradingOpportunity:
 
     ticker: str
     title: str
-    side: str  # "yes" or "no"
+    side: str  # "yes", "no", "buy", or "sell"
     entry_price_cents: int
     current_yes_price: int
     current_no_price: int
@@ -53,16 +53,20 @@ class TradingOpportunity:
     expected_profit_cents: int
     max_loss_cents: int
     strategy_name: str = ""
+    asset_class: str = "prediction_market"  # "prediction_market" or "stock"
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate fields after initialization."""
-        if self.side not in ("yes", "no"):
-            raise ValueError(f"side must be 'yes' or 'no', got '{self.side}'")
+        valid_sides = ("yes", "no", "buy", "sell")
+        if self.side not in valid_sides:
+            raise ValueError(f"side must be one of {valid_sides}, got '{self.side}'")
         if not (0 <= self.score <= 100):
             raise ValueError(f"score must be 0-100, got {self.score}")
-        if not (1 <= self.entry_price_cents <= 99):
-            raise ValueError(f"entry_price_cents must be 1-99, got {self.entry_price_cents}")
+        # Only enforce 1-99 price range for prediction markets
+        if self.asset_class == "prediction_market":
+            if not (1 <= self.entry_price_cents <= 99):
+                raise ValueError(f"entry_price_cents must be 1-99 for prediction markets, got {self.entry_price_cents}")
 
 
 @dataclass

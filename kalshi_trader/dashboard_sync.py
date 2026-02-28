@@ -542,3 +542,75 @@ class DashboardSync:
             "reason": reason,
             "mode": mode,
         })
+
+    # ================================================================
+    # MULTI-ASSET: Holdings, Balance Snapshots, Stock Trades, Securities
+    # ================================================================
+
+    async def push_holdings(self, holdings: List[Dict[str, Any]]) -> None:
+        """Upsert stock/prediction market holdings to Supabase."""
+        now = datetime.now(timezone.utc).isoformat()
+        for h in holdings:
+            ticker = h.get("ticker") or h.get("symbol")
+            if not ticker:
+                continue
+            await self._upsert("holdings", {
+                "ticker": ticker,
+                "asset_class": h.get("asset_class", "stock"),
+                "qty": h.get("qty", 0),
+                "avg_cost_cents": h.get("avg_cost_cents", 0),
+                "current_price_cents": h.get("current_price_cents"),
+                "unrealized_pnl_cents": h.get("unrealized_pnl_cents", 0),
+                "realized_pnl_cents": h.get("realized_pnl_cents", 0),
+                "day_change_cents": h.get("day_change_cents", 0),
+                "platform": h.get("platform", "ibkr"),
+                "synced_at": now,
+            }, on_conflict="ticker,platform")
+
+    async def push_balance_snapshot(self, snapshot: Dict[str, Any]) -> None:
+        """Upsert a daily balance snapshot to Supabase."""
+        await self._upsert("balance_snapshots", {
+            "date": snapshot.get("date", datetime.now().strftime("%Y-%m-%d")),
+            "platform": snapshot.get("platform", "all"),
+            "start_balance_cents": snapshot.get("start_balance_cents", 0),
+            "end_balance_cents": snapshot.get("end_balance_cents", 0),
+            "realized_pnl_cents": snapshot.get("realized_pnl_cents", 0),
+            "unrealized_pnl_cents": snapshot.get("unrealized_pnl_cents", 0),
+            "fees_cents": snapshot.get("fees_cents", 0),
+            "contributions_cents": snapshot.get("contributions_cents", 0),
+            "withdrawals_cents": snapshot.get("withdrawals_cents", 0),
+        }, on_conflict="date,platform")
+
+    async def push_stock_trade(self, trade: Dict[str, Any]) -> None:
+        """Insert a stock trade execution to Supabase."""
+        await self._post("stock_trades", {
+            "ticker": trade["ticker"],
+            "action": trade["action"],
+            "qty": trade["qty"],
+            "price_cents": trade["price_cents"],
+            "commission_cents": trade.get("commission_cents", 0),
+            "order_id": trade.get("order_id"),
+            "status": trade.get("status", "filled"),
+            "strategy": trade.get("strategy"),
+            "reasoning": trade.get("reasoning"),
+            "pnl_cents": trade.get("pnl_cents"),
+            "session_date": trade.get("session_date", datetime.now().strftime("%Y-%m-%d")),
+            "metadata": trade.get("metadata"),
+        })
+
+    async def push_securities(self, securities: List[Dict[str, Any]]) -> None:
+        """Upsert security metadata to Supabase."""
+        now = datetime.now(timezone.utc).isoformat()
+        for sec in securities:
+            ticker = sec.get("ticker")
+            if not ticker:
+                continue
+            await self._upsert("securities", {
+                "ticker": ticker,
+                "name": sec.get("name"),
+                "exchange": sec.get("exchange", "SMART"),
+                "asset_class": sec.get("asset_class", "stock"),
+                "current_price_cents": sec.get("current_price_cents"),
+                "logo_url": sec.get("logo_url"),
+                "updated_at": now,
+            }, on_conflict="ticker,exchange")

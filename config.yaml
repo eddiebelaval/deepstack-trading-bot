@@ -269,6 +269,22 @@ cryexc:
     base_seconds: 1.0         # Initial retry delay
     max_seconds: 30.0         # Max retry delay (exponential backoff)
 
+# Interactive Brokers — stock trading via TWS/Gateway.
+# Requires IB TWS or Gateway running locally. Paper trading on port 7497, live on 7496.
+# Disabled by default — enable when TWS is running and you want stock trading.
+ibkr:
+  enabled: false              # Set true when TWS/Gateway is running
+  host: "127.0.0.1"
+  port: 7497                  # 7497 = paper trading, 7496 = live
+  client_id: 1
+  account: ""                 # Leave empty for default account
+  watchlist:
+    - SPY
+    - QQQ
+    - AAPL
+    - MSFT
+    - NVDA
+
 # Claude intelligence layer — qualitative analysis of trade journal data.
 # Sends closed trades to Claude for strategy assessment, pattern detection,
 # and Kelly fraction recommendations. Requires ANTHROPIC_API_KEY.
