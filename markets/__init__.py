@@ -7,6 +7,7 @@ base Market interface for fetching data and placing orders.
 Available Markets:
     - KalshiMarket: Kalshi prediction market platform (full trading)
     - PolymarketMarket: Polymarket platform (read-only data source)
+    - IBKRMarket: Interactive Brokers stock trading via TWS/Gateway
 
 Example:
     >>> from markets import load_market
@@ -22,6 +23,8 @@ Cross-Platform Usage:
 """
 
 from .base import Market, MarketConfig
+from .ibkr import IBKRMarket
+from .ibkr_types import StockPosition
 from .kalshi import KalshiMarket
 from .polymarket import (
     PolymarketMarket,
@@ -34,6 +37,7 @@ from .polymarket import (
 MARKET_REGISTRY = {
     "kalshi": KalshiMarket,
     "polymarket": PolymarketMarket,
+    "ibkr": IBKRMarket,
 }
 
 
@@ -86,6 +90,9 @@ __all__ = [
     # Market implementations
     "KalshiMarket",
     "PolymarketMarket",
+    "IBKRMarket",
+    # IBKR types
+    "StockPosition",
     # Polymarket matching utilities
     "MarketMatcher",
     "MarketMatchScore",

@@ -16,6 +16,10 @@ import {
   Fill,
   Settlement,
   CaptainsLogEntry,
+  Security,
+  Holding,
+  BalanceSnapshot,
+  StockTrade,
 } from './types';
 
 // PostgREST uses URL query params for filtering/sorting.
@@ -464,4 +468,43 @@ export async function createCaptainsLogEntry(content: string): Promise<CaptainsL
     event_type: 'user_response',
     priority: 'significant',
   });
+}
+
+// ============================================================================
+// SECURITIES (stock metadata)
+// ============================================================================
+
+export async function getSecurities(): Promise<Security[]> {
+  return restGet<Security>('deepstack_securities', 'order=ticker');
+}
+
+// ============================================================================
+// HOLDINGS (multi-platform positions)
+// ============================================================================
+
+export async function getHoldings(platform?: string): Promise<Holding[]> {
+  let params = 'order=ticker';
+  if (platform) params = `platform=eq.${platform}&${params}`;
+  return restGet<Holding>('deepstack_holdings', params);
+}
+
+// ============================================================================
+// BALANCE SNAPSHOTS (equity curve data)
+// ============================================================================
+
+export async function getBalanceSnapshots(
+  platform?: string,
+  limit: number = 365,
+): Promise<BalanceSnapshot[]> {
+  let params = `order=date.desc&limit=${limit}`;
+  if (platform) params = `platform=eq.${platform}&${params}`;
+  return restGet<BalanceSnapshot>('deepstack_balance_snapshots', params);
+}
+
+// ============================================================================
+// STOCK TRADES
+// ============================================================================
+
+export async function getStockTrades(limit: number = 50): Promise<StockTrade[]> {
+  return restGet<StockTrade>('deepstack_stock_trades', `order=created_at.desc&limit=${limit}`);
 }

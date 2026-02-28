@@ -121,6 +121,9 @@ class KalshiTradingBot:
         # CryExc real-time exchange data bridge (optional, enabled via config)
         self._cryexc_bridge = None
 
+        # IBKR market adapter (optional, enabled via config)
+        self._ibkr_market = None
+
         # Health monitor (self-healing watchdog)
         self.health_monitor: Optional[HealthMonitor] = None
 
@@ -416,6 +419,29 @@ class KalshiTradingBot:
                 logger.info("Polymarket client initialized (read-only)")
             except Exception as e:
                 logger.warning(f"Failed to initialize Polymarket: {e}")
+
+        # Create IBKR if enabled in config (stock trading)
+        yaml_config = load_yaml_config()
+        if yaml_config and yaml_config.ibkr.enabled:
+            try:
+                from markets import IBKRMarket
+
+                ibkr_config = yaml_config.ibkr.model_dump()
+                ibkr_market = IBKRMarket(ibkr_config)
+                connected = await ibkr_market.connect()
+
+                if connected:
+                    markets_dict["ibkr"] = ibkr_market
+                    self._ibkr_market = ibkr_market
+                    logger.info(
+                        f"IBKR market initialized: "
+                        f"port={ibkr_config['port']}, "
+                        f"watchlist={ibkr_config['watchlist']}"
+                    )
+                else:
+                    logger.warning("IBKR connection failed — stock trading disabled")
+            except Exception as e:
+                logger.warning(f"Failed to initialize IBKR: {e}")
 
         # Create manager with config
         manager_config = {"strategies": configs}
@@ -972,6 +998,34 @@ class KalshiTradingBot:
                                 self._apply_adaptive_thresholds()
             except Exception as e:
                 logger.debug(f"Failed to push settlements: {e}")
+
+            # Push IBKR holdings and balance snapshot (if IBKR is connected)
+            if self._ibkr_market and self._ibkr_market._connected:
+                try:
+                    ibkr_positions = await self._ibkr_market.get_positions()
+                    if ibkr_positions:
+                        holdings = [
+                            {
+                                "ticker": p["ticker"],
+                                "asset_class": "stock",
+                                "qty": p["contracts"],
+                                "avg_cost_cents": p.get("avg_cost_cents", 0),
+                                "current_price_cents": p.get("current_price_cents", 0),
+                                "unrealized_pnl_cents": p.get("unrealized_pnl_cents", 0),
+                                "platform": "ibkr",
+                            }
+                            for p in ibkr_positions
+                        ]
+                        await self.dashboard.push_holdings(holdings)
+
+                    ibkr_balance = await self._ibkr_market.get_balance()
+                    await self.dashboard.push_balance_snapshot({
+                        "platform": "ibkr",
+                        "end_balance_cents": int(ibkr_balance.get("balance", 0) * 100),
+                        "start_balance_cents": int(ibkr_balance.get("balance", 0) * 100),
+                    })
+                except Exception as e:
+                    logger.debug(f"Failed to push IBKR data: {e}")
 
     async def _auto_disable_strategy(self, name: str, reason: str, log_prefix: str = "AUTO-DISABLE") -> None:
         """Disable a strategy, record the event, and notify Captain's Log + dashboard.

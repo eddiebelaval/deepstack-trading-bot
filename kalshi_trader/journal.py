@@ -177,6 +177,36 @@ class TradeJournal:
                 ON trades(strategy, status)
             """)
 
+            # Stock trades table (mirrors Supabase deepstack_stock_trades)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS stock_trades (
+                    id TEXT PRIMARY KEY,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ticker TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    qty INTEGER NOT NULL,
+                    price_cents INTEGER NOT NULL,
+                    commission_cents INTEGER DEFAULT 0,
+                    order_id TEXT,
+                    status TEXT DEFAULT 'pending',
+                    strategy TEXT,
+                    reasoning TEXT,
+                    pnl_cents INTEGER,
+                    session_date DATE,
+                    metadata TEXT
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_stock_trades_ticker
+                ON stock_trades(ticker)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_stock_trades_date
+                ON stock_trades(session_date)
+            """)
+
             conn.commit()
         finally:
             conn.close()
@@ -275,6 +305,74 @@ class TradeJournal:
         logger.info(
             f"Trade logged: {trade_id} | {market_ticker} {action} {contracts} "
             f"{side} @ {price_cents}c"
+        )
+
+        return trade_id
+
+    def log_stock_trade(
+        self,
+        ticker: str,
+        action: str,
+        qty: int,
+        price_cents: int,
+        order_id: Optional[str] = None,
+        commission_cents: int = 0,
+        strategy: Optional[str] = None,
+        reasoning: Optional[str] = None,
+        pnl_cents: Optional[int] = None,
+        metadata: Optional[Dict] = None,
+    ) -> str:
+        """
+        Log a stock trade to the local SQLite journal.
+
+        Args:
+            ticker: Stock symbol (e.g., "AAPL")
+            action: "buy" or "sell"
+            qty: Number of shares
+            price_cents: Price per share in cents
+            order_id: Broker order ID
+            commission_cents: Commission in cents
+            strategy: Strategy name
+            reasoning: Trade reasoning
+            pnl_cents: Realized P&L (for sells)
+            metadata: Additional metadata
+
+        Returns:
+            Trade ID (UUID)
+        """
+        trade_id = str(uuid.uuid4())[:8]
+        today = date.today()
+
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO stock_trades (
+                    id, ticker, action, qty, price_cents,
+                    commission_cents, order_id, strategy, reasoning,
+                    pnl_cents, session_date, status, metadata
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'filled', ?)
+                """,
+                (
+                    trade_id,
+                    ticker,
+                    action,
+                    qty,
+                    price_cents,
+                    commission_cents,
+                    order_id,
+                    strategy,
+                    reasoning,
+                    pnl_cents,
+                    today,
+                    str(metadata) if metadata else None,
+                ),
+            )
+            conn.commit()
+
+        logger.info(
+            f"Stock trade logged: {trade_id} | {ticker} {action} {qty} "
+            f"@ {price_cents}c (commission: {commission_cents}c)"
         )
 
         return trade_id

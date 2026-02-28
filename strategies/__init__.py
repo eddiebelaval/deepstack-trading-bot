@@ -24,6 +24,9 @@ Available Strategies:
     - BearMacroStrategy: Economic indicator trading using FRED data
     - MarketMakingStrategy: Non-directional spread capture with inventory management
 
+    Multi-Asset Strategies:
+    - StockMomentumStrategy: Stock momentum signals from TradingView-validated strategies
+
 Example:
     >>> from strategies import load_strategy
     >>> strategy = load_strategy("mean_reversion", config)
@@ -71,6 +74,7 @@ from .crypto_intraday import CryptoIntradayStrategy
 from .bear_macro import BearMacroStrategy
 from .market_making import MarketMakingStrategy
 from .tv_signals import TvSignalsStrategy
+from .stock_momentum import StockMomentumStrategy
 
 # Strategy registry - maps name to class
 STRATEGY_REGISTRY = {
@@ -89,6 +93,7 @@ STRATEGY_REGISTRY = {
     "settlement_betting": MarketMakingStrategy,
     "market_making": MarketMakingStrategy,  # Legacy alias for historical data
     "tv_signals": TvSignalsStrategy,
+    "stock_momentum": StockMomentumStrategy,
 }
 
 
@@ -156,6 +161,8 @@ __all__ = [
     "BearMacroStrategy",
     "MarketMakingStrategy",
     "TvSignalsStrategy",
+    # Multi-asset strategies
+    "StockMomentumStrategy",
     # Combinatorial arbitrage components (for advanced usage)
     "MarketRelationshipGraph",
     "ArbitrageScanner",

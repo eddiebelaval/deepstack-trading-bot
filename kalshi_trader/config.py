@@ -300,6 +300,38 @@ class CryExcConfig(BaseModel):
     )
 
 
+class IBKRConfig(BaseModel):
+    """Interactive Brokers connection configuration."""
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable IBKR stock trading (requires TWS/Gateway running)",
+    )
+    host: str = Field(
+        default="127.0.0.1",
+        description="IB TWS/Gateway host",
+    )
+    port: int = Field(
+        default=7497,
+        description="IB port (7497=paper, 7496=live)",
+        ge=1,
+        le=65535,
+    )
+    client_id: int = Field(
+        default=1,
+        description="IB client ID (unique per connection)",
+        ge=1,
+    )
+    account: str = Field(
+        default="",
+        description="IB account ID (leave empty for default)",
+    )
+    watchlist: List[str] = Field(
+        default=["SPY", "QQQ", "AAPL", "MSFT", "NVDA"],
+        description="Stock symbols to monitor",
+    )
+
+
 class YAMLConfig(BaseModel):
     """Full YAML configuration structure."""
 
@@ -322,6 +354,10 @@ class YAMLConfig(BaseModel):
     cryexc: CryExcConfig = Field(
         default_factory=CryExcConfig,
         description="CryExc real-time exchange data settings",
+    )
+    ibkr: IBKRConfig = Field(
+        default_factory=IBKRConfig,
+        description="Interactive Brokers stock trading settings",
     )
     analysis: AnalysisConfig = Field(
         default_factory=AnalysisConfig,
