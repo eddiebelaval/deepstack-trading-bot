@@ -292,7 +292,7 @@ analysis:
   enabled: true
   model: "claude-sonnet-4-5-20250929"
   auto_apply_kelly: true       # Auto-adjust Kelly fractions from analysis
-  auto_apply_params: false     # Strategy param changes require human review
+  auto_apply_params: true      # Auto-apply AI parameter suggestions (bounded +/-50%)
   min_trades_for_analysis: 10  # Skip analysis with fewer closed trades
 
 # Market governance engine — proactive regime detection and strategy routing.
@@ -300,7 +300,7 @@ analysis:
 # enables/disables strategies accordingly. Never overrides safety layers.
 governance:
   enabled: true                 # Advisory mode — log only, no strategy changes
-  mode: advisory                # advisory (log only), autonomous (act), manual (suggest)
+  mode: autonomous              # advisory (log only), autonomous (act), manual (suggest)
   lookback_periods: 20          # Market snapshots for rolling window
   min_confidence: 0.6           # Minimum regime confidence to act
   fitness_min_trades: 5         # Trades per regime to trust fitness score

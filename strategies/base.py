@@ -267,6 +267,96 @@ class Strategy(ABC):
             f"SL {old_sl}c -> {self.stop_loss}c"
         )
 
+    # Minimum absolute floors for safety — prevents params from going to zero
+    _PARAM_FLOORS: Dict[str, float] = {
+        "min_volume": 10,
+        "min_score": 5,
+        "price_floor_cents": 1,
+        "price_ceiling_cents": 1,
+        "momentum_threshold": 0.005,
+        "min_profit_cents": 1,
+        "min_liquidity": 5,
+        "max_spread_cents": 1,
+        "price_diff_threshold_cents": 1,
+        "min_match_score": 0.1,
+        "min_polymarket_volume": 100,
+        "lookback_periods": 2,
+    }
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Each subclass gets its own cooldown tracker
+        if not hasattr(cls, '_param_last_adapted'):
+            cls._param_last_adapted: Dict[str, datetime] = {}
+
+    def apply_parameter_flags(self, flags: List[Dict[str, Any]]) -> None:
+        """Apply AI-suggested parameter adjustments with safety guardrails.
+
+        Each flag dict has: param, current, suggested, reason.
+        Guardrails:
+          - Only mutates attributes that exist on self
+          - Clamps change to +/-50% of current value
+          - Enforces absolute minimum floors per param type
+          - 30-minute cooldown between changes to same param
+        """
+        if not hasattr(self, '_param_last_adapted'):
+            self._param_last_adapted = {}
+
+        now = datetime.now()
+        cooldown_seconds = 30 * 60  # 30 minutes
+
+        for flag in flags:
+            param = flag.get("param")
+            suggested = flag.get("suggested")
+            reason = flag.get("reason", "AI suggestion")
+
+            if not param or suggested is None:
+                continue
+
+            if not hasattr(self, param):
+                logger.debug(f"[{self.name}] Skipping unknown param '{param}'")
+                continue
+
+            # Cooldown check
+            last = self._param_last_adapted.get(param)
+            if last and (now - last).total_seconds() < cooldown_seconds:
+                logger.debug(
+                    f"[{self.name}] Param '{param}' on cooldown, skipping"
+                )
+                continue
+
+            old_value = getattr(self, param)
+
+            # Bounds clamping: max +/-50% from current value
+            if old_value != 0:
+                lower = old_value * 0.5
+                upper = old_value * 1.5
+            else:
+                lower = 0
+                upper = abs(suggested) * 1.5 if suggested != 0 else 1
+
+            clamped = max(lower, min(upper, suggested))
+
+            # Enforce absolute minimum floor
+            floor = self._PARAM_FLOORS.get(param, 0)
+            clamped = max(floor, clamped)
+
+            # Cast to match original type
+            if isinstance(old_value, int):
+                clamped = int(round(clamped))
+            else:
+                clamped = float(clamped)
+
+            if clamped == old_value:
+                continue
+
+            setattr(self, param, clamped)
+            self._param_last_adapted[param] = now
+            logger.info(
+                f"[{self.name}] Adapted {param}: {old_value} -> {clamped} "
+                f"(reason: {reason})"
+            )
+
     def get_historical_stats(self) -> Dict[str, float]:
         """
         Get statistics for position sizing (Kelly Criterion).

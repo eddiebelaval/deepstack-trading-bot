@@ -152,6 +152,10 @@ class KalshiTradingBot:
         # Auto re-enable: track when each strategy was auto-disabled
         self._auto_disabled_at: Dict[str, datetime] = {}
         self._reenable_cooldown_hours: int = 6
+
+        # Periodic adaptive threshold refresh counter
+        self._trading_cycle_count: int = 0
+        self._adaptive_refresh_interval: int = 100  # cycles (~30 min at 18s interval)
         # Apply 30% tighter Kelly on re-enable to limit exposure during probation
         self._reenable_tighter_factor: float = 0.7
 
@@ -795,6 +799,14 @@ class KalshiTradingBot:
         # 2f. Run market governance (regime detection + strategy routing)
         await self._run_governance()
 
+        # 2g. Periodic adaptive threshold refresh (every ~100 cycles)
+        self._trading_cycle_count += 1
+        if self._trading_cycle_count % self._adaptive_refresh_interval == 0:
+            self._apply_adaptive_thresholds()
+            logger.info(
+                f"Periodic adaptive threshold refresh (cycle {self._trading_cycle_count})"
+            )
+
         # Skip market scanning if paused
         if self._paused:
             logger.debug("Bot paused — skipping market scan")
@@ -1263,6 +1275,22 @@ class KalshiTradingBot:
                         f"[AI Analysis] {strategy_name} kelly: "
                         f"{old_kelly:.3f} -> {clamped:.3f}"
                     )
+
+            # Apply parameter flag adjustments if auto_apply_params is enabled
+            if (
+                self.trade_analyzer._auto_apply_params
+                and self.strategy_manager
+                and result.strategy_assessments
+            ):
+                for assessment in result.strategy_assessments:
+                    if assessment.parameter_flags:
+                        state = self.strategy_manager._strategies.get(
+                            assessment.strategy_name
+                        )
+                        if state and hasattr(state.strategy, 'apply_parameter_flags'):
+                            state.strategy.apply_parameter_flags(
+                                assessment.parameter_flags
+                            )
 
             # Captain's Log: AI analysis completed
             if self.captains_log:
@@ -1840,6 +1868,15 @@ class KalshiTradingBot:
                     f"Strategy: {strategy_name} | Score: {opp.score:.1f} | {opp.reasoning}"
                 )
                 return True
+
+            # Check exchange status before placing order
+            exchange_status = await self.client.check_exchange_status()
+            if not exchange_status["trading_active"]:
+                logger.info(
+                    f"Skipping trade {ticker}: exchange not open "
+                    f"(status={exchange_status['exchange_status']})"
+                )
+                return False
 
             # Place limit order
             order = await self.client.create_limit_order(
