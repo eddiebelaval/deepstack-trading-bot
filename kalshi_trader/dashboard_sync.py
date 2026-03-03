@@ -132,7 +132,7 @@ class DashboardSync:
                     self._available = True
                 return True
             else:
-                logger.debug(
+                logger.warning(
                     f"Supabase POST {table} returned {response.status_code}: "
                     f"{response.text[:200]}"
                 )
@@ -143,7 +143,7 @@ class DashboardSync:
                 self._available = False
             return False
         except Exception as e:
-            logger.debug(f"Dashboard sync error on {table}: {e}")
+            logger.warning(f"Dashboard sync error on {table}: {e}")
             return False
 
     async def _patch(self, table: str, filters: str, data: Dict[str, Any]) -> bool:
@@ -157,9 +157,15 @@ class DashboardSync:
                 json=data,
                 headers={"Prefer": "return=minimal"},
             )
-            return response.status_code in (200, 204)
+            if response.status_code in (200, 204):
+                return True
+            logger.warning(
+                f"Supabase PATCH {table} returned {response.status_code}: "
+                f"{response.text[:200]}"
+            )
+            return False
         except Exception as e:
-            logger.debug(f"Dashboard sync patch error on {table}: {e}")
+            logger.warning(f"Dashboard sync patch error on {table}: {e}")
             return False
 
     async def _upsert(self, table: str, data: Dict[str, Any], on_conflict: str = "id") -> bool:
@@ -179,9 +185,15 @@ class DashboardSync:
                 json=data,
                 headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )
-            return response.status_code in (200, 201)
+            if response.status_code in (200, 201):
+                return True
+            logger.warning(
+                f"Supabase UPSERT {table} returned {response.status_code}: "
+                f"{response.text[:200]}"
+            )
+            return False
         except Exception as e:
-            logger.debug(f"Dashboard sync upsert error on {table}: {e}")
+            logger.warning(f"Dashboard sync upsert error on {table}: {e}")
             return False
 
     async def push_state(
@@ -291,8 +303,8 @@ class DashboardSync:
                     "exit_reason": exit_reason,
                 },
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("push_trade_close failed for %s: %s", order_id, e)
 
     async def push_log(
         self,

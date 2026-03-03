@@ -988,6 +988,7 @@ class GovernanceEngine:
                 )
                 if self.mode == "autonomous" and strategy_manager:
                     self._governance_disabled[name] = snapshot.timestamp
+                    strategy_manager.disable_strategy(name)
                     logger.info("Governance DISABLED strategy '%s' (regime=%s)", name, snapshot.regime.value)
 
             for name in to_enable:
@@ -1004,6 +1005,7 @@ class GovernanceEngine:
                     threshold=self.enable_threshold, direction="above",
                 )
                 if self.mode == "autonomous" and strategy_manager:
+                    strategy_manager.enable_strategy(name)
                     logger.info("Governance ENABLED strategy '%s' (regime=%s)", name, snapshot.regime.value)
 
         # Bleed detection

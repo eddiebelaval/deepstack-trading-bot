@@ -332,6 +332,30 @@ class AuthenticatedKalshiClient:
             "portfolio_value": portfolio_cents / 100,  # Max payout if all bets win (NOT mark-to-market)
         }
 
+    async def check_exchange_status(self) -> Dict[str, Any]:
+        """Check if the Kalshi exchange is currently open for trading.
+
+        Returns:
+            Dict with 'trading_active' (bool) and 'exchange_status' (str).
+            On API failure, returns trading_active=True to avoid blocking trades
+            on a transient error.
+        """
+        try:
+            response = await self._request("GET", "/exchange/status")
+            trading_active = response.get("trading_active", True)
+            exchange_status = response.get("exchange_status", "unknown")
+            if not trading_active:
+                logger.warning(
+                    "Exchange not open for trading (status=%s)", exchange_status
+                )
+            return {
+                "trading_active": trading_active,
+                "exchange_status": exchange_status,
+            }
+        except Exception as e:
+            logger.warning("Exchange status check failed: %s (assuming open)", e)
+            return {"trading_active": True, "exchange_status": "unknown"}
+
     async def get_positions(self) -> List[Dict]:
         """
         Get all open positions with full Kalshi API fields.
