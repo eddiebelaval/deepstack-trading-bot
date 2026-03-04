@@ -308,7 +308,11 @@ class TestStrategyRouterFitnessPriors:
 
 
 class TestStrategyRouterTrendingUp:
-    """Test 12: In TRENDING_UP, momentum enabled, mean_reversion disabled."""
+    """Test 12: In TRENDING_UP, momentum enabled, mean_reversion in dead zone.
+
+    mean_reversion prior for trending_up is 0.3 — exactly at disable_threshold.
+    With strict '<' comparison, it should NOT be disabled (boundary stays neutral).
+    """
 
     def test_trending_up_routing(self, tmp_db):
         router = StrategyRouter(
@@ -322,7 +326,9 @@ class TestStrategyRouterTrendingUp:
             active_strategies=["mean_reversion", "momentum"],
         )
         assert "momentum" in to_enable
-        assert "mean_reversion" in to_disable
+        # 0.3 == threshold: NOT disabled (strict < avoids boundary kill)
+        assert "mean_reversion" not in to_disable
+        assert "mean_reversion" not in to_enable
 
 
 class TestStrategyRouterMeanReverting:

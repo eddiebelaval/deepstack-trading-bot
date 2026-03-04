@@ -145,6 +145,10 @@ class KalshiTradingBot:
         self._auto_disabled_strategies: set = set()
         self._latest_health: Dict[str, Any] = {}
 
+        # Config-disabled: strategies marked enabled=false in config.yaml.
+        # Governance must NEVER re-enable these — they were disabled intentionally.
+        self._config_disabled_strategies: set = set()
+
         # Hard circuit breakers per strategy (independent of health evaluation)
         # Structure: {strategy_name: {consecutive_losses, peak_pnl_cents, total_pnl_cents}}
         self._strategy_circuit_breakers: Dict[str, Dict[str, Any]] = {}
@@ -396,6 +400,19 @@ class KalshiTradingBot:
             configs = self.strategy_configs
         else:
             configs = get_strategy_configs()
+
+        # Track strategies that are disabled in config.yaml.
+        # Governance must never re-enable these — they were disabled intentionally.
+        self._config_disabled_strategies = {
+            cfg["name"]
+            for cfg in configs
+            if not cfg.get("enabled", True)
+        }
+        if self._config_disabled_strategies:
+            logger.info(
+                f"Config-disabled strategies (governance-protected): "
+                f"{sorted(self._config_disabled_strategies)}"
+            )
 
         # Determine which platforms are needed by scanning strategy configs
         required_platforms = set()
@@ -1378,7 +1395,12 @@ class KalshiTradingBot:
             list(self.strategy_manager._strategies.keys())
             if self.strategy_manager else []
         )
-        safety_disabled = self._auto_disabled_strategies if self.strategy_manager else set()
+        # Merge safety-disabled (auto-disable layer) with config-disabled
+        # (intentionally disabled in config.yaml). Governance must never re-enable either.
+        safety_disabled = (
+            (self._auto_disabled_strategies | self._config_disabled_strategies)
+            if self.strategy_manager else set()
+        )
 
         # Capture pre-cycle regime for change detection
         pre_regime = getattr(self.market_governor, '_current_regime', None)

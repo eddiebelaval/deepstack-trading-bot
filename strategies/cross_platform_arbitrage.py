@@ -643,11 +643,12 @@ class CrossPlatformArbitrageStrategy(Strategy):
         Returns:
             Dict with win_rate, avg_win_cents, avg_loss_cents
         """
-        # Neutral priors — let Bayesian learning converge to reality
+        # Priors encode designed edge: 5c TP / 3c SL with cross-platform convergence.
+        # Neutral priors (50/6/6) cause Kelly=0 cold-start death spiral.
         return {
-            "win_rate": 0.50,
-            "avg_win_cents": 6.0,
-            "avg_loss_cents": 6.0,
+            "win_rate": 0.60,
+            "avg_win_cents": 5.0,
+            "avg_loss_cents": 3.0,
         }
 
     def validate_config(self) -> tuple[bool, str]:

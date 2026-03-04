@@ -383,11 +383,13 @@ class Strategy(ABC):
                 - avg_win_cents: Average winning trade in cents
                 - avg_loss_cents: Average losing trade in cents (positive)
         """
-        # Neutral priors — let Bayesian learning converge to reality
+        # Conservative positive-edge default. Subclasses should override
+        # with strategy-specific priors. Neutral priors (50/6/6) cause
+        # Kelly=0 cold-start death spiral — no trades → no data → no learning.
         return {
-            "win_rate": 0.50,
-            "avg_win_cents": 6.0,
-            "avg_loss_cents": 6.0,
+            "win_rate": 0.55,
+            "avg_win_cents": 8.0,
+            "avg_loss_cents": 5.0,
         }
 
     def calculate_edge(self) -> Dict[str, float]:

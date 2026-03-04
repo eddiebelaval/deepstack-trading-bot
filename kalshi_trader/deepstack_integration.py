@@ -222,7 +222,13 @@ class DeepStackIntegration:
         position_size = min(result["position_size"], self.config.max_position_size)
 
         # Calculate number of contracts (each contract = $1 at risk)
+        # Floor: if Kelly says positive edge but rounds to 0, use 1 contract.
+        # This prevents cold-start death spiral where fractional Kelly * small
+        # balance = 0 contracts = no trades = no learning = stuck forever.
         contracts = int(position_size)
+        if contracts < 1 and result["kelly_pct"] > 0:
+            contracts = 1
+            position_size = 1.0
 
         return {
             "position_size": position_size,

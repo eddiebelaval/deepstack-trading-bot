@@ -456,10 +456,11 @@ class MomentumStrategy(Strategy):
         Returns:
             Dict with win_rate, avg_win_cents, avg_loss_cents
         """
-        # Neutral priors — let Bayesian learning converge to reality
+        # Priors encode designed edge: 10c TP / 6c SL with trend-following thesis.
+        # Neutral priors (50/6/6) cause Kelly=0 cold-start death spiral.
         return {
-            "win_rate": 0.50,
-            "avg_win_cents": 6.0,
+            "win_rate": 0.55,
+            "avg_win_cents": 10.0,
             "avg_loss_cents": 6.0,
         }
 

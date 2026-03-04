@@ -532,7 +532,7 @@ class StrategyRouter:
 
             if fitness >= self.enable_threshold:
                 to_enable.append(name)
-            elif fitness <= self.disable_threshold:
+            elif fitness < self.disable_threshold:
                 to_disable.append(name)
 
         # Cap: never disable more than max_strategies_disabled_pct

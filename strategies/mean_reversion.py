@@ -360,11 +360,13 @@ class MeanReversionStrategy(Strategy):
         Returns:
             Dict with win_rate, avg_win_cents, avg_loss_cents
         """
-        # Neutral priors — let Bayesian learning converge to reality
+        # Priors encode designed edge: 8c TP / 5c SL with mean-reversion thesis.
+        # Bayesian learning converges to reality as trades accumulate.
+        # Neutral priors (50/6/6) cause Kelly=0 cold-start death spiral.
         return {
-            "win_rate": 0.50,
-            "avg_win_cents": 6.0,
-            "avg_loss_cents": 6.0,
+            "win_rate": 0.60,
+            "avg_win_cents": 8.0,
+            "avg_loss_cents": 5.0,
         }
 
     def validate_config(self) -> tuple[bool, str]:
