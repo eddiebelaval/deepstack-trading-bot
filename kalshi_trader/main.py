@@ -337,10 +337,18 @@ class KalshiTradingBot:
             ))
 
         # 6b. Restore strategy enabled states from Supabase (persists user toggles across restarts)
+        # Config-disabled strategies are never restored — config.yaml is authoritative.
         if self.strategy_manager:
             overrides = await self.dashboard.get_strategy_overrides()
             restored = 0
             for name, enabled in overrides.items():
+                if name in self._config_disabled_strategies:
+                    if enabled:
+                        logger.debug(
+                            f"Ignoring dashboard override for '{name}' — "
+                            f"disabled in config.yaml"
+                        )
+                    continue
                 if name in self.strategy_manager._strategies:
                     state = self.strategy_manager._strategies[name]
                     if state.enabled != enabled:
@@ -1790,6 +1798,11 @@ class KalshiTradingBot:
         # Rank and filter
         ranked = self.strategy_manager.rank_opportunities(opportunities)
 
+        logger.info(
+            f"Scan found {len(opportunities)} raw, {len(ranked)} after ranking | "
+            f"Top: {', '.join(f'{o.ticker}({o.score:.0f})' for o in ranked[:3])}"
+        )
+
         # Try to execute best opportunity
         for opp in ranked[:3]:  # Check top 3
             if await self._execute_opportunity_multi(opp):
@@ -1845,7 +1858,7 @@ class KalshiTradingBot:
         )
 
         if not risk_check["allowed"]:
-            logger.debug(f"Opportunity {ticker} blocked: {risk_check['reasons']}")
+            logger.info(f"Trade BLOCKED {ticker}: {risk_check['reasons']}")
             return False
 
         # Get strategy for stats
@@ -1868,8 +1881,13 @@ class KalshiTradingBot:
         )
 
         contracts = size_result["contracts"]
+        logger.info(
+            f"Sizing {ticker} [{strategy_name}]: kelly={size_result['kelly_pct']:.4f} "
+            f"contracts={contracts} max_size=${max_size:.2f} "
+            f"WR={stats['win_rate']:.0%} W={stats['avg_win_cents']:.1f}c L={stats['avg_loss_cents']:.1f}c"
+        )
         if contracts < 1:
-            logger.debug(f"Position size too small for {ticker}: {contracts}")
+            logger.info(f"Trade SKIPPED {ticker}: position size too small ({contracts} contracts)")
             return False
 
         return await self._place_trade(ticker, opp, contracts, strategy_name)

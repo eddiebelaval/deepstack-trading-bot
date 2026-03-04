@@ -286,9 +286,9 @@ class StrategyManager:
         # Sort by score (best first)
         all_opportunities.sort(key=lambda x: x.score, reverse=True)
 
-        logger.debug(
-            f"Found {len(all_opportunities)} total opportunities "
-            f"from {len(self.active_strategies)} strategies"
+        logger.info(
+            f"Scan summary: {len(all_opportunities)} opportunities "
+            f"from {len(self.active_strategies)} active strategies"
         )
 
         return all_opportunities

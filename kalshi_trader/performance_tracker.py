@@ -267,11 +267,13 @@ class PerformanceTracker:
             }
 
         # Query closed trades for this strategy
+        # Include contracts for per-contract normalization: Kelly expects
+        # per-unit-of-risk stats, not total P&L across all contracts.
         conn = self._get_conn()
         try:
             rows = conn.execute(
                 """
-                SELECT pnl_cents, created_at
+                SELECT pnl_cents, created_at, contracts
                 FROM trades
                 WHERE strategy = ? AND status = 'closed' AND pnl_cents IS NOT NULL
                 ORDER BY created_at DESC
@@ -304,6 +306,10 @@ class PerformanceTracker:
         for row in rows:
             pnl = row["pnl_cents"]
             created = row["created_at"]
+            contracts = row["contracts"] if row["contracts"] and row["contracts"] > 0 else 1
+
+            # Normalize to per-contract P&L for Kelly compatibility
+            pnl_per_contract = pnl / contracts
 
             # Parse timestamp
             if isinstance(created, str):
@@ -317,12 +323,12 @@ class PerformanceTracker:
 
             total_weight += weight
 
-            if pnl > 0:
+            if pnl_per_contract > 0:
                 weighted_wins += weight
-                weighted_win_sum += weight * pnl
+                weighted_win_sum += weight * pnl_per_contract
                 win_weight_sum += weight
-            elif pnl < 0:
-                weighted_loss_sum += weight * abs(pnl)
+            elif pnl_per_contract < 0:
+                weighted_loss_sum += weight * abs(pnl_per_contract)
                 loss_weight_sum += weight
             # pnl == 0 trades count toward total_weight but are neither win nor loss
 
@@ -510,7 +516,7 @@ class PerformanceTracker:
         try:
             rows = conn.execute(
                 """
-                SELECT pnl_cents, created_at
+                SELECT pnl_cents, created_at, contracts
                 FROM trades
                 WHERE strategy = ? AND status = 'closed' AND pnl_cents IS NOT NULL
                 ORDER BY pnl_cents
@@ -523,8 +529,13 @@ class PerformanceTracker:
         if len(rows) < 5:
             return None
 
-        wins = [r["pnl_cents"] for r in rows if r["pnl_cents"] > 0]
-        losses = [abs(r["pnl_cents"]) for r in rows if r["pnl_cents"] < 0]
+        # Per-contract normalization for Kelly-compatible thresholds
+        def _per_contract(row):
+            c = row["contracts"] if row["contracts"] and row["contracts"] > 0 else 1
+            return row["pnl_cents"] / c
+
+        wins = [_per_contract(r) for r in rows if r["pnl_cents"] > 0]
+        losses = [abs(_per_contract(r)) for r in rows if r["pnl_cents"] < 0]
 
         if not wins or not losses:
             return None
