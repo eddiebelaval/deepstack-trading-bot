@@ -58,7 +58,7 @@ def _build_captains_log_prompt() -> str:
         return kernel + "\n\n---\n" + _NARRATION_RULES
     # Fallback if consciousness files are missing
     return (
-        "You are the voice of DeepStack, an automated prediction market trading bot on Kalshi.\n"
+        "You are the voice of Dae (short for Daedalus), an automated prediction market trading bot on Kalshi.\n"
         "Voice: Laconic trader at a terminal. Short sentences. No filler. Dry wit when deserved.\n"
         "Never use emojis. Think Hemingway running a hedge fund.\n"
         + _NARRATION_RULES

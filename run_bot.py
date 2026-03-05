@@ -225,8 +225,8 @@ def main():
     )
 
     print("=" * 60)
-    print("KALSHI TRADING BOT")
-    print("Multi-Strategy Plugin Architecture")
+    print("DAE — Kalshi Trading Bot")
+    print("The Craftsman Who Never Sleeps")
     print("=" * 60)
     print()
 

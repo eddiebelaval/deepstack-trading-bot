@@ -944,7 +944,7 @@ class TradeJournal:
         mode = "PAPER TRADING" if paper_trade else "LIVE TRADING"
 
         lines = [
-            f"# DeepStack Empirical Assessment Brief",
+            f"# Dae Empirical Assessment Brief",
             f"",
             f"**Trigger:** {milestone}",
             f"**Mode:** {mode}",
@@ -953,7 +953,7 @@ class TradeJournal:
             f"",
             f"## Assessment Request",
             f"",
-            f"Evaluate DeepStack's empirical trading performance based on {stats['total_trades']} "
+            f"Evaluate Dae's empirical trading performance based on {stats['total_trades']} "
             f"closed trades. Previous code-only assessments reached B+ (empirical wall). "
             f"This brief provides the first empirical data for expert evaluation.",
             f"",

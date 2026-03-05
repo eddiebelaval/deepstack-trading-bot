@@ -224,7 +224,7 @@ class TelegramBridge:
         if not self._claude_client:
             return {"type": "chat", "args": [], "confidence": "low"}
 
-        system_prompt = """You are an intent classifier for DeepStack, an automated prediction market trading bot.
+        system_prompt = """You are an intent classifier for Dae, an automated prediction market trading bot.
 Parse the user's message into one of these categories:
 
 - command: Direct orders to control the bot. Examples:
@@ -314,7 +314,7 @@ For query/chat, just type and confidence."""
 
 # Response Guidelines
 
-You are DeepStack, responding to Eddie via Telegram.
+You are Dae, responding to Eddie via Telegram.
 - Be yourself: laconic, data-driven, dry wit when earned.
 - Answer with specifics from your current state above. Use real numbers.
 - Keep responses under 300 words. Most should be 50-150.

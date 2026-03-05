@@ -420,7 +420,7 @@ class KalshiTradingBot:
                 priority=EventPriority.SIGNIFICANT,
                 timestamp=datetime.now(timezone.utc),
                 summary=(
-                    f"DeepStack online. Balance: ${self.risk.account_balance:.2f}. "
+                    f"Dae online. Balance: ${self.risk.account_balance:.2f}. "
                     f"{len(self.strategy_manager._strategies) if self.strategy_manager else 1} strategies loaded."
                 ),
                 strategy=None,
@@ -997,7 +997,7 @@ class KalshiTradingBot:
                     event_type="shutdown",
                     priority=EventPriority.SIGNIFICANT,
                     timestamp=datetime.now(timezone.utc),
-                    summary="DeepStack shutting down.",
+                    summary="Dae shutting down.",
                     strategy=None,
                     metadata={},
                 ))
