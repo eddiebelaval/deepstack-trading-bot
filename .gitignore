@@ -14,6 +14,9 @@ supabase/.temp/
 *.db-shm
 trade_journal.db
 
+# Heartbeat runtime state (written by Dae, not committed)
+heartbeat-state.json
+
 # Python
 __pycache__/
 *.py[cod]

@@ -36,6 +36,7 @@ from .telegram_bridge import TelegramBridge
 from .config import KalshiConfig, load_config, get_strategy_configs, load_yaml_config, CryExcConfig
 from .trade_analyzer import TradeAnalyzer
 from .dashboard_sync import DashboardSync
+from .heartbeat import HeartbeatEngine
 from .health_monitor import HealthMonitor
 from .kalshi_client import AuthenticatedKalshiClient
 from .deepstack_integration import DeepStackIntegration
@@ -135,6 +136,9 @@ class KalshiTradingBot:
 
         # Telegram bridge (two-way conversational interface)
         self.telegram_bridge: Optional[TelegramBridge] = None
+
+        # Heartbeat engine (hybrid self-regulation)
+        self.heartbeat: Optional[HeartbeatEngine] = None
 
         self._running = False
         self._paused = False
@@ -485,6 +489,16 @@ class KalshiTradingBot:
             logger.info("Telegram Bridge initialized")
         else:
             logger.info("Telegram Bridge disabled (no credentials)")
+
+        # 10b. Initialize heartbeat engine (hybrid self-regulation)
+        if yaml_cfg and yaml_cfg.heartbeat.enabled:
+            heartbeat_dict = yaml_cfg.heartbeat.model_dump()
+            self.heartbeat = HeartbeatEngine(self, heartbeat_dict)
+            if self.telegram_bridge.is_available:
+                self.heartbeat.set_telegram(self.telegram_bridge)
+        else:
+            self.heartbeat = None
+            logger.info("Heartbeat engine disabled (heartbeat.enabled=false)")
 
         # 11. Update bot config to running
         await self.command_processor.update_mode("running")
@@ -1035,6 +1049,10 @@ class KalshiTradingBot:
             if self.telegram_bridge:
                 await self.telegram_bridge.disconnect()
 
+            # Close heartbeat engine
+            if self.heartbeat:
+                await self.heartbeat.close()
+
             # Disconnect CryExc bridge
             if self._cryexc_bridge:
                 await self._cryexc_bridge.disconnect()
@@ -1276,17 +1294,21 @@ class KalshiTradingBot:
             await self._scan_and_trade_legacy()
 
         # 5. Captain's Log — narrate if conditions met
+        bot_state = {
+            "balance": self.risk.account_balance,
+            "daily_pnl": self.risk.get_daily_stats()["daily_pnl"],
+            "open_positions": len(self.open_positions),
+            "regime": getattr(self, '_current_regime', 'unknown'),
+            "active_strategies": [
+                name for name, s in self.strategy_manager._strategies.items() if s.enabled
+            ] if self.strategy_manager else [],
+        }
         if self.captains_log:
-            bot_state = {
-                "balance": self.risk.account_balance,
-                "daily_pnl": self.risk.get_daily_stats()["daily_pnl"],
-                "open_positions": len(self.open_positions),
-                "regime": getattr(self, '_current_regime', 'unknown'),
-                "active_strategies": [
-                    name for name, s in self.strategy_manager._strategies.items() if s.enabled
-                ] if self.strategy_manager else [],
-            }
             await self.captains_log.narrate_if_ready(bot_state)
+
+        # 6. Heartbeat — deterministic checks + periodic AI heartbeat
+        if self.heartbeat:
+            await self.heartbeat.tick(bot_state)
 
         logger.debug("Trading cycle complete")
 

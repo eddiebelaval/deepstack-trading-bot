@@ -339,3 +339,17 @@ captains_log:
   significant_interval_seconds: 60 # Min seconds between significant narrations
   max_tokens: 300                 # Max tokens per narration
   max_context_entries: 20         # Recent log entries for context window
+
+# Heartbeat — hybrid self-regulation engine.
+# Tier 1: Deterministic Python checks every trading cycle (~30s). Free.
+# Tier 2: AI interpretation of HEARTBEAT.md every 30 min via Haiku (~$0.01/cycle).
+# Reads mind/HEARTBEAT.md for standing orders. Writes lessons to memory/lessons.md.
+heartbeat:
+  enabled: true
+  ai_interval_seconds: 1800        # AI heartbeat every 30 min
+  pnl_alert_threshold: -5.0        # Alert if daily P&L below this
+  consecutive_loss_alert: 3         # Alert after N consecutive losses per strategy
+  win_rate_alert_threshold: 0.35    # Alert if strategy win rate below this
+  telegram_alerts: true             # Send alerts via Telegram
+  lessons_write: true               # Allow writing to lessons.md
+  max_lessons_lines: 50             # Cap lessons.md at this many lines
