@@ -284,17 +284,6 @@ class KalshiTradingBot:
         account_balance = balance["available"]
         logger.info(f"Account balance: ${account_balance:.2f}")
 
-        # Push fresh balance to dashboard on startup so the dashboard
-        # always reflects the real Kalshi balance, even when the trading
-        # loop hasn't run yet.
-        if self.dashboard:
-            await self.dashboard.push_balance_only(
-                balance_cents=int(account_balance * 100),
-                available_balance_cents=int(account_balance * 100),
-                source="startup_sync",
-            )
-            logger.info(f"Startup balance synced to dashboard: ${account_balance:.2f}")
-
         # 2b. Portfolio drawdown protection — high-water mark loaded after
         # performance_tracker init (see step 5d below). Temporarily set from API.
         self._initial_balance = account_balance
@@ -411,6 +400,16 @@ class KalshiTradingBot:
         # 6. Initialize dashboard sync (Supabase, fire-and-forget)
         self.dashboard = DashboardSync()
         await self.dashboard.connect()
+
+        # 6-post. Push fresh balance to dashboard on startup so the dashboard
+        # always reflects the real Kalshi balance, even when the trading
+        # loop hasn't run yet.
+        await self.dashboard.push_balance_only(
+            balance_cents=int(self._initial_balance * 100),
+            available_balance_cents=int(self._initial_balance * 100),
+            source="startup_sync",
+        )
+        logger.info(f"Startup balance synced to dashboard: ${self._initial_balance:.2f}")
 
         # 6a. Wire Captain's Log to dashboard sync and connect
         if self.captains_log:
