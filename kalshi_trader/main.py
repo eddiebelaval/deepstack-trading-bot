@@ -158,6 +158,15 @@ class KalshiTradingBot:
         # Structure: {strategy_name: {consecutive_losses, peak_pnl_cents, total_pnl_cents}}
         self._strategy_circuit_breakers: Dict[str, Dict[str, Any]] = {}
 
+        # Strategies explicitly disabled in config.yaml — Supabase overrides
+        # cannot re-enable these (config is authoritative on startup).
+        # Built from strategy_configs; empty set if no configs provided.
+        self._config_disabled_strategies: set = set()
+        if strategy_configs:
+            for cfg in strategy_configs:
+                if not cfg.get("enabled", True):
+                    self._config_disabled_strategies.add(cfg["name"])
+
         # Research lab milestone triggers — generates assessment briefs at key trade counts
         self._lab_milestones = [25, 76, 125, 200]
         self._lab_milestones_triggered: set = set()
@@ -514,6 +523,12 @@ class KalshiTradingBot:
             configs = self.strategy_configs
         else:
             configs = get_strategy_configs()
+
+        # Populate _config_disabled_strategies if not already set from __init__
+        if not self._config_disabled_strategies:
+            for cfg in configs:
+                if not cfg.get("enabled", True):
+                    self._config_disabled_strategies.add(cfg["name"])
 
         # Determine which platforms are needed by scanning strategy configs
         required_platforms = set()
