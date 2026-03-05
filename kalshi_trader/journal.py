@@ -207,6 +207,23 @@ class TradeJournal:
                 ON stock_trades(session_date)
             """)
 
+            # Safe migration: add is_paper column if it doesn't exist yet.
+            # Paper trades were previously identified only by metadata JSON;
+            # a dedicated column makes them query-filterable and prevents
+            # paper P&L from contaminating real metrics.
+            try:
+                cursor.execute("ALTER TABLE trades ADD COLUMN is_paper BOOLEAN DEFAULT 0")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+            # Backfill existing paper trades by order_id prefix
+            cursor.execute(
+                "UPDATE trades SET is_paper = 1 "
+                "WHERE order_id LIKE 'paper-%' AND (is_paper IS NULL OR is_paper = 0)"
+            )
+            conn.commit()
+
             conn.commit()
         finally:
             conn.close()
@@ -255,6 +272,7 @@ class TradeJournal:
         reasoning: Optional[str] = None,
         strategy: str = "mean_reversion",
         metadata: Optional[Dict] = None,
+        is_paper: bool = False,
     ) -> str:
         """
         Log a new trade entry.
@@ -283,8 +301,8 @@ class TradeJournal:
                 INSERT INTO trades (
                     id, market_ticker, side, action, contracts,
                     entry_price_cents, order_id, reasoning, strategy,
-                    session_date, status, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)
+                    session_date, status, metadata, is_paper
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)
                 """,
                 (
                     trade_id,
@@ -298,6 +316,7 @@ class TradeJournal:
                     strategy,
                     today,
                     str(metadata) if metadata else None,
+                    1 if is_paper else 0,
                 ),
             )
             conn.commit()

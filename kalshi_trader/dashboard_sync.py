@@ -255,6 +255,35 @@ class DashboardSync:
                     row[key] = strategy[key]
             await self._upsert("strategy_status", row, on_conflict="name")
 
+    async def push_balance_only(
+        self,
+        balance_cents: int,
+        available_balance_cents: int,
+        source: str = "startup_sync",
+    ) -> None:
+        """Push a balance-only row to dashboard_state.
+
+        Used at startup and shutdown to keep the dashboard fresh when the
+        trading loop isn't running.  Sets daily_pnl to 0 since we don't
+        have cycle-computed P&L at these lifecycle points.
+        """
+        state = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "balance_cents": balance_cents,
+            "available_balance_cents": available_balance_cents,
+            "daily_pnl_cents": 0,
+            "daily_pnl_percentage": 0.0,
+            "total_positions": 0,
+            "daily_loss_limit_cents": 0,
+            "daily_loss_used_cents": 0,
+            "max_position_size_cents": 0,
+            "kelly_fraction": 0,
+            "positions_at_risk": 0,
+            "risk_percentage": 0,
+            "balance_source": source,
+        }
+        await self._post("dashboard_state", state)
+
     async def push_trade(
         self,
         market_ticker: str,
