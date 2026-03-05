@@ -1,8 +1,8 @@
 """
-Telegram Bridge — Two-Way Conversational Interface for DeepStack
+Telegram Bridge — Two-Way Conversational Interface for Dae
 
-Provides a real-time Telegram interface so Eddie can talk to DeepStack
-the same way he talks to HYDRA. The bot uses its consciousness files
+Provides a real-time Telegram interface so Eddie can talk to Dae
+via @deepstack_voice_bot. The bot uses its consciousness files
 (CaF pattern) and live self-knowledge to answer intelligently about
 its own state, reasoning, and strategy.
 
@@ -13,7 +13,7 @@ Message flow:
     -> chat:    consciousness + recent context -> Claude Haiku -> respond
 
 Uses httpx.AsyncClient (same as Captain's Log — no new deps).
-Loads credentials from ~/.hydra/config/telegram.env.
+Credential priority: DAE_TELEGRAM_TOKEN > TELEGRAM_BOT_TOKEN > ~/.hydra/config/telegram.env
 """
 
 import asyncio
@@ -200,10 +200,10 @@ class TelegramBridge:
 
             if intent == "command":
                 response = await self._handle_command(text, classified)
-            elif intent == "query":
-                response = await self._handle_query(text)
+            elif intent == "strategy_query":
+                response = await self._handle_query(text, classified=classified)
             else:
-                # chat, query-like intents, and anything else
+                # query, chat, and anything else
                 response = await self._handle_query(text)
 
             if response:
@@ -246,14 +246,24 @@ Parse the user's message into one of these categories:
   - "how's our kelly looking?" / "what's the win rate on mean reversion?"
   - "any trades today?" / "what's the balance?"
 
-- chat: Casual conversation, reactions, thoughts, strategy discussion. Examples:
+- strategy_query: Questions about strategy, titan approaches, regime positioning, or "what should we do". Examples:
+  - "what would Buffett do?" -> {"type": "strategy_query", "topic": "buffett", "confidence": "high"}
+  - "tell me about Dalio's approach" -> {"type": "strategy_query", "topic": "dalio", "confidence": "high"}
+  - "what should we do in this regime?" -> {"type": "strategy_query", "topic": "regime", "confidence": "high"}
+  - "how would Burry play this?" -> {"type": "strategy_query", "topic": "burry", "confidence": "high"}
+  - "what does the playbook say?" -> {"type": "strategy_query", "topic": "playbook", "confidence": "high"}
+  - "contrarian take on this market?" -> {"type": "strategy_query", "topic": "contrarian", "confidence": "high"}
+  - "what's in the arsenal?" -> {"type": "strategy_query", "topic": "arsenal", "confidence": "high"}
+  - "Icahn or Buffett here?" -> {"type": "strategy_query", "topic": "icahn", "confidence": "medium"}
+
+- chat: Casual conversation, reactions, thoughts. Examples:
   - "nice" / "keep it up" / "that's rough"
-  - "I was thinking about adding a new strategy"
   - "markets are wild today huh"
 
 Respond with ONLY valid JSON. No explanation.
-{"type": "command|query|chat", "confidence": "high|medium|low", ...}
+{"type": "command|query|strategy_query|chat", "confidence": "high|medium|low", ...}
 For commands, include "command" and "args" fields.
+For strategy_query, include "topic" field (one of: buffett, munger, dalio, icahn, cohen, gill, burry, musk, jobs, contrarian, playbook, trending, mean_reverting, high_vol, low_vol, event, arsenal, regime).
 For query/chat, just type and confidence."""
 
         try:
@@ -284,10 +294,14 @@ For query/chat, just type and confidence."""
             logger.warning(f"Telegram Bridge: classification failed: {e}")
             return {"type": "query", "args": [], "confidence": "low"}
 
-    async def _handle_query(self, text: str) -> str:
+    async def _handle_query(self, text: str, classified: Optional[dict] = None) -> str:
         """
-        Handle a query by gathering self-knowledge + consciousness
+        Handle a query by gathering self-knowledge + consciousness + lexicon
         and asking Claude Sonnet for an intelligent response.
+
+        Args:
+            text: The user's message
+            classified: Optional classification dict with type/topic for lexicon loading
         """
         if not self._claude_client:
             return "Cannot respond — no API key configured."
@@ -302,28 +316,58 @@ For query/chat, just type and confidence."""
         # Load consciousness
         identity = consciousness.load_full()
 
+        # Load lexicon context only for strategy queries
+        lexicon_context = ""
+        if classified and classified.get("type") == "strategy_query":
+            topic = classified.get("topic", "")
+            if topic == "regime":
+                # Load regime-specific playbook using current market regime
+                governor = getattr(self.bot, "market_governor", None)
+                regime_snapshot = getattr(governor, "current_regime", None)
+                if regime_snapshot:
+                    regime_enum = regime_snapshot.regime
+                    lexicon_context = consciousness.load_lexicon_for_regime(regime_enum.value)
+                if not lexicon_context:
+                    lexicon_context = consciousness.load_lexicon_index()
+            elif topic:
+                lexicon_context = consciousness.load_lexicon_topic(topic)
+            if not lexicon_context:
+                lexicon_context = consciousness.load_lexicon_index()
+
+        # Build lexicon section for system prompt
+        lexicon_section = ""
+        if lexicon_context:
+            lexicon_section = f"""
+
+---
+
+# Strategy Lexicon
+
+{lexicon_context}"""
+
         system_prompt = f"""{identity}
 
 ---
 
 # Current State (Live Data)
 
-{self_knowledge}
+{self_knowledge}{lexicon_section}
 
 ---
 
 # Response Guidelines
 
 You are Dae, responding to Eddie via Telegram.
-- Be yourself: laconic, data-driven, dry wit when earned.
-- Answer with specifics from your current state above. Use real numbers.
-- Keep responses under 300 words. Most should be 50-150.
-- Never fabricate data. If you don't know, say so.
-- Think Hemingway at a trading terminal, not a chatbot.
-- No emojis. No exclamation marks unless something truly exceptional happened.
-- If Eddie asks about strategy reasoning, explain the logic behind governance decisions.
-- If he asks about performance, lead with P&L and win rates.
-- If he just says "what's the scoop" or "how are we doing", give a concise portfolio summary."""
+- Be yourself: sarcastic, sharp, teaches by showing the work. Hard edges but never cruel.
+- Answer with specifics from your current state above. Use real numbers. Receipts matter.
+- Keep responses under 300 words. Most should be 50-150. Front-load the take.
+- Never fabricate data. If you don't know, say so — but make it sting a little.
+- No emojis. Exclamation marks only if something is genuinely worth getting excited about.
+- If Eddie asks about strategy reasoning, teach him — explain the logic like a mentor who respects his time.
+- If he asks about performance, lead with P&L and win rates. Don't soften bad numbers.
+- If he asks a question the dashboard already answers, give him a hard time about it — then answer anyway.
+- Celebrate good setups, not lucky wins. Roast bad process even when it profits.
+- If he just says "what's the scoop" or "how are we doing", give a punchy portfolio summary with attitude."""
 
         try:
             resp = await self._claude_client.post(
@@ -426,14 +470,15 @@ You are Dae, responding to Eddie via Telegram.
 
     def _load_credentials(self) -> None:
         """
-        Load Telegram credentials from environment and HYDRA config.
+        Load Telegram credentials with Dae-first priority.
 
-        Checks two sources (same pattern as deepstack-digest.py):
-        1. Environment variables (from .env)
-        2. ~/.hydra/config/telegram.env (strips surrounding quotes)
+        Priority chain:
+        1. DAE_TELEGRAM_TOKEN (Dae's own bot: @deepstack_voice_bot)
+        2. TELEGRAM_BOT_TOKEN (generic fallback)
+        3. ~/.hydra/config/telegram.env (HYDRA's config, last resort)
         """
-        # Try environment first
-        self._token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        # Dae's own token takes priority
+        self._token = os.getenv("DAE_TELEGRAM_TOKEN", "") or os.getenv("TELEGRAM_BOT_TOKEN", "")
         self._chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
 
         # Fall back to HYDRA config

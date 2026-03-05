@@ -245,6 +245,40 @@ class GovernanceConfig(BaseModel):
         return v
 
 
+class HeartbeatConfig(BaseModel):
+    """Heartbeat engine configuration — hybrid self-regulation."""
+
+    enabled: bool = Field(default=False, description="Enable heartbeat engine")
+    ai_interval_seconds: int = Field(
+        default=1800, ge=60, le=7200,
+        description="Seconds between AI heartbeat cycles (Haiku)",
+    )
+    pnl_alert_threshold: float = Field(
+        default=-5.0,
+        description="Alert if daily P&L drops below this (dollars)",
+    )
+    consecutive_loss_alert: int = Field(
+        default=3, ge=1, le=20,
+        description="Alert after N consecutive losses per strategy",
+    )
+    win_rate_alert_threshold: float = Field(
+        default=0.35, ge=0.0, le=1.0,
+        description="Alert if strategy blended win rate drops below this",
+    )
+    telegram_alerts: bool = Field(
+        default=True,
+        description="Send heartbeat alerts via Telegram",
+    )
+    lessons_write: bool = Field(
+        default=True,
+        description="Allow heartbeat to write to lessons.md",
+    )
+    max_lessons_lines: int = Field(
+        default=50, ge=10, le=200,
+        description="Maximum total lines for lessons.md",
+    )
+
+
 class CaptainsLogConfig(BaseModel):
     """Captain's Log narration engine configuration."""
 
@@ -393,6 +427,10 @@ class YAMLConfig(BaseModel):
     captains_log: CaptainsLogConfig = Field(
         default_factory=CaptainsLogConfig,
         description="Captain's Log narration engine settings",
+    )
+    heartbeat: HeartbeatConfig = Field(
+        default_factory=HeartbeatConfig,
+        description="Heartbeat self-regulation engine settings",
     )
 
 
