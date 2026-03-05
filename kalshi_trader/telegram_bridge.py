@@ -200,10 +200,10 @@ class TelegramBridge:
 
             if intent == "command":
                 response = await self._handle_command(text, classified)
-            elif intent == "query":
-                response = await self._handle_query(text)
+            elif intent == "strategy_query":
+                response = await self._handle_query(text, classified=classified)
             else:
-                # chat, query-like intents, and anything else
+                # query, chat, and anything else
                 response = await self._handle_query(text)
 
             if response:
@@ -246,14 +246,24 @@ Parse the user's message into one of these categories:
   - "how's our kelly looking?" / "what's the win rate on mean reversion?"
   - "any trades today?" / "what's the balance?"
 
-- chat: Casual conversation, reactions, thoughts, strategy discussion. Examples:
+- strategy_query: Questions about strategy, titan approaches, regime positioning, or "what should we do". Examples:
+  - "what would Buffett do?" -> {"type": "strategy_query", "topic": "buffett", "confidence": "high"}
+  - "tell me about Dalio's approach" -> {"type": "strategy_query", "topic": "dalio", "confidence": "high"}
+  - "what should we do in this regime?" -> {"type": "strategy_query", "topic": "regime", "confidence": "high"}
+  - "how would Burry play this?" -> {"type": "strategy_query", "topic": "burry", "confidence": "high"}
+  - "what does the playbook say?" -> {"type": "strategy_query", "topic": "playbook", "confidence": "high"}
+  - "contrarian take on this market?" -> {"type": "strategy_query", "topic": "contrarian", "confidence": "high"}
+  - "what's in the arsenal?" -> {"type": "strategy_query", "topic": "arsenal", "confidence": "high"}
+  - "Icahn or Buffett here?" -> {"type": "strategy_query", "topic": "icahn", "confidence": "medium"}
+
+- chat: Casual conversation, reactions, thoughts. Examples:
   - "nice" / "keep it up" / "that's rough"
-  - "I was thinking about adding a new strategy"
   - "markets are wild today huh"
 
 Respond with ONLY valid JSON. No explanation.
-{"type": "command|query|chat", "confidence": "high|medium|low", ...}
+{"type": "command|query|strategy_query|chat", "confidence": "high|medium|low", ...}
 For commands, include "command" and "args" fields.
+For strategy_query, include "topic" field (one of: buffett, munger, dalio, icahn, cohen, gill, burry, musk, jobs, contrarian, playbook, trending, mean_reverting, high_vol, low_vol, event, arsenal, regime).
 For query/chat, just type and confidence."""
 
         try:
@@ -284,10 +294,14 @@ For query/chat, just type and confidence."""
             logger.warning(f"Telegram Bridge: classification failed: {e}")
             return {"type": "query", "args": [], "confidence": "low"}
 
-    async def _handle_query(self, text: str) -> str:
+    async def _handle_query(self, text: str, classified: Optional[dict] = None) -> str:
         """
-        Handle a query by gathering self-knowledge + consciousness
+        Handle a query by gathering self-knowledge + consciousness + lexicon
         and asking Claude Sonnet for an intelligent response.
+
+        Args:
+            text: The user's message
+            classified: Optional classification dict with type/topic for lexicon loading
         """
         if not self._claude_client:
             return "Cannot respond — no API key configured."
@@ -302,13 +316,42 @@ For query/chat, just type and confidence."""
         # Load consciousness
         identity = consciousness.load_full()
 
+        # Load lexicon context only for strategy queries
+        lexicon_context = ""
+        if classified and classified.get("type") == "strategy_query":
+            topic = classified.get("topic", "")
+            if topic == "regime":
+                # Load regime-specific playbook using current market regime
+                governor = getattr(self.bot, "market_governor", None)
+                regime_snapshot = getattr(governor, "current_regime", None)
+                if regime_snapshot:
+                    regime_enum = regime_snapshot.regime
+                    lexicon_context = consciousness.load_lexicon_for_regime(regime_enum.value)
+                if not lexicon_context:
+                    lexicon_context = consciousness.load_lexicon_index()
+            elif topic:
+                lexicon_context = consciousness.load_lexicon_topic(topic)
+            if not lexicon_context:
+                lexicon_context = consciousness.load_lexicon_index()
+
+        # Build lexicon section for system prompt
+        lexicon_section = ""
+        if lexicon_context:
+            lexicon_section = f"""
+
+---
+
+# Strategy Lexicon
+
+{lexicon_context}"""
+
         system_prompt = f"""{identity}
 
 ---
 
 # Current State (Live Data)
 
-{self_knowledge}
+{self_knowledge}{lexicon_section}
 
 ---
 
