@@ -199,7 +199,12 @@ class TelegramBridge:
             logger.info(f"Telegram Bridge: classified as '{intent}' (confidence: {classified.get('confidence', '?')})")
 
             if intent == "command":
-                response = await self._handle_command(text, classified)
+                # Check for Phase 2 read commands first
+                command_name = classified.get("command", "")
+                if command_name in ("signals", "ibkr", "arsenal"):
+                    response = await self._handle_phase2_command(command_name)
+                else:
+                    response = await self._handle_command(text, classified)
             elif intent == "strategy_query":
                 response = await self._handle_query(text, classified=classified)
             else:
@@ -239,6 +244,9 @@ Parse the user's message into one of these categories:
   - "go live" / "go dry run" -> {"type": "command", "command": "set_mode", "args": {"dry_run": false/true}}
   - "stop" / "shut down" -> {"type": "command", "command": "stop", "args": {}}
   - "disable momentum" -> {"type": "command", "command": "toggle_strategy", "args": {"strategy": "momentum", "enable": false}}
+  - "signals" / "show signals" / "what signals" -> {"type": "command", "command": "signals", "args": {}}
+  - "ibkr" / "ibkr status" / "paper positions" -> {"type": "command", "command": "ibkr", "args": {}}
+  - "arsenal" / "arsenal status" / "show arsenal" / "top indicators" -> {"type": "command", "command": "arsenal", "args": {}}
 
 - query: Questions about bot state, performance, strategy, reasoning, or markets. Examples:
   - "what's the scoop?" / "how are we doing?" / "status" / "give me a rundown"
@@ -387,6 +395,159 @@ You are Dae, responding to Eddie via Telegram.
         except Exception as e:
             logger.error(f"Telegram Bridge: query response failed: {e}")
             return f"Failed to generate response: {str(e)[:100]}"
+
+    async def _handle_phase2_command(self, command_name: str) -> str:
+        """
+        Handle Phase 2 read commands: /signals, /ibkr, /arsenal.
+
+        These read from GovernanceEngine and IBKR state rather than
+        controlling bot behavior, so they bypass CommandProcessor.
+        """
+        if command_name == "signals":
+            return await self._cmd_signals()
+        elif command_name == "ibkr":
+            return await self._cmd_ibkr()
+        elif command_name == "arsenal":
+            return await self._cmd_arsenal()
+        return f"Unknown Phase 2 command: {command_name}"
+
+    async def _cmd_signals(self) -> str:
+        """Show latest LexiconSignal digest."""
+        governor = getattr(self.bot, "market_governor", None)
+        if not governor:
+            return "Market governor not initialized."
+
+        signals = getattr(governor, "_last_lexicon_signals", [])
+        regime_snapshot = governor.current_regime
+
+        if not regime_snapshot:
+            return "No regime detected yet — signals unavailable."
+
+        regime_value = regime_snapshot.regime.value
+
+        if not signals:
+            return (
+                f"Regime: {regime_value.replace('_', ' ').title()}\n"
+                "No lexicon signals generated. Either the signal generator "
+                "is disabled or no strategies matched the confidence threshold."
+            )
+
+        # Use signal generator's formatter if available
+        generator = getattr(governor, "_lexicon_signal_generator", None)
+        if generator:
+            return generator.format_digest(signals, regime_value)
+
+        # Fallback manual format
+        lines = [f"Regime: {regime_value.replace('_', ' ').title()}", ""]
+        for sig in signals:
+            lines.append(
+                f"  {sig.action.upper()}: {sig.strategy_name} "
+                f"(conf: {sig.confidence:.0%}) — {sig.reasoning}"
+            )
+        return "\n".join(lines)
+
+    async def _cmd_ibkr(self) -> str:
+        """Show IBKR paper trading positions and P&L."""
+        # Check if IBKR market adapter exists on bot
+        ibkr = getattr(self.bot, "_ibkr_market", None)
+        if not ibkr:
+            return "IBKR not initialized. Is TWS running and ibkr.enabled=true in config?"
+
+        connected = getattr(ibkr, "_connected", False)
+        if not connected:
+            return "IBKR adapter exists but not connected to TWS."
+
+        try:
+            positions = await ibkr.get_positions()
+            balance = await ibkr.get_balance()
+        except Exception as e:
+            return f"IBKR query failed: {str(e)[:200]}"
+
+        lines = [
+            "[IBKR Paper Trading]",
+            f"Net Liquidation: ${balance.get('balance', 0):,.2f}",
+            f"Available Funds: ${balance.get('available', 0):,.2f}",
+            "",
+        ]
+
+        if not positions:
+            lines.append("No open positions.")
+        else:
+            lines.append(f"Open Positions ({len(positions)}):")
+            total_pnl = 0
+            for pos in positions:
+                symbol = pos.get("ticker", "?")
+                qty = pos.get("contracts", 0)
+                side = "LONG" if pos.get("side") == "yes" else "SHORT"
+                pnl_cents = pos.get("unrealized_pnl_cents", 0)
+                total_pnl += pnl_cents
+                lines.append(
+                    f"  {symbol} {side} x{qty} | "
+                    f"P&L: ${pnl_cents / 100:.2f}"
+                )
+            lines.append(f"\nTotal Unrealized P&L: ${total_pnl / 100:.2f}")
+
+        # Show lexicon order router status if available
+        router = getattr(self.bot, "_lexicon_order_router", None)
+        if router:
+            router_orders = getattr(router, "_order_log", [])
+            if router_orders:
+                lines.append(f"\nLexicon Router: {len(router_orders)} orders placed")
+
+        return "\n".join(lines)
+
+    async def _cmd_arsenal(self) -> str:
+        """Show arsenal status: top indicators, last refresh, gap analysis."""
+        arsenal_text = consciousness.load_lexicon_topic("arsenal")
+
+        if not arsenal_text or "Awaiting population" in arsenal_text:
+            return (
+                "[Arsenal Status]\n"
+                "No indicators populated yet.\n"
+                "Run: python scripts/populate_lexicon_arsenal.py\n"
+                "Or wait for heartbeat auto-refresh (every 6h)."
+            )
+
+        # Extract refresh timestamp
+        refresh_line = ""
+        for line in arsenal_text.splitlines():
+            if "Last refresh:" in line:
+                refresh_line = line.split("Last refresh:")[-1].strip()
+                break
+
+        # Count top performers from table
+        indicator_count = 0
+        top_5_names: list = []
+        for line in arsenal_text.splitlines():
+            if line.strip().startswith("|") and not line.strip().startswith("|--") and "Rank" not in line:
+                cells = [c.strip() for c in line.split("|") if c.strip()]
+                if len(cells) >= 2 and cells[0].isdigit():
+                    indicator_count += 1
+                    if len(top_5_names) < 5:
+                        top_5_names.append(cells[1])
+
+        # Gap analysis from regime map
+        regime_map_text = consciousness.load_lexicon_for_regime(
+            getattr(
+                getattr(
+                    getattr(self.bot, "market_governor", None),
+                    "current_regime", None
+                ),
+                "regime", None
+            ).value if getattr(getattr(self.bot, "market_governor", None), "current_regime", None) else "trending_up"
+        )
+
+        lines = [
+            "[Arsenal Status]",
+            f"Last Refresh: {refresh_line or 'unknown'}",
+            f"Indicators Tracked: {indicator_count}",
+            "",
+            "Top 5:",
+        ]
+        for i, name in enumerate(top_5_names, 1):
+            lines.append(f"  {i}. {name}")
+
+        return "\n".join(lines)
 
     async def _handle_command(self, text: str, classified: dict) -> str:
         """

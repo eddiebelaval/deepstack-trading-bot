@@ -922,10 +922,19 @@ class GovernanceEngine:
         # Track governance-disabled strategies and their cooldown times
         self._governance_disabled: Dict[str, datetime] = {}
 
+        # Lexicon signal generator (Phase 2) — knowledge-based strategy overlay
+        self._lexicon_signal_generator = None
+        self._last_lexicon_signals: list = []
+
         logger.info(
             "GovernanceEngine initialized | enabled=%s, mode=%s, lookback=%d",
             enabled, mode, lookback_periods,
         )
+
+    def set_lexicon_signal_generator(self, generator: Any) -> None:
+        """Attach a LexiconSignalGenerator for knowledge-based strategy overlay."""
+        self._lexicon_signal_generator = generator
+        logger.info("GovernanceEngine: LexiconSignalGenerator attached")
 
     def feed_market_data(self, markets: List[MarketSnapshot]) -> None:
         """Feed a batch of market data from the current trading cycle."""
@@ -971,6 +980,22 @@ class GovernanceEngine:
             snapshot.volume_ratio,
             snapshot.num_markets_sampled,
         )
+
+        # Lexicon signal generation (Phase 2) — knowledge-based overlay
+        if self._lexicon_signal_generator:
+            try:
+                lexicon_signals = self._lexicon_signal_generator.generate_signals(
+                    regime_value=snapshot.regime.value,
+                    active_strategies=active_strategies,
+                )
+                self._last_lexicon_signals = lexicon_signals
+                if lexicon_signals:
+                    logger.info(
+                        "Governance | lexicon signals: %d recommendations",
+                        len(lexicon_signals),
+                    )
+            except Exception as e:
+                logger.warning("Governance | lexicon signal generation failed: %s", e)
 
         # Strategy routing (only if confidence meets threshold)
         if snapshot.confidence >= self.min_confidence and active_strategies:

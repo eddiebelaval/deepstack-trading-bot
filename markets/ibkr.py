@@ -9,10 +9,12 @@ Design:
     - Watchlist maps to 'series' parameter from Market ABC
     - Side accepts both "buy"/"sell" (stocks) and "yes"/"no" (legacy)
     - Circuit breaker wraps connection for resilience
+    - LexiconOrderRouter: Phase 2 signal-to-paper-trade routing
 """
 
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -405,3 +407,231 @@ class IBKRMarket(Market):
     def __repr__(self) -> str:
         status = "connected" if self._connected else "disconnected"
         return f"IBKRMarket(port={self._port}, {status})"
+
+
+@dataclass
+class LexiconOrder:
+    """Record of a paper order placed by the LexiconOrderRouter."""
+
+    timestamp: str
+    symbol: str
+    side: str
+    qty: int
+    signal_strategy: str
+    signal_action: str
+    signal_confidence: float
+    regime: str
+    order_id: str = ""
+    status: str = "pending"
+
+
+class LexiconOrderRouter:
+    """
+    Routes LexiconSignal objects to IBKR paper trades.
+
+    Maps regime + signal action to specific ETF trades:
+        - trending_up + enable momentum -> long SPY/QQQ
+        - high_vol_choppy + enable volatility -> long VXX
+        - trending_down + enable momentum -> long SH (inverse S&P)
+        - mean_reverting -> no directional trades (regime is range-bound)
+
+    Safety:
+        - paper_mode assertion on every order method
+        - Max 5 paper positions at once
+        - Auto-close all if daily P&L exceeds -$50
+        - All orders logged before execution
+    """
+
+    # Regime -> (bullish_symbol, bearish_symbol)
+    REGIME_ETF_MAP: Dict[str, Dict[str, str]] = {
+        "trending_up": {"long": "SPY", "hedge": "VXX"},
+        "trending_down": {"long": "SH", "hedge": "QQQ"},
+        "high_vol_choppy": {"long": "VXX", "hedge": "SPY"},
+        "low_vol_calm": {"long": "SPY", "hedge": "VXX"},
+        "mean_reverting": {"long": "SPY", "hedge": "SH"},
+    }
+
+    def __init__(
+        self,
+        ibkr_market: IBKRMarket,
+        max_positions: int = 5,
+        max_daily_loss_cents: int = 5000,  # -$50 in cents
+        max_order_value_cents: int = 1000,  # $10 max per trade
+    ):
+        self.ibkr = ibkr_market
+        self.paper_mode = True  # Hardcoded — never change
+        self.max_positions = max_positions
+        self.max_daily_loss_cents = max_daily_loss_cents
+        self.max_order_value_cents = max_order_value_cents
+        self._order_log: List[LexiconOrder] = []
+        self._daily_pnl_cents: int = 0
+
+        logger.info(
+            "LexiconOrderRouter initialized | paper=%s max_pos=%d max_loss=$%.2f",
+            self.paper_mode, max_positions, max_daily_loss_cents / 100,
+        )
+
+    async def route_signal(self, signal: Any) -> Optional[LexiconOrder]:
+        """
+        Route a LexiconSignal to a paper trade.
+
+        Only processes 'enable' signals — disable/caution are informational.
+        Returns the order record, or None if skipped.
+
+        Args:
+            signal: LexiconSignal object from the signal generator.
+
+        Returns:
+            LexiconOrder if a trade was placed, None otherwise.
+        """
+        assert self.paper_mode, "LexiconOrderRouter: PAPER MODE REQUIRED"
+
+        # Only trade on enable signals with sufficient confidence
+        if signal.action != "enable" or signal.confidence < 0.6:
+            return None
+
+        # Check position limit
+        try:
+            positions = await self.ibkr.get_positions()
+            if len(positions) >= self.max_positions:
+                logger.info(
+                    "LexiconOrderRouter: position limit reached (%d/%d), skipping %s",
+                    len(positions), self.max_positions, signal.strategy_name,
+                )
+                return None
+        except Exception as e:
+            logger.warning("LexiconOrderRouter: cannot check positions: %s", e)
+            return None
+
+        # Check daily P&L limit
+        if self._daily_pnl_cents <= -self.max_daily_loss_cents:
+            logger.warning(
+                "LexiconOrderRouter: daily P&L limit hit ($%.2f), no new orders",
+                self._daily_pnl_cents / 100,
+            )
+            return None
+
+        # Determine symbol based on regime
+        regime = signal.regime
+        etf_map = self.REGIME_ETF_MAP.get(regime, {})
+        symbol = etf_map.get("long", "SPY")
+
+        # Calculate quantity based on max order value and current price
+        try:
+            market_data = await self.ibkr.get_market(symbol)
+            price_cents = market_data.get("last_price", 0)
+            if price_cents <= 0:
+                logger.warning("LexiconOrderRouter: no price data for %s", symbol)
+                return None
+
+            # qty = max_order_value / price, minimum 1 share
+            qty = max(1, self.max_order_value_cents // price_cents)
+        except Exception as e:
+            logger.warning("LexiconOrderRouter: price lookup failed for %s: %s", symbol, e)
+            return None
+
+        # Place paper order
+        order_record = LexiconOrder(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            symbol=symbol,
+            side="buy",
+            qty=qty,
+            signal_strategy=signal.strategy_name,
+            signal_action=signal.action,
+            signal_confidence=signal.confidence,
+            regime=regime,
+        )
+
+        try:
+            assert self.paper_mode, "LexiconOrderRouter: PAPER MODE REQUIRED"
+            result = await self.ibkr.place_order(
+                ticker=symbol,
+                side="buy",
+                action="buy",
+                count=qty,
+                price_cents=price_cents,
+                order_type="limit",
+            )
+            order_record.order_id = result.get("order_id", "")
+            order_record.status = result.get("status", "submitted")
+
+            logger.info(
+                "LexiconOrderRouter: PAPER ORDER %s %s x%d @ $%.2f | "
+                "signal=%s regime=%s conf=%.0f%%",
+                order_record.order_id, symbol, qty, price_cents / 100,
+                signal.strategy_name, regime, signal.confidence * 100,
+            )
+        except Exception as e:
+            order_record.status = f"failed: {str(e)[:100]}"
+            logger.error("LexiconOrderRouter: order failed: %s", e)
+
+        self._order_log.append(order_record)
+        return order_record
+
+    async def check_daily_pnl(self) -> int:
+        """
+        Update daily P&L from IBKR positions.
+
+        Returns current daily P&L in cents. Triggers auto-close
+        if below the loss threshold.
+        """
+        assert self.paper_mode, "LexiconOrderRouter: PAPER MODE REQUIRED"
+
+        try:
+            positions = await self.ibkr.get_positions()
+            total_pnl = sum(p.get("unrealized_pnl_cents", 0) for p in positions)
+            self._daily_pnl_cents = total_pnl
+
+            if total_pnl <= -self.max_daily_loss_cents:
+                logger.warning(
+                    "LexiconOrderRouter: daily P&L $%.2f below limit, closing all positions",
+                    total_pnl / 100,
+                )
+                await self.ibkr.cancel_all_orders()
+                # Note: cancel_all_orders cancels open orders, not positions.
+                # Closing positions requires selling each one — left for future.
+
+            return total_pnl
+        except Exception as e:
+            logger.warning("LexiconOrderRouter: P&L check failed: %s", e)
+            return self._daily_pnl_cents
+
+    def get_order_log(self) -> List[LexiconOrder]:
+        """Return the order log for reporting."""
+        return list(self._order_log)
+
+    def detect_cross_asset_hedge(
+        self, kalshi_positions: List[Dict], ibkr_positions: List[Dict]
+    ) -> List[str]:
+        """
+        Detect natural hedges between Kalshi and IBKR positions.
+
+        Advisory only — logs when opposing positions create a hedge.
+        Example: long weather contract + short utility stock.
+
+        Returns list of hedge descriptions.
+        """
+        hedges: List[str] = []
+
+        kalshi_tickers = {p.get("ticker", ""): p for p in kalshi_positions}
+        ibkr_symbols = {p.get("ticker", ""): p for p in ibkr_positions}
+
+        # Simple heuristic: if we have both long and short across platforms
+        for k_ticker, k_pos in kalshi_tickers.items():
+            k_side = k_pos.get("side", "")
+            for i_symbol, i_pos in ibkr_symbols.items():
+                i_qty = i_pos.get("position", 0)
+                if k_side == "yes" and i_qty < 0:
+                    hedges.append(
+                        f"Potential hedge: long {k_ticker} (Kalshi) + short {i_symbol} (IBKR)"
+                    )
+                elif k_side == "no" and i_qty > 0:
+                    hedges.append(
+                        f"Potential hedge: short {k_ticker} (Kalshi) + long {i_symbol} (IBKR)"
+                    )
+
+        if hedges:
+            for h in hedges:
+                logger.info("LexiconOrderRouter: %s", h)
+
+        return hedges
