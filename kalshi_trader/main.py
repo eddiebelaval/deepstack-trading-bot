@@ -275,6 +275,17 @@ class KalshiTradingBot:
         account_balance = balance["available"]
         logger.info(f"Account balance: ${account_balance:.2f}")
 
+        # Push fresh balance to dashboard on startup so the dashboard
+        # always reflects the real Kalshi balance, even when the trading
+        # loop hasn't run yet.
+        if self.dashboard:
+            await self.dashboard.push_balance_only(
+                balance_cents=int(account_balance * 100),
+                available_balance_cents=int(account_balance * 100),
+                source="startup_sync",
+            )
+            logger.info(f"Startup balance synced to dashboard: ${account_balance:.2f}")
+
         # 2b. Portfolio drawdown protection — high-water mark loaded after
         # performance_tracker init (see step 5d below). Temporarily set from API.
         self._initial_balance = account_balance
@@ -992,6 +1003,19 @@ class KalshiTradingBot:
                 await self.command_processor.update_mode("stopped")
             if self.dashboard:
                 await self.dashboard.push_log("Bot shutting down", level="WARNING", strategy="system")
+
+            # Push final balance so dashboard stays fresh while bot is off
+            if self.client and self.dashboard:
+                try:
+                    balance = await self.client.get_balance()
+                    await self.dashboard.push_balance_only(
+                        balance_cents=int(balance["available"] * 100),
+                        available_balance_cents=int(balance["available"] * 100),
+                        source="shutdown_sync",
+                    )
+                    logger.info(f"Shutdown balance synced: ${balance['available']:.2f}")
+                except Exception:
+                    pass  # Best-effort — don't block shutdown
 
             # Disconnect Telegram bridge
             if self.telegram_bridge:
@@ -2152,12 +2176,14 @@ class KalshiTradingBot:
                     exit_reason=exit_signal.exit_type,
                 )
 
-                # Record in risk management
-                self.risk.record_trade_result(
-                    ticker=ticker,
-                    profit_loss_cents=pnl,
-                    position_size_dollars=contracts,
-                )
+                # Record in risk management (skip for paper trades —
+                # paper P&L must not contaminate daily_pnl / dashboard balance)
+                if not self.paper_trade:
+                    self.risk.record_trade_result(
+                        ticker=ticker,
+                        profit_loss_cents=pnl,
+                        position_size_dollars=contracts,
+                    )
 
                 # Update circuit breaker state for this strategy
                 self._update_circuit_breaker_state(
@@ -2548,6 +2574,7 @@ class KalshiTradingBot:
                     reasoning=opp.reasoning,
                     strategy=strategy_name,
                     metadata={"paper_trade": True, "simulated_fill": True},
+                    is_paper=True,
                 )
 
                 logger.info(
