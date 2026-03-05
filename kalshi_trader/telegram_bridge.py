@@ -1,8 +1,8 @@
 """
-Telegram Bridge — Two-Way Conversational Interface for DeepStack
+Telegram Bridge — Two-Way Conversational Interface for Dae
 
-Provides a real-time Telegram interface so Eddie can talk to DeepStack
-the same way he talks to HYDRA. The bot uses its consciousness files
+Provides a real-time Telegram interface so Eddie can talk to Dae
+via @deepstack_voice_bot. The bot uses its consciousness files
 (CaF pattern) and live self-knowledge to answer intelligently about
 its own state, reasoning, and strategy.
 
@@ -13,7 +13,7 @@ Message flow:
     -> chat:    consciousness + recent context -> Claude Haiku -> respond
 
 Uses httpx.AsyncClient (same as Captain's Log — no new deps).
-Loads credentials from ~/.hydra/config/telegram.env.
+Credential priority: DAE_TELEGRAM_TOKEN > TELEGRAM_BOT_TOKEN > ~/.hydra/config/telegram.env
 """
 
 import asyncio
@@ -426,14 +426,15 @@ You are Dae, responding to Eddie via Telegram.
 
     def _load_credentials(self) -> None:
         """
-        Load Telegram credentials from environment and HYDRA config.
+        Load Telegram credentials with Dae-first priority.
 
-        Checks two sources (same pattern as deepstack-digest.py):
-        1. Environment variables (from .env)
-        2. ~/.hydra/config/telegram.env (strips surrounding quotes)
+        Priority chain:
+        1. DAE_TELEGRAM_TOKEN (Dae's own bot: @deepstack_voice_bot)
+        2. TELEGRAM_BOT_TOKEN (generic fallback)
+        3. ~/.hydra/config/telegram.env (HYDRA's config, last resort)
         """
-        # Try environment first
-        self._token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        # Dae's own token takes priority
+        self._token = os.getenv("DAE_TELEGRAM_TOKEN", "") or os.getenv("TELEGRAM_BOT_TOKEN", "")
         self._chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
 
         # Fall back to HYDRA config
