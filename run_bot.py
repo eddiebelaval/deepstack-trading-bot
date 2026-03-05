@@ -111,6 +111,12 @@ Examples:
     )
 
     parser.add_argument(
+        "--paper-trade",
+        action="store_true",
+        help="Run full pipeline with simulated fills — no real orders, real journal entries",
+    )
+
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable verbose/debug logging",
@@ -282,8 +288,21 @@ def main():
     print(f"Journal DB:         [configured]")
     print()
 
+    if args.paper_trade and args.dry_run:
+        print("ERROR: --paper-trade and --dry-run are mutually exclusive")
+        print("  --dry-run: logs only, no journal entries")
+        print("  --paper-trade: simulated fills, real journal entries")
+        sys.exit(1)
+
     if args.dry_run:
         print("DRY RUN MODE - Will scan but not place trades")
+        print()
+    elif args.paper_trade:
+        print("PAPER TRADE MODE - Simulated fills, real journal tracking")
+        print("  Orders: SIMULATED (instant fill at signal price)")
+        print("  Journal: REAL (tagged paper_trade=true)")
+        print("  Risk/Kelly: REAL (updates normally)")
+        print("  API: Market data only (no order placement)")
         print()
 
     print("Starting bot... (Ctrl+C to stop)")
@@ -295,6 +314,7 @@ def main():
         use_strategy_manager=use_multi,
         strategy_configs=strategy_configs,
         dry_run=args.dry_run,
+        paper_trade=args.paper_trade,
     )
     asyncio.run(bot.start())
 

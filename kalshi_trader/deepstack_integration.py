@@ -83,7 +83,7 @@ class DeepStackIntegration:
             enable_all_checks=True,
             enable_late_night_check=False,  # Kalshi trades 24/7
             enable_weekend_check=False,  # Kalshi trades on weekends
-            enable_revenge_check=True,
+            enable_revenge_check=True,  # Round 11 P0 (Hassan): Re-enabled. Serial loss correlation is not emotional — algorithms exhibit functional revenge-trading via continued exposure to losing series. Kelly and revenge check are complementary, not redundant.
             enable_overtrading_check=True,
             enable_streak_check=True,
             enable_panic_check=True,
@@ -116,7 +116,8 @@ class DeepStackIntegration:
         Performs checks:
         1. Daily loss limit
         2. Emotional firewall patterns
-        3. Portfolio capacity
+        3. Max open exposure (total position value cap)
+        4. Portfolio capacity
 
         Args:
             ticker: Market ticker
@@ -148,7 +149,16 @@ class DeepStackIntegration:
         if firewall_result["blocked"]:
             reasons.extend(firewall_result["reasons"])
 
-        # Check 3: Portfolio capacity (if position size provided)
+        # Check 3: Max open exposure (total position value cap)
+        current_exposure = sum(self.open_positions.values())
+        if position_size and (current_exposure + position_size) > self.config.max_open_exposure:
+            reasons.append(
+                f"Max open exposure exceeded: current ${current_exposure:.2f} + "
+                f"${position_size:.2f} > ${self.config.max_open_exposure:.2f}"
+            )
+            logger.warning(f"Trade blocked: Max open exposure limit")
+
+        # Check 4: Portfolio capacity (if position size provided)
         if position_size:
             portfolio_info = self.kelly_sizer.get_position_info()
             remaining = portfolio_info["remaining_capacity"] * self.account_balance

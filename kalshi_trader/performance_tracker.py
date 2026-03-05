@@ -162,6 +162,25 @@ class PerformanceTracker:
             )
         """)
 
+        # Bot state persistence (Round 2 P0: survive restarts)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bot_state (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS circuit_breaker_state (
+                strategy_name TEXT PRIMARY KEY,
+                consecutive_losses INTEGER DEFAULT 0,
+                peak_pnl_cents INTEGER DEFAULT 0,
+                total_pnl_cents INTEGER DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Governance tables (Phase 1)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS regime_history (
@@ -208,13 +227,14 @@ class PerformanceTracker:
         """
         Register a strategy's hardcoded prior stats.
 
-        Uses INSERT OR IGNORE so priors persist across restarts
-        without overwriting manually tuned values.
+        Uses INSERT OR REPLACE so code-level prior updates always
+        propagate to the database. Previously used INSERT OR IGNORE
+        which silently preserved stale values (Round 2 P0 finding).
         """
         conn = self._get_conn()
         conn.execute(
             """
-            INSERT OR IGNORE INTO strategy_priors
+            INSERT OR REPLACE INTO strategy_priors
                 (strategy_name, win_rate, avg_win_cents, avg_loss_cents, prior_strength)
             VALUES (?, ?, ?, ?, ?)
             """,
@@ -731,6 +751,66 @@ class PerformanceTracker:
             ),
         )
         conn.commit()
+
+    # ── Bot State Persistence (Round 2 P0) ─────────────────────────
+
+    def save_bot_state(self, key: str, value: Any) -> None:
+        """Persist a bot state value to SQLite (survives restarts)."""
+        conn = self._get_conn()
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO bot_state (key, value_json, updated_at)
+            VALUES (?, ?, ?)
+            """,
+            (key, json.dumps(value), datetime.now().isoformat()),
+        )
+        conn.commit()
+
+    def load_bot_state(self, key: str, default: Any = None) -> Any:
+        """Load a bot state value from SQLite."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT value_json FROM bot_state WHERE key = ?", (key,)
+        ).fetchone()
+        if row:
+            return json.loads(row["value_json"])
+        return default
+
+    def save_circuit_breaker(self, strategy_name: str, state: Dict[str, Any]) -> None:
+        """Persist per-strategy circuit breaker state to SQLite."""
+        conn = self._get_conn()
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO circuit_breaker_state
+                (strategy_name, consecutive_losses, peak_pnl_cents,
+                 total_pnl_cents, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                strategy_name,
+                state.get("consecutive_losses", 0),
+                state.get("peak_pnl_cents", 0),
+                state.get("total_pnl_cents", 0),
+                datetime.now().isoformat(),
+            ),
+        )
+        conn.commit()
+
+    def load_all_circuit_breakers(self) -> Dict[str, Dict[str, Any]]:
+        """Load all circuit breaker states from SQLite."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT strategy_name, consecutive_losses, peak_pnl_cents, total_pnl_cents "
+            "FROM circuit_breaker_state"
+        ).fetchall()
+        return {
+            row["strategy_name"]: {
+                "consecutive_losses": row["consecutive_losses"],
+                "peak_pnl_cents": row["peak_pnl_cents"],
+                "total_pnl_cents": row["total_pnl_cents"],
+            }
+            for row in rows
+        }
 
     def close(self) -> None:
         """Close the database connection."""

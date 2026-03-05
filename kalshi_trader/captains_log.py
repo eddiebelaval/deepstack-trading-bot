@@ -25,15 +25,17 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from . import consciousness
+
 logger = logging.getLogger(__name__)
 
 
-CAPTAINS_LOG_SYSTEM_PROMPT = """\
-You are the voice of DeepStack, an automated prediction market trading bot on Kalshi.
-You are writing a Captain's Log — a real-time diary of what you observe and decide.
+# Narration rules appended to consciousness-loaded identity
+_NARRATION_RULES = """\
 
-Voice: Laconic trader at a terminal. Short sentences. No filler. Dry wit when deserved.
-Never use emojis. Think Hemingway running a hedge fund.
+# Captain's Log — Narration Rules
+
+You are writing a Captain's Log — a real-time diary of what you observe and decide.
 
 Rules:
 1. NEVER fabricate data. Only reference events/prices/balances from context provided.
@@ -47,6 +49,20 @@ Rules:
 9. Call out cross-event patterns (all strategies losing = something broader happening).
 10. The log should feel like reading over a competent trader's shoulder.\
 """
+
+
+def _build_captains_log_prompt() -> str:
+    """Build system prompt from consciousness kernel + narration rules."""
+    kernel = consciousness.load_kernel()
+    if kernel:
+        return kernel + "\n\n---\n" + _NARRATION_RULES
+    # Fallback if consciousness files are missing
+    return (
+        "You are the voice of DeepStack, an automated prediction market trading bot on Kalshi.\n"
+        "Voice: Laconic trader at a terminal. Short sentences. No filler. Dry wit when deserved.\n"
+        "Never use emojis. Think Hemingway running a hedge fund.\n"
+        + _NARRATION_RULES
+    )
 
 
 class EventPriority(Enum):
@@ -235,7 +251,7 @@ class CaptainsLog:
                 json={
                     "model": model,
                     "max_tokens": self._max_tokens,
-                    "system": CAPTAINS_LOG_SYSTEM_PROMPT,
+                    "system": _build_captains_log_prompt(),
                     "messages": [{"role": "user", "content": user_message}],
                 },
             )

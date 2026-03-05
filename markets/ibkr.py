@@ -62,7 +62,7 @@ class IBKRMarket(Market):
         """
         try:
             from ib_insync import IB
-            from kalshi_trader.circuit_breaker import CircuitBreaker
+            from kalshi_trader.api_circuit_breaker import CircuitBreaker
 
             self._circuit_breaker = CircuitBreaker(
                 name="ibkr_connection",

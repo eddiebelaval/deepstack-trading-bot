@@ -259,23 +259,28 @@ class StrategyManager:
                         logger.warning(f"Market '{platform}' not available")
                         continue
 
-                    market = self.markets[platform]
+                    try:
+                        market = self.markets[platform]
 
-                    # Fetch market data (with caching)
-                    cache_key = f"markets:{platform}:{series or 'all'}"
-                    markets_data = await self._market_cache.get_or_fetch(
-                        cache_key,
-                        lambda: market.get_open_markets(series=series),
-                        ttl=30.0,  # 30 second TTL for market lists
-                    )
+                        # Fetch market data (with caching)
+                        cache_key = f"markets:{platform}:{series or 'all'}"
+                        markets_data = await self._market_cache.get_or_fetch(
+                            cache_key,
+                            lambda: market.get_open_markets(series=series),
+                            ttl=30.0,  # 30 second TTL for market lists
+                        )
 
-                    # Find opportunities
-                    opportunities = await state.strategy.scan_opportunities(
-                        markets=markets_data,
-                        existing_positions=existing_positions,
-                    )
+                        # Find opportunities
+                        opportunities = await state.strategy.scan_opportunities(
+                            markets=markets_data,
+                            existing_positions=existing_positions,
+                        )
 
-                    all_opportunities.extend(opportunities)
+                        all_opportunities.extend(opportunities)
+                    except Exception as e:
+                        logger.error(
+                            f"Error scanning strategy '{name}' series '{series}': {e}"
+                        )
 
                 state.last_scan_time = datetime.now()
                 state.scan_count += 1
