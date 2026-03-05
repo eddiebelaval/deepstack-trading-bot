@@ -427,18 +427,24 @@ class TradeJournal:
         exit_price_cents: int,
         exit_order_id: Optional[str] = None,
         exit_reason: Optional[str] = None,
+        commission_per_side_cents: int = 2,
     ) -> int:
         """
-        Close a trade and calculate P&L.
+        Close a trade and calculate NET P&L (after commissions).
+
+        Round 11 P0 (Castellano): P&L records must be net of fees.
+        Kalshi limit orders: 2c/side. Entry commission is always paid.
+        Exit commission: 2c/side for active sells, 0 for settlement.
 
         Args:
             trade_id: Trade ID
             exit_price_cents: Exit price
             exit_order_id: Exit order ID
             exit_reason: Reason for exit
+            commission_per_side_cents: Per-side commission (default 2c for limit)
 
         Returns:
-            Realized P&L in cents
+            Realized NET P&L in cents (after commissions)
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -460,13 +466,24 @@ class TradeJournal:
             side = trade["side"]
             action = trade["action"]
 
-            # P&L calculation for prediction markets
+            # Gross P&L calculation for prediction markets
             # Buy: profit if exit > entry
             # Sell: profit if exit < entry
             if action == "buy":
-                pnl_cents = (exit_price_cents - entry_price) * contracts
+                gross_pnl_cents = (exit_price_cents - entry_price) * contracts
             else:
-                pnl_cents = (entry_price - exit_price_cents) * contracts
+                gross_pnl_cents = (entry_price - exit_price_cents) * contracts
+
+            # Commission calculation:
+            # Entry: always paid (commission_per_side_cents per contract)
+            # Exit: paid for active sells, NOT for settlement
+            entry_commission = commission_per_side_cents * contracts
+            is_settlement = exit_reason in ("settlement", "settled", "market_settled")
+            exit_commission = 0 if is_settlement else (commission_per_side_cents * contracts)
+            total_commission = entry_commission + exit_commission
+
+            # Net P&L = gross - commissions
+            pnl_cents = gross_pnl_cents - total_commission
 
             # Update trade
             cursor.execute(
@@ -486,7 +503,8 @@ class TradeJournal:
 
         logger.info(
             f"Trade closed: {trade_id} | Exit: {exit_price_cents}c, "
-            f"P&L: {pnl_cents}c ({exit_reason})"
+            f"Gross P&L: {gross_pnl_cents}c, Commission: {total_commission}c, "
+            f"Net P&L: {pnl_cents}c ({exit_reason})"
         )
 
         return pnl_cents
@@ -882,3 +900,118 @@ class TradeJournal:
             "trades": trades,
             "by_strategy": by_strategy,
         }
+
+    def generate_assessment_brief(
+        self,
+        milestone: str = "manual",
+        paper_trade: bool = False,
+    ) -> str:
+        """
+        Generate a research lab assessment brief from trade journal data.
+
+        Produces markdown that can be written to the research lab queue
+        for expert panel evaluation.
+
+        Args:
+            milestone: What triggered this brief (e.g., "n=25", "n=76", "manual")
+            paper_trade: Whether trades are paper trades
+
+        Returns:
+            Markdown string for the assessment brief
+        """
+        data = self.export_for_analysis(include_open=True)
+        stats = data["summary"]
+        period = data["period"]
+        mode = "PAPER TRADING" if paper_trade else "LIVE TRADING"
+
+        lines = [
+            f"# DeepStack Empirical Assessment Brief",
+            f"",
+            f"**Trigger:** {milestone}",
+            f"**Mode:** {mode}",
+            f"**Period:** {period['start']} to {period['end']}",
+            f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            f"",
+            f"## Assessment Request",
+            f"",
+            f"Evaluate DeepStack's empirical trading performance based on {stats['total_trades']} "
+            f"closed trades. Previous code-only assessments reached B+ (empirical wall). "
+            f"This brief provides the first empirical data for expert evaluation.",
+            f"",
+            f"## Aggregate Statistics",
+            f"",
+            f"| Metric | Value |",
+            f"|--------|-------|",
+            f"| Total Trades | {stats['total_trades']} |",
+            f"| Win Rate | {stats['win_rate']:.1%} |",
+            f"| Total P&L | {stats['total_pnl_cents']:+d}c (${stats['total_pnl_cents']/100:+.2f}) |",
+            f"| Avg P&L/Trade | {stats['avg_pnl_cents']:+.1f}c |",
+            f"| Profit Factor | {stats['profit_factor']:.2f} |",
+            f"| Largest Win | {stats['largest_win_cents']:+d}c |",
+            f"| Largest Loss | {stats['largest_loss_cents']:+d}c |",
+            f"| Avg Winner | {stats['avg_winner_cents']:+.1f}c |",
+            f"| Avg Loser | {stats['avg_loser_cents']:+.1f}c |",
+            f"",
+            f"## By Strategy",
+            f"",
+        ]
+
+        for strat_name, strat_data in data.get("by_strategy", {}).items():
+            s = strat_data["stats"]
+            lines.extend([
+                f"### {strat_name}",
+                f"",
+                f"- Trades: {s['total_trades']} (W: {s['winning_trades']}, L: {s['losing_trades']})",
+                f"- Win Rate: {s['win_rate']:.1%}",
+                f"- P&L: {s['total_pnl_cents']:+d}c (${s['total_pnl_cents']/100:+.2f})",
+                f"- Avg: {s['avg_pnl_cents']:+.1f}c/trade",
+                f"",
+            ])
+
+        # Add individual trade log
+        lines.extend([
+            f"## Trade Log",
+            f"",
+            f"| # | Ticker | Strategy | Side | Contracts | Entry | Exit | P&L | Reason |",
+            f"|---|--------|----------|------|-----------|-------|------|-----|--------|",
+        ])
+
+        for i, trade in enumerate(data.get("trades", []), 1):
+            pnl = trade.get("pnl_cents")
+            pnl_str = f"{pnl:+d}c" if pnl is not None else "open"
+            exit_price = trade.get("exit_price_cents", "")
+            exit_reason = trade.get("exit_reason", "")
+            lines.append(
+                f"| {i} | {trade.get('market_ticker', '')} | "
+                f"{trade.get('strategy', '')} | {trade.get('side', '')} | "
+                f"{trade.get('contracts', '')} | {trade.get('entry_price_cents', '')}c | "
+                f"{exit_price}c | {pnl_str} | {exit_reason} |"
+            )
+
+        # Open positions
+        open_trades = [t for t in data.get("trades", []) if t.get("status") == "open"]
+        if open_trades:
+            lines.extend([
+                f"",
+                f"## Open Positions ({len(open_trades)})",
+                f"",
+            ])
+            for t in open_trades:
+                lines.append(
+                    f"- {t['market_ticker']}: {t['side']} {t['contracts']} @ {t['entry_price_cents']}c "
+                    f"({t.get('strategy', 'unknown')})"
+                )
+
+        lines.extend([
+            f"",
+            f"## Expert Panel Guidance",
+            f"",
+            f"This is {mode.lower()} data. Experts should evaluate:",
+            f"1. Is the observed win rate statistically significant (vs break-even)?",
+            f"2. Is the profit factor sustainable or likely to revert?",
+            f"3. Are there strategy-specific concerns in the per-strategy breakdown?",
+            f"4. What is the appropriate investment-grade rating given this evidence?",
+            f"5. What additional data/trades are needed before advancing the rating?",
+        ])
+
+        return "\n".join(lines)

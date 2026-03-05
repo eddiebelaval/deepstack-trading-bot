@@ -9,8 +9,11 @@
 profile: null  # Load a profile from profiles/ directory
 
 strategies:
+  # [Round 3 Assessment: B- rating — UNANIMOUS: mean reversion structurally invalid for binary contracts]
+  # Mean reversion disabled. Binary contracts settle at 0/100 — reversion to 50 fights the physics.
+  # Pivoted to calibration_edge (favorite-longshot bias) per Nakamura/Blackwood/Webb recommendations.
   - name: mean_reversion
-    enabled: true
+    enabled: false            # DISABLED: thesis incompatible with binary contracts (Round 3 P0)
     markets:
       - platform: kalshi
         series: INXD          # S&P 500 hourly contracts
@@ -19,64 +22,59 @@ strategies:
       - platform: kalshi
         series: KXETH         # Ethereum — trades 24/7
     config:
-      price_floor_cents: 40   # Min YES price to consider (widened from 45)
-      price_ceiling_cents: 60 # Max YES price to consider (widened from 55)
-      take_profit_cents: 8    # Exit with profit at +8c
-      stop_loss_cents: 5      # Exit with loss at -5c
-      min_volume: 50          # Minimum market volume (lowered from 100)
-      min_score: 20           # Minimum opportunity score (lowered from 30)
+      price_floor_cents: 40
+      price_ceiling_cents: 60
+      take_profit_cents: 8
+      stop_loss_cents: 5
+      min_volume: 100         # Restored from 50 (P1-4: quality over quantity)
+      min_score: 30           # Restored from 20 (P1-4: quality over quantity)
 
   - name: momentum
-    enabled: true             # ENABLED for multi-strategy test
+    enabled: false            # Disabled (P0-5: reduce to single strategy)
     markets:
       - platform: kalshi
-        series: "*"           # Scan all markets
+        series: "*"
     config:
       lookback_periods: 5
       momentum_threshold: 0.03
       take_profit_cents: 10
       stop_loss_cents: 6
-      min_volume: 50          # Lowered from 200 — was eliminating 90% of markets
-      min_score: 20           # Lowered from base default 30 — typical scores max ~25
+      min_volume: 200         # Restored from 50 (P1-4)
+      min_score: 30           # Restored from 20 (P1-4)
       reversal_threshold: 0.02
 
   - name: combinatorial_arbitrage
-    enabled: true             # ENABLED - $40M alpha strategy
+    enabled: false            # Disabled (P0-5: 0 trades in history, no atomic execution)
     markets:
       - platform: kalshi
-        series: "*"           # Scan ALL markets for arb
+        series: "*"
     config:
-      min_profit_cents: 2     # Min guaranteed profit
+      min_profit_cents: 2
       max_exposure_per_arb: 100
-      min_liquidity: 25       # Lowered from 50 — Kalshi markets are thin
+      min_liquidity: 50       # Restored from 25 (P1-4)
       max_spread_cents: 5
       max_legs: 5
       confidence_threshold: 0.8
 
   - name: cross_platform_arbitrage
-    enabled: true             # ENABLED - Polymarket intelligence
+    enabled: false            # Disabled (P0-5: 0 trades, fuzzy matching risk)
     markets:
       - platform: kalshi
-        series: "*"           # Trade on Kalshi
+        series: "*"
       - platform: polymarket
-        series: "*"           # Data source only (read-only)
-        scan: false           # Dependency only — don't run a separate scan pass
+        series: "*"
+        scan: false
     config:
-      # Price difference threshold to trigger signal
       price_diff_threshold_cents: 5
-      # Market matching configuration
-      min_match_score: 0.45   # Lowered from 0.6 — fuzzy matching too strict cross-platform
-      max_expiry_diff_days: 7 # Max days between expiry dates for match
-      # Volume filters
-      min_polymarket_volume: 2000   # Lowered from 10000 — only ~50 markets above $10k
-      min_kalshi_volume: 100        # Min Kalshi volume
-      # Volume momentum confirmation
+      min_match_score: 0.80   # Restored from 0.45 (P1-4: prevent false matches)
+      max_expiry_diff_days: 7
+      min_polymarket_volume: 10000  # Restored from 2000 (P1-4)
+      min_kalshi_volume: 100
       use_volume_confirmation: true
-      volume_momentum_threshold: 1.5  # 50% volume increase = momentum
-      # Risk management
-      take_profit_cents: 5    # Exit when price converges 5c
-      stop_loss_cents: 3      # Tight stop for cross-platform plays
-      min_score: 40           # Higher bar for cross-platform signals
+      volume_momentum_threshold: 1.5
+      take_profit_cents: 5
+      stop_loss_cents: 3
+      min_score: 40
 
   # === Prediction Market Native Strategies (disabled by default) ===
 
@@ -95,18 +93,33 @@ strategies:
       take_profit_cents: 2
       min_score: 30
 
-  # Disabled: favorite-longshot bias unproven on Kalshi, no historical validation data
+  # [Round 4 Assessment: B- — settlement-aware redesign]
+  # Calibration edge exploits favorite-longshot bias at settlement.
+  # Round 4 P0 fixes: settlement hold mode, research-backed priors (65%/12c/8c),
+  # wide safety stops (15c), time-to-expiry filter (72h max).
+  # Round 12 fix: wildcard scan flooded with sports combos (KXMVE*), zero liquidity.
+  # Switched to specific series with real order books + liquidity.
   - name: calibration_edge
-    enabled: false            # Exploit favorite-longshot bias
+    enabled: true             # PRIMARY STRATEGY: Exploit favorite-longshot bias (Round 3 pivot)
     markets:
       - platform: kalshi
-        series: "*"
+        series: KXBTC         # Bitcoin — 14 active contracts, 24h expiry cycle
+      - platform: kalshi
+        series: KXETH         # Ethereum — lower liquidity but tradeable
+      - platform: kalshi
+        series: KXFED         # Fed funds rate — 47 active, high volume, long-dated
+      - platform: kalshi
+        series: KXCPI         # CPI — 43 active, macro bet
+      - platform: kalshi
+        series: KXGDP         # GDP — 8 active, 30-36c longshots, good volume
     config:
       min_edge_cents: 3
       favorite_threshold_cents: 70
       longshot_threshold_cents: 30
-      take_profit_cents: 6
-      stop_loss_cents: 4
+      take_profit_cents: 15    # Round 4 P0: wide — bonus early exit, not primary exit
+      stop_loss_cents: 15      # Round 4 P0: wide safety stop for catastrophic moves only
+      max_hours_to_expiry: 1500  # Extended: covers GDP (57 days). Self-reg can extend further.
+      min_volume: 25           # Relaxed: crypto/macro markets have lower volume than sports
 
   # Disabled: no model consensus pipeline built, untested theoretical edge
   - name: weather_aggregation
@@ -236,13 +249,18 @@ strategies:
       min_score: 40
 
 risk:
-  max_position_size: 50       # Max dollars per trade
-  daily_loss_limit: 100       # Stop trading after this daily loss
-  kelly_fraction: 0.02        # Half-Kelly of optimal 4.1% at 15% win rate. Recalculate monthly.
+  max_position_size: 10       # Max dollars per trade (P0-4: was $50 = 33% of $152)
+  daily_loss_limit: 5         # Stop trading after this daily loss (P0-3: was $100 = 66% of $152)
+  max_open_exposure: 25       # Round 5 P0: Max total open position value ($25 = ~16% of $152)
+  kelly_fraction: 0.02        # Fractional Kelly — floor override at $1 min position (Webb R5)
   max_per_series: 2           # Max opportunities per series (correlation cap)
+  consecutive_loss_limit: 3   # Round 5 P0: was 5 — recalibrated for binary settlement variance (Tanaka)
+  # Portfolio-level circuit breakers (P0-2: none existed before Round 1)
+  max_portfolio_drawdown_pct: 0.20  # Halt ALL trading if account drops 20% from session start
+  min_balance_floor: 50       # Halt ALL trading if balance drops below $50
 
 learning:
-  prior_strength: 20          # Bayesian k: trades needed to equal prior weight
+  prior_strength: 5           # Bayesian k: reduced from 20 (P2-8: faster convergence to observed data)
   decay_half_life: 30.0       # Days until trade weight halves
   auto_disable: true          # Auto-disable strategies with sustained negative EV
 
@@ -299,8 +317,8 @@ analysis:
 # Detects market conditions (trending, mean-reverting, choppy, calm) and
 # enables/disables strategies accordingly. Never overrides safety layers.
 governance:
-  enabled: true                 # Advisory mode — log only, no strategy changes
-  mode: autonomous              # advisory (log only), autonomous (act), manual (suggest)
+  enabled: true
+  mode: advisory                # Changed from autonomous (P1-7: 149K+ decisions on near-zero data)
   lookback_periods: 20          # Market snapshots for rolling window
   min_confidence: 0.6           # Minimum regime confidence to act
   fitness_min_trades: 5         # Trades per regime to trust fitness score

@@ -60,17 +60,26 @@ class TestScanOpportunities:
 class TestCheckExit:
     @pytest.mark.asyncio
     async def test_take_profit(self, strategy):
+        # Round 4: TP widened to 15c (bonus exit, not primary)
         position = {"entry_price": 80}
-        signal = await strategy.check_exit(position, 86)
+        signal = await strategy.check_exit(position, 96)  # +16c > 15c TP
         assert signal.should_exit is True
         assert signal.exit_type == "take_profit"
 
     @pytest.mark.asyncio
     async def test_stop_loss(self, strategy):
+        # Round 4: SL widened to 15c (safety stop for catastrophic moves)
         position = {"entry_price": 80}
-        signal = await strategy.check_exit(position, 75)
+        signal = await strategy.check_exit(position, 64)  # -16c > 15c SL
         assert signal.should_exit is True
         assert signal.exit_type == "stop_loss"
+
+    @pytest.mark.asyncio
+    async def test_hold_within_safety_range(self, strategy):
+        # Price moved -10c but within 15c safety stop — HOLD to settlement
+        position = {"entry_price": 80}
+        signal = await strategy.check_exit(position, 70)
+        assert signal.should_exit is False
 
     @pytest.mark.asyncio
     async def test_hold(self, strategy):
@@ -81,10 +90,11 @@ class TestCheckExit:
 
 class TestHistoricalStats:
     def test_stats(self, strategy):
+        # Round 5: Settlement-realistic priors (80% WR, 15c win, 25c loss)
         stats = strategy.get_historical_stats()
-        assert stats["win_rate"] == 0.50
-        assert stats["avg_win_cents"] == 6.0
-        assert stats["avg_loss_cents"] == 6.0
+        assert stats["win_rate"] == 0.80
+        assert stats["avg_win_cents"] == 15.0
+        assert stats["avg_loss_cents"] == 25.0
 
 
 class TestValidateConfig:
