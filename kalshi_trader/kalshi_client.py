@@ -22,7 +22,7 @@ import httpx
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
-from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitOpenError
+from .api_circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitOpenError
 from .config import KalshiConfig
 from .exceptions import (
     KalshiAuthError,
@@ -231,6 +231,7 @@ class AuthenticatedKalshiClient:
         path: str,
         json: Optional[Dict] = None,
         params: Optional[Dict] = None,
+        bypass_circuit_breaker: bool = False,
     ) -> Dict[str, Any]:
         """
         Make authenticated API request with retry logic and circuit breaker.
@@ -240,6 +241,9 @@ class AuthenticatedKalshiClient:
             path: Request path
             json: JSON body for POST/PUT
             params: Query parameters
+            bypass_circuit_breaker: If True, skip circuit breaker check.
+                Used for position-closing orders that MUST attempt delivery
+                regardless of API health state.
 
         Returns:
             Parsed JSON response
@@ -252,19 +256,29 @@ class AuthenticatedKalshiClient:
         if not self._client:
             raise KalshiTradingError("Client not connected")
 
-        # Check circuit breaker first
-        if not self._circuit_breaker.is_closed:
-            # Let circuit breaker handle state transitions
+        # Round 8 P0 (Vasquez): Circuit breaker now observes actual HTTP outcomes.
+        # Round 9 P0 (Tanaka): Closing orders bypass the circuit breaker.
+        # A position-closing sell order is more important than protecting against
+        # API degradation — the risk of holding a position through a flash crash
+        # exceeds the risk of a failed API call. The breaker still records the
+        # outcome (success/failure) to maintain state accuracy.
+        if not bypass_circuit_breaker and not self._circuit_breaker.is_closed:
             try:
                 async with self._circuit_breaker:
-                    pass  # Just checking if we can proceed
+                    pass  # Check if we can proceed (handles HALF_OPEN probing)
             except CircuitOpenError:
                 raise KalshiTradingError(
                     "API circuit breaker is open - service may be degraded"
                 )
+        elif bypass_circuit_breaker and not self._circuit_breaker.is_closed:
+            logger.warning(
+                "Circuit breaker is OPEN but bypassing for critical order "
+                "(position close). Attempting delivery anyway."
+            )
 
         await self._rate_limit()
 
+        last_error = None
         for attempt in range(self.MAX_RETRIES):
             try:
                 headers = self._get_auth_headers(method, path)
@@ -284,16 +298,20 @@ class AuthenticatedKalshiClient:
                         logger.warning(f"Rate limited, waiting {retry_after}s")
                         await asyncio.sleep(retry_after)
                         continue
-                    raise KalshiRateLimitError(retry_after_seconds=retry_after)
+                    last_error = KalshiRateLimitError(retry_after_seconds=retry_after)
+                    break
 
                 # Handle other errors
                 if response.status_code >= 400:
                     error_data = response.json() if response.content else {}
-                    raise KalshiTradingError(
+                    last_error = KalshiTradingError(
                         f"API error {response.status_code}: {error_data.get('message', 'Unknown error')}",
                         details=error_data,
                     )
+                    break
 
+                # Success — record in circuit breaker and return
+                await self._circuit_breaker._record_success()
                 return response.json()
 
             except httpx.TimeoutException:
@@ -302,7 +320,8 @@ class AuthenticatedKalshiClient:
                     logger.warning(f"Request timeout, retrying in {delay}s")
                     await asyncio.sleep(delay)
                     continue
-                raise KalshiTradingError("Request timeout after retries")
+                last_error = KalshiTradingError("Request timeout after retries")
+                break
 
             except httpx.RequestError as e:
                 if attempt < self.MAX_RETRIES - 1:
@@ -310,7 +329,13 @@ class AuthenticatedKalshiClient:
                     logger.warning(f"Request error: {e}, retrying in {delay}s")
                     await asyncio.sleep(delay)
                     continue
-                raise KalshiTradingError(f"Request failed: {e}")
+                last_error = KalshiTradingError(f"Request failed: {e}")
+                break
+
+        # All retries exhausted or non-retryable error — record failure
+        if last_error is not None:
+            await self._circuit_breaker._record_failure(last_error)
+            raise last_error
 
     # -------------------------------------------------------------------------
     # Account Methods
@@ -337,8 +362,9 @@ class AuthenticatedKalshiClient:
 
         Returns:
             Dict with 'trading_active' (bool) and 'exchange_status' (str).
-            On API failure, returns trading_active=True to avoid blocking trades
-            on a transient error.
+            Round 7 P0 (Vasquez): Fails CLOSED on API error. If we can't
+            confirm the exchange is open, don't trade. Previous behavior
+            (fail open) could place orders into a closed exchange.
         """
         try:
             response = await self._request("GET", "/exchange/status")
@@ -353,8 +379,10 @@ class AuthenticatedKalshiClient:
                 "exchange_status": exchange_status,
             }
         except Exception as e:
-            logger.warning("Exchange status check failed: %s (assuming open)", e)
-            return {"trading_active": True, "exchange_status": "unknown"}
+            logger.warning(
+                "Exchange status check failed: %s — failing CLOSED (no trades until confirmed open)", e
+            )
+            return {"trading_active": False, "exchange_status": "error"}
 
     async def get_positions(self) -> List[Dict]:
         """
@@ -472,6 +500,8 @@ class AuthenticatedKalshiClient:
         series_ticker: Optional[str] = None,
         status: str = "open",
         limit: int = 100,
+        paginate: bool = False,
+        max_pages: int = 10,
     ) -> List[Dict]:
         """
         Get markets, optionally filtered by series.
@@ -479,7 +509,9 @@ class AuthenticatedKalshiClient:
         Args:
             series_ticker: Filter by series (e.g., "INXD")
             status: Filter by status ("open", "closed", "settled")
-            limit: Maximum results to return
+            limit: Maximum results per page
+            paginate: If True, follow cursor to fetch multiple pages
+            max_pages: Maximum pages to fetch when paginating
 
         Returns:
             List of market dictionaries
@@ -488,27 +520,44 @@ class AuthenticatedKalshiClient:
         if series_ticker:
             params["series_ticker"] = series_ticker
 
-        response = await self._request("GET", "/markets", params=params)
-        markets = response.get("markets", [])
+        all_markets = []
+        pages_fetched = 0
 
-        return [
-            {
-                "ticker": m.get("ticker"),
-                "title": m.get("title"),
-                "yes_bid": m.get("yes_bid", 0),  # In cents
-                "yes_ask": m.get("yes_ask", 0),
-                "no_bid": m.get("no_bid", 0),
-                "no_ask": m.get("no_ask", 0),
-                "last_price": m.get("last_price", 0),
-                "volume": m.get("volume", 0),
-                "volume_24h": m.get("volume_24h", 0),
-                "open_interest": m.get("open_interest", 0),
-                "close_time": m.get("close_time"),
-                "expiration_time": m.get("expiration_time"),
-                "status": m.get("status"),
-            }
-            for m in markets
-        ]
+        while pages_fetched < (max_pages if paginate else 1):
+            response = await self._request("GET", "/markets", params=params)
+            markets = response.get("markets", [])
+
+            all_markets.extend([
+                {
+                    "ticker": m.get("ticker"),
+                    "title": m.get("title"),
+                    "yes_bid": m.get("yes_bid", 0),
+                    "yes_ask": m.get("yes_ask", 0),
+                    "no_bid": m.get("no_bid", 0),
+                    "no_ask": m.get("no_ask", 0),
+                    "last_price": m.get("last_price", 0),
+                    "volume": m.get("volume", 0),
+                    "volume_24h": m.get("volume_24h", 0),
+                    "open_interest": m.get("open_interest", 0),
+                    "close_time": m.get("close_time"),
+                    "expiration_time": m.get("expiration_time"),
+                    "status": m.get("status"),
+                }
+                for m in markets
+            ])
+
+            pages_fetched += 1
+
+            # Check for next page cursor
+            cursor = response.get("cursor")
+            if not paginate or not cursor or len(markets) < limit:
+                break
+            params["cursor"] = cursor
+
+        if paginate and pages_fetched > 1:
+            logger.debug(f"Paginated {pages_fetched} pages, {len(all_markets)} total markets")
+
+        return all_markets
 
     async def get_market(self, ticker: str) -> Dict:
         """
@@ -541,6 +590,7 @@ class AuthenticatedKalshiClient:
                 "previous_yes_bid": market.get("previous_yes_bid"),
                 "previous_yes_ask": market.get("previous_yes_ask"),
                 "status": market.get("status"),
+                "result": market.get("result"),  # "yes"/"no"/null for settled markets
             }
         except KalshiTradingError as e:
             if "not found" in str(e).lower() or e.details.get("code") == "not_found":
@@ -634,6 +684,7 @@ class AuthenticatedKalshiClient:
         count: int,
         price_cents: int,
         client_order_id: Optional[str] = None,
+        bypass_circuit_breaker: bool = False,
     ) -> Dict:
         """
         Create a limit order.
@@ -645,6 +696,8 @@ class AuthenticatedKalshiClient:
             count: Number of contracts
             price_cents: Limit price in cents (1-99)
             client_order_id: Optional client-assigned order ID
+            bypass_circuit_breaker: If True, attempt order even if circuit
+                breaker is open. Used for position-closing sell orders.
 
         Returns:
             Order details including order_id
@@ -666,7 +719,10 @@ class AuthenticatedKalshiClient:
             payload["client_order_id"] = client_order_id
 
         try:
-            response = await self._request("POST", "/portfolio/orders", json=payload)
+            response = await self._request(
+                "POST", "/portfolio/orders", json=payload,
+                bypass_circuit_breaker=bypass_circuit_breaker,
+            )
             order = response.get("order", {})
 
             logger.info(

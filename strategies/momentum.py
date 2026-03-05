@@ -242,10 +242,12 @@ class MomentumStrategy(Strategy):
             return None
 
         # Determine direction
+        # Round 2 P0: Use bid price for entries (limit order = maker = 2c fee).
+        # Previously used ask price (taker = 7c) inconsistent with fee model.
         if momentum > 0:
             # Price rising - buy YES
             side = "yes"
-            entry_price = yes_ask if yes_ask else current_price
+            entry_price = yes_bid if yes_bid else current_price
             reasoning = (
                 f"Positive momentum: {momentum:+.1%} over {self.lookback_periods} samples. "
                 f"Price at {current_price}c, expecting continued rise."
@@ -253,7 +255,7 @@ class MomentumStrategy(Strategy):
         else:
             # Price falling - buy NO
             side = "no"
-            entry_price = no_ask if no_ask else (100 - current_price)
+            entry_price = no_bid if no_bid else (100 - current_price)
             reasoning = (
                 f"Negative momentum: {momentum:+.1%} over {self.lookback_periods} samples. "
                 f"Price at {current_price}c, expecting continued fall."
@@ -456,10 +458,12 @@ class MomentumStrategy(Strategy):
         Returns:
             Dict with win_rate, avg_win_cents, avg_loss_cents
         """
-        # Neutral priors — let Bayesian learning converge to reality
+        # Round 1 assessment: prior was aspirational (55%) with no empirical basis.
+        # Only 2 trades observed. Reduced to conservative prior.
+        # Breakeven after 4c round-trip fees: net_win=6, net_loss=10, BE=10/16=62.5%
         return {
-            "win_rate": 0.50,
-            "avg_win_cents": 6.0,
+            "win_rate": 0.52,
+            "avg_win_cents": 10.0,
             "avg_loss_cents": 6.0,
         }
 

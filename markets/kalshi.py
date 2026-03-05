@@ -79,28 +79,35 @@ class KalshiMarket(Market):
         self,
         series: Optional[str] = None,
         status: str = "open",
-        limit: int = 100,
+        limit: int = 200,
     ) -> List[Dict]:
         """
         Fetch open Kalshi markets.
 
+        For wildcard scans (series="*"), paginates to fetch up to 2000 markets.
+        For specific series, fetches a single page (usually sufficient).
+
         Args:
-            series: Market series (e.g., "INXD", "INXH")
+            series: Market series (e.g., "INXD", "INXH", "*" for all)
             status: Market status filter
-            limit: Maximum markets to return
+            limit: Maximum markets per page
 
         Returns:
             List of normalized market dicts
         """
-        # Treat "*" as "all markets" (no series filter)
+        # Treat "*" as "all markets" — paginate to see the full market
         effective_series = None if series == "*" else series
+        use_pagination = series == "*"
+
         markets = await self.client.get_markets(
             series_ticker=effective_series,
             status=status,
             limit=limit,
+            paginate=use_pagination,
+            max_pages=10,
         )
 
-        logger.debug(f"[kalshi] Fetched {len(markets)} markets (series={series})")
+        logger.info(f"[kalshi] Fetched {len(markets)} markets (series={series}, paginated={use_pagination})")
         return markets
 
     async def get_market(self, ticker: str) -> Dict:

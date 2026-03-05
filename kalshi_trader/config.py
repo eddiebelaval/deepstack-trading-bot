@@ -99,6 +99,29 @@ class RiskConfig(BaseModel):
         ge=1,
         le=20,
     )
+    max_portfolio_drawdown_pct: float = Field(
+        default=0.20,
+        description="Halt all trading if account drops this % from session start balance",
+        ge=0.05,
+        le=0.50,
+    )
+    min_balance_floor: float = Field(
+        default=50.0,
+        description="Halt all trading if balance drops below this dollar amount",
+        ge=0.0,
+    )
+    max_open_exposure: float = Field(
+        default=25.0,
+        description="Maximum total open position value in dollars",
+        ge=1.0,
+        le=100000.0,
+    )
+    consecutive_loss_limit: int = Field(
+        default=3,
+        description="Disable strategy after this many consecutive losses",
+        ge=1,
+        le=50,
+    )
 
 
 class LearningConfig(BaseModel):
@@ -426,6 +449,29 @@ class KalshiConfig(BaseModel):
         ge=1,
         le=20,
     )
+    max_portfolio_drawdown_pct: float = Field(
+        default=0.20,
+        description="Halt all trading if account drops this % from session start",
+        ge=0.05,
+        le=0.50,
+    )
+    min_balance_floor: float = Field(
+        default=50.0,
+        description="Halt all trading if balance below this amount",
+        ge=0.0,
+    )
+    max_open_exposure: float = Field(
+        default=25.0,
+        description="Maximum total open position value in dollars",
+        ge=1.0,
+        le=100000.0,
+    )
+    consecutive_loss_limit: int = Field(
+        default=3,
+        description="Disable strategy after this many consecutive losses",
+        ge=1,
+        le=50,
+    )
 
     # Market Selection
     market_series: str = Field(
@@ -607,6 +653,10 @@ def load_config(
                 config_dict["kelly_fraction"] = yaml_config.risk.kelly_fraction
                 config_dict["min_position_size"] = yaml_config.risk.min_position_size
                 config_dict["max_per_series"] = yaml_config.risk.max_per_series
+                config_dict["max_portfolio_drawdown_pct"] = yaml_config.risk.max_portfolio_drawdown_pct
+                config_dict["min_balance_floor"] = yaml_config.risk.min_balance_floor
+                config_dict["max_open_exposure"] = yaml_config.risk.max_open_exposure
+                config_dict["consecutive_loss_limit"] = yaml_config.risk.consecutive_loss_limit
 
             # Apply learning settings from YAML
             if yaml_config.learning:

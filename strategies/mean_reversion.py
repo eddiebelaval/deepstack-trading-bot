@@ -188,16 +188,19 @@ class MeanReversionStrategy(Strategy):
             return None
 
         # Determine side based on deviation from 50
+        # Round 2 P0: Use bid price for entries (limit order = maker = 2c fee).
+        # Previously used ask price (crossing spread = taker = 7c fee) which
+        # made the 2c commission model a 250% underestimate.
         if yes_price < 50:
             # Market undervalues YES - buy YES
             side = "yes"
-            entry_price = yes_ask if yes_ask else yes_price
+            entry_price = yes_bid if yes_bid else yes_price
             reasoning = f"YES undervalued at {yes_price}c (below 50), expect reversion up"
             deviation = 50 - yes_price
         else:
             # Market overvalues YES - buy NO
             side = "no"
-            entry_price = no_ask if no_ask else (100 - yes_price)
+            entry_price = no_bid if no_bid else (100 - yes_price)
             reasoning = f"YES overvalued at {yes_price}c (above 50), buy NO for reversion"
             deviation = yes_price - 50
 
@@ -360,11 +363,15 @@ class MeanReversionStrategy(Strategy):
         Returns:
             Dict with win_rate, avg_win_cents, avg_loss_cents
         """
-        # Neutral priors — let Bayesian learning converge to reality
+        # Round 1 assessment: priors were aspirational (60% win rate) with no
+        # empirical basis. Observed: 33% on 3 trades. Changed to conservative
+        # prior that still allows Kelly > 0 for cold-start, but converges
+        # faster to reality with reduced prior_strength (k=5).
+        # Breakeven after 4c round-trip limit order fees: 69.2%
         return {
-            "win_rate": 0.50,
-            "avg_win_cents": 6.0,
-            "avg_loss_cents": 6.0,
+            "win_rate": 0.52,
+            "avg_win_cents": 8.0,
+            "avg_loss_cents": 5.0,
         }
 
     def validate_config(self) -> tuple[bool, str]:

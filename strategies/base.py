@@ -390,37 +390,66 @@ class Strategy(ABC):
             "avg_loss_cents": 6.0,
         }
 
-    def calculate_edge(self) -> Dict[str, float]:
+    def calculate_edge(self, commission_cents: float = 2.0) -> Dict[str, float]:
         """
-        Calculate theoretical edge of the strategy.
+        Calculate theoretical edge of the strategy, net of transaction costs.
+
+        Kalshi charges per-contract fees:
+        - Market orders: 7c/contract (entry) + 7c/contract (exit) = 14c round-trip
+        - Limit orders: 2c/contract (entry) + 2c/contract (exit) = 4c round-trip
+        Default assumes limit orders (2c each side = 4c round-trip).
+
+        Args:
+            commission_cents: Per-side commission in cents (default: 2.0 for limit orders)
 
         Returns:
             Dict with edge metrics:
-                - expected_value_cents: EV per trade
+                - expected_value_cents: EV per trade (GROSS, before fees)
+                - expected_value_net_cents: EV per trade (NET, after fees)
+                - round_trip_commission_cents: Total round-trip commission
                 - win_loss_ratio: Risk/reward ratio
-                - kelly_pct: Optimal Kelly fraction
+                - kelly_pct: Optimal Kelly fraction (based on net EV)
                 - assumed_win_rate: Win rate used
+                - breakeven_win_rate: Win rate needed to break even after fees
         """
         stats = self.get_historical_stats()
         win_rate = stats["win_rate"]
         avg_win = stats["avg_win_cents"]
         avg_loss = stats["avg_loss_cents"]
+        round_trip = commission_cents * 2
 
-        # Expected value per trade
-        ev = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
+        # Gross EV (before fees)
+        ev_gross = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
 
-        # Kelly %
-        win_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 0
-        if win_loss_ratio > 0:
+        # Net EV (after fees): winners pay commission on both sides, losers pay on both sides
+        net_win = avg_win - round_trip
+        net_loss = avg_loss + round_trip
+        ev_net = (win_rate * net_win) - ((1 - win_rate) * net_loss)
+
+        # Kelly % based on net values
+        win_loss_ratio = net_win / net_loss if net_loss > 0 else 0
+        if win_loss_ratio > 0 and net_win > 0:
             kelly = ((win_rate * win_loss_ratio) - (1 - win_rate)) / win_loss_ratio
         else:
             kelly = 0
 
+        # Breakeven win rate after fees: solve win_rate * net_win = (1-win_rate) * net_loss
+        # => win_rate = net_loss / (net_win + net_loss)
+        if net_win > 0 and net_loss > 0:
+            breakeven_wr = net_loss / (net_win + net_loss)
+        elif net_win <= 0:
+            breakeven_wr = 1.0  # Cannot break even — fees exceed profit
+        else:
+            breakeven_wr = 0.0
+
         return {
-            "expected_value_cents": ev,
+            "expected_value_cents": ev_gross,
+            "expected_value_net_cents": ev_net,
+            "round_trip_commission_cents": round_trip,
             "win_loss_ratio": win_loss_ratio,
             "kelly_pct": max(0, kelly),
             "assumed_win_rate": win_rate,
+            "breakeven_win_rate": breakeven_wr,
         }
 
     def get_exit_price(
