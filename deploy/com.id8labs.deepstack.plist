@@ -11,7 +11,7 @@
         <string>/Users/eddiebelaval/clawd/projects/kalshi-trading/run_bot.py</string>
         <string>--multi</string>
         <string>--paper-balance</string>
-        <string>500</string>
+        <string>2000</string>
     </array>
 
     <key>WorkingDirectory</key>

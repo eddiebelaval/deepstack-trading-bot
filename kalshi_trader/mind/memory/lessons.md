@@ -24,28 +24,28 @@
 
 ## AI-Learned
 
-- Position inventory mismatch from prior heartbeat (21 contracts) has fully resolved in current state — data integrity self-corrected or positions were legacy.
-- Fractional Kelly floor empirically confirmed: at $159.64 balance, all strategies round to zero contracts regardless of EV. Capital floor of $500+ is hard requirement for meaningful execution.
-- Idle capital state is correct tactical decision when all strategies fail edge criteria or position sizing rounds to zero contracts.
-- calibration_edge (n=11, EV -5.9c) is structural miscalibration. Holdout dataset retraining is mandatory gating criterion before any re-enablement — do not attempt activation without model validation.
-- momentum (61% WR, 9.6c EV, n=2) is sole viable re-enablement candidate but n=2 is statistically unreliable. Requires 48+ additional validation trades to reach n≥50 threshold.
-- calibration_edge (n=11, EV -5.9c) is structural miscalibration — holdout dataset retraining mandatory before any re-enablement consideration.
-- momentum (61% WR, 9.6c EV, n=2) sole re-enablement candidate — requires 48+ validation trades to reach n≥50 statistical threshold.
-- Fractional Kelly floor confirmed: $159.64 balance rounds all positions to zero contracts. Capital floor of $500+ is hard requirement for meaningful execution.
-- Idle capital is correct tactical decision when all strategies fail edge criteria or position sizing rounds to zero.
-- Idle capital with fractional Kelly rounding to zero is the only correct decision below $500 balance threshold.
-- calibration_edge structural miscalibration (EV -5.9c, n=11) requires holdout dataset retraining before any re-enablement — non-negotiable gating criterion.
-- momentum (61% WR, 9.6c EV, n=2) is sole re-enablement candidate but statistically unreliable — requires 48+ validation trades to reach n≥50 threshold.
-- Calibration_edge structural failure (EV -5.9c, n=11) is non-recoverable without retraining on holdout dataset. Do not re-enable.
-- Momentum strategy (61% WR, 9.6c EV, n=2) is only viable re-enablement candidate but requires 48+ validation trades to reach statistical confidence (n≥50).
-- Fractional Kelly rounding to zero contracts at $159.64 balance confirms hard floor of $500+ required for any meaningful strategy execution.
-- Idle capital state is strategically correct when position sizing math forces zero — no trade beats sitting on hands with insufficient scale.
-- Idle capital below $500 hard floor is the only correct decision — all strategies round to zero contracts regardless of EV at current balance.
-- calibration_edge (EV -5.9c, n=11) structural failure confirmed non-recoverable without holdout dataset retraining — do not re-enable.
-- Idle state with sub-$500 balance and fractional Kelly rounding to zero is the only defensible position. No exceptions.
 - Position inventory mismatch from prior heartbeat (21 contracts) has fully resolved — data integrity self-corrected or positions were legacy artifacts.
 - calibration_edge (EV -5.9c, n=11) structural failure confirmed non-recoverable without holdout dataset retraining — permanently gate re-enablement.
 - momentum (61% WR, 9.6c EV, n=2) remains sole re-enablement candidate but n=2 is statistically unreliable — requires 48+ validation trades to reach n≥50 confidence threshold.
 - calibration_edge (EV -5.9c, n=11) structural failure confirmed — holdout dataset retraining mandatory gate before any re-enablement consideration.
 - momentum (61% WR, 9.6c EV, n=2) sole re-enablement candidate — requires 48+ validation trades to reach statistical threshold (n≥50).
 - Sub-$500 balance forces all strategies to zero contracts via fractional Kelly — idle state is only defensible position.
+- Sub-$500 balance is a hard floor: fractional Kelly rounds all strategies to zero contracts. Idle is the only defensible state until capital reaches $500+.
+- calibration_edge (EV -5.9c, n=11) is structurally miscalibrated — holdout dataset retraining is mandatory gating criterion before any re-enablement. Do not activate without model validation.
+- momentum (61% WR, 9.6c EV, n=2) is sole re-enablement candidate but n=2 lacks statistical power — requires 48+ additional validation trades to reach n≥50 confidence threshold.
+- Idle state persists: sub-$500 balance forces all strategies to zero contracts. No capital deployment until $500+ threshold reached.
+- calibration_edge remains structurally miscalibrated (EV -5.9c, n=11) — holdout retraining mandatory before any re-enablement consideration.
+- momentum (61% WR, 9.6c EV, n=2) is only viable candidate for future re-enablement but requires 48+ validation trades to reach n≥50 confidence.
+- Capital threshold achieved ($500). Fractional Kelly rounding no longer forces zero contracts — strategies can now deploy with proper position sizing.
+- calibration_edge enabled despite documented structural failure (EV -5.9c, n=11). Enabled state contradicts standing rule: 'holdout dataset retraining is mandatory gating criterion before any re-enablement.' Disable until model is retrained.
+- high_probability_bonds lacks any trade history (0 trades, 0.0c EV). Strategy enabled on assumption only. Requires validation trades before meaningful capital allocation.
+- Capital threshold $500 reached — fractional Kelly rounding no longer constrains position sizing. Strategies can now deploy with proper kelly multipliers.
+- calibration_edge enabled state contradicts standing rule on structural failure gating. Either retrain on holdout dataset or disable — no middle ground.
+- calibration_edge structural failure (EV -5.9c, n=11) is non-recoverable without holdout dataset retraining — enabled state violates own standing rules.
+- high_probability_bonds enabled with zero trade history — strategy validation is assumption-based, not data-backed.
+- 16 open positions at $500 balance violates fractional Kelly principles. Position reconciliation needed to confirm inventory accuracy.
+- Market regime detection pipeline returning 'unknown' — prevents proper strategy routing and regime-conditional risk management.
+- calibration_edge structural failure (EV -5.9c, n=11) is non-recoverable without holdout retraining — enabled state violates own standing rules. Do not re-enable without validated holdout dataset.
+- high_probability_bonds enabled with zero trade history — strategy performance is assumption-based until validation trades exist. Require n≥10 before meaningful capital allocation.
+- Market regime 'unknown' blocks proper strategy routing — regime detection pipeline requires diagnostics. Unknown regime = conservative position sizing only.
+- 15 open positions at $2K suggests fractional Kelly rounding may be deploying excess contracts. Verify position sizing math against current balance.
