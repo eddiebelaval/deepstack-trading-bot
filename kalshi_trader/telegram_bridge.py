@@ -574,13 +574,19 @@ You are Dae, responding to Eddie via Telegram.
                 args = {}
 
             result = await handler(args)
-            status = result.get("status", "unknown")
-            detail = result.get("detail", "")
 
-            if status == "ok":
-                return f"Done. {detail}" if detail else f"Command '{command_name}' executed."
-            else:
-                return f"Command '{command_name}' failed: {detail or status}"
+            # Check for explicit error in result
+            if "error" in result:
+                return f"Command '{command_name}' failed: {result['error']}"
+
+            # Format successful result as readable summary
+            parts = []
+            for key, val in result.items():
+                if key in ("status", "error"):
+                    continue
+                parts.append(f"{key}: {val}")
+            summary = ", ".join(parts) if parts else "executed"
+            return f"Done. {command_name} -> {summary}"
 
         except Exception as e:
             logger.error(f"Telegram Bridge: command execution failed: {e}", exc_info=True)
