@@ -608,7 +608,7 @@ Only tag genuinely important facts. Don't tag routine questions or status checks
                 "https://api.anthropic.com/v1/messages",
                 json={
                     "model": SONNET,
-                    "max_tokens": 500,
+                    "max_tokens": 1024,
                     "system": system_prompt,
                     "messages": messages,
                 },
@@ -915,33 +915,59 @@ Only tag genuinely important facts. Don't tag routine questions or status checks
             return f"Command failed: {str(e)[:200]}"
 
     async def _send_message(self, text: str) -> None:
-        """Send a message to Eddie via Telegram Bot API."""
+        """Send a message to Eddie via Telegram Bot API. Splits long messages."""
         if not self._client or not self._token:
             return
 
-        # Telegram has a 4096 char limit per message
-        if len(text) > 4000:
-            text = text[:3997] + "..."
+        # Telegram has a 4096 char limit — split into chunks if needed
+        chunks = self._split_message(text, max_len=4000)
 
         url = f"https://api.telegram.org/bot{self._token}/sendMessage"
-        try:
-            resp = await self._client.post(url, json={
-                "chat_id": self._chat_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            })
-            if resp.status_code != 200:
-                # Retry without parse_mode in case of formatting issues
+        for chunk in chunks:
+            try:
                 resp = await self._client.post(url, json={
                     "chat_id": self._chat_id,
-                    "text": text,
+                    "text": chunk,
+                    "parse_mode": "HTML",
                     "disable_web_page_preview": True,
                 })
                 if resp.status_code != 200:
-                    logger.warning(f"Telegram send failed: {resp.status_code}")
-        except Exception as e:
-            logger.warning(f"Telegram send error: {e}")
+                    # Retry without parse_mode in case of formatting issues
+                    resp = await self._client.post(url, json={
+                        "chat_id": self._chat_id,
+                        "text": chunk,
+                        "disable_web_page_preview": True,
+                    })
+                    if resp.status_code != 200:
+                        logger.warning(f"Telegram send failed: {resp.status_code}")
+            except Exception as e:
+                logger.warning(f"Telegram send error: {e}")
+
+    @staticmethod
+    def _split_message(text: str, max_len: int = 4000) -> List[str]:
+        """Split text into chunks that fit Telegram's limit, breaking at newlines."""
+        if len(text) <= max_len:
+            return [text]
+
+        chunks = []
+        while text:
+            if len(text) <= max_len:
+                chunks.append(text)
+                break
+
+            # Find the last newline within the limit
+            split_at = text.rfind("\n", 0, max_len)
+            if split_at == -1:
+                # No newline found — break at last space
+                split_at = text.rfind(" ", 0, max_len)
+            if split_at == -1:
+                # No space either — hard break
+                split_at = max_len
+
+            chunks.append(text[:split_at])
+            text = text[split_at:].lstrip("\n")
+
+        return chunks
 
     async def _send_chat_action(self, action: str = "typing") -> None:
         """Send a chat action (typing indicator) to Telegram."""
