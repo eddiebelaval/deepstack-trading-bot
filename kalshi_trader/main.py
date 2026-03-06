@@ -36,6 +36,7 @@ from .telegram_bridge import TelegramBridge
 from .config import KalshiConfig, load_config, get_strategy_configs, load_yaml_config, CryExcConfig
 from .trade_analyzer import TradeAnalyzer
 from .dashboard_sync import DashboardSync
+from .graduation_gate import GraduationGate
 from .heartbeat import HeartbeatEngine
 from .health_monitor import HealthMonitor
 from .kalshi_client import AuthenticatedKalshiClient
@@ -161,6 +162,9 @@ class KalshiTradingBot:
 
         # Heartbeat engine (hybrid self-regulation)
         self.heartbeat: Optional[HeartbeatEngine] = None
+
+        # Graduation gate (go-live readiness evaluation)
+        self.graduation_gate: Optional[GraduationGate] = None
 
         self._running = False
         self._paused = False
@@ -544,6 +548,21 @@ class KalshiTradingBot:
         else:
             self.heartbeat = None
             logger.info("Heartbeat engine disabled (heartbeat.enabled=false)")
+
+        # 10c. Initialize graduation gate (go-live readiness tracking)
+        if yaml_cfg and yaml_cfg.graduation.enabled:
+            self.graduation_gate = GraduationGate(
+                config=yaml_cfg.graduation,
+                journal_db_path=str(self.config.journal_db_path),
+            )
+            if self.heartbeat:
+                self.heartbeat.set_graduation_gate(self.graduation_gate)
+            if self.telegram_bridge:
+                self.telegram_bridge.set_graduation_gate(self.graduation_gate)
+            logger.info("Graduation gate initialized")
+        else:
+            self.graduation_gate = None
+            logger.info("Graduation gate disabled (graduation.enabled=false)")
 
         # 11. Update bot config to running
         await self.command_processor.update_mode("running")

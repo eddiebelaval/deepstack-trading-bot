@@ -195,6 +195,10 @@ class PerformanceTracker:
                 num_markets_sampled INTEGER
             )
         """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_regime_history_timestamp
+            ON regime_history(timestamp)
+        """)
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS strategy_regime_fitness (
