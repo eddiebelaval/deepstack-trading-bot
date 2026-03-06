@@ -198,7 +198,9 @@ class TelegramBridge:
 
             logger.info(f"Telegram Bridge: classified as '{intent}' (confidence: {classified.get('confidence', '?')})")
 
-            if intent == "command":
+            if intent == "engineer":
+                response = await self._handle_engineer(classified)
+            elif intent == "command":
                 # Check for Phase 2 read commands first
                 command_name = classified.get("command", "")
                 if command_name in ("signals", "ibkr", "arsenal"):
@@ -248,6 +250,14 @@ Parse the user's message into one of these categories:
   - "ibkr" / "ibkr status" / "paper positions" -> {"type": "command", "command": "ibkr", "args": {}}
   - "arsenal" / "arsenal status" / "show arsenal" / "top indicators" -> {"type": "command", "command": "arsenal", "args": {}}
 
+- engineer: Requests for Dae to modify his own code, fix bugs, improve strategies, or update config. Examples:
+  - "fix the momentum strategy" -> {"type": "engineer", "task": "fix the momentum strategy"}
+  - "improve calibration_edge entry filter" -> {"type": "engineer", "task": "improve calibration_edge entry filter"}
+  - "add a new strategy for weather markets" -> {"type": "engineer", "task": "add a new strategy for weather markets"}
+  - "update config to lower kelly to 0.01" -> {"type": "engineer", "task": "update config to lower kelly to 0.01"}
+  - "write a lesson about today's losses" -> {"type": "engineer", "task": "write a lesson about today's losses"}
+  - "refactor the arena scoring" -> {"type": "engineer", "task": "refactor the arena scoring"}
+
 - query: Questions about bot state, performance, strategy, reasoning, or markets. Examples:
   - "what's the scoop?" / "how are we doing?" / "status" / "give me a rundown"
   - "why is momentum disabled?" / "what happened today?"
@@ -269,8 +279,9 @@ Parse the user's message into one of these categories:
   - "markets are wild today huh"
 
 Respond with ONLY valid JSON. No explanation.
-{"type": "command|query|strategy_query|chat", "confidence": "high|medium|low", ...}
+{"type": "command|query|strategy_query|engineer|chat", "confidence": "high|medium|low", ...}
 For commands, include "command" and "args" fields.
+For engineer, include "task" field with the full task description.
 For strategy_query, include "topic" field (one of: buffett, munger, dalio, icahn, cohen, gill, burry, musk, jobs, contrarian, playbook, trending, mean_reverting, high_vol, low_vol, event, arsenal, regime).
 For query/chat, just type and confidence."""
 
@@ -395,6 +406,46 @@ You are Dae, responding to Eddie via Telegram.
         except Exception as e:
             logger.error(f"Telegram Bridge: query response failed: {e}")
             return f"Failed to generate response: {str(e)[:100]}"
+
+    async def _handle_engineer(self, classified: dict) -> str:
+        """
+        Handle an engineering request — Dae modifies his own code.
+
+        Uses DaeEngineer with Claude tool_use to read, write, and edit files.
+        All changes go to a git branch + PR for Eddie to review.
+        """
+        task = classified.get("task", "")
+        if not task:
+            return "I need a task description. What should I work on?"
+
+        await self._send_message(f"Engineering mode activated. Working on: {task}")
+        await self._send_chat_action("typing")
+
+        try:
+            from .engineer import DaeEngineer
+
+            engineer = DaeEngineer()
+            result = await engineer.run(task)
+            await engineer.close()
+
+            if result.success:
+                lines = [f"Engineering complete."]
+                if result.files_modified:
+                    lines.append(f"Files modified: {', '.join(result.files_modified)}")
+                if result.pr_url:
+                    lines.append(f"PR: {result.pr_url}")
+                if result.summary:
+                    # Truncate summary for Telegram
+                    summary = result.summary[:500]
+                    lines.append(f"\n{summary}")
+                lines.append(f"\n({result.iterations} iterations)")
+                return "\n".join(lines)
+            else:
+                return f"Engineering failed: {result.error or result.summary}"
+
+        except Exception as e:
+            logger.error(f"Telegram Bridge: engineer failed: {e}", exc_info=True)
+            return f"Engineering failed: {str(e)[:200]}"
 
     async def _handle_phase2_command(self, command_name: str) -> str:
         """
