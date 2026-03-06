@@ -105,6 +105,7 @@ class KalshiTradingBot:
         strategy_configs: Optional[List[Dict]] = None,
         dry_run: bool = False,
         paper_trade: bool = False,
+        paper_balance: Optional[float] = None,
     ):
         """
         Initialize trading bot.
@@ -115,12 +116,14 @@ class KalshiTradingBot:
             strategy_configs: Custom strategy configs (overrides YAML)
             dry_run: If True, scan for opportunities but don't execute trades
             paper_trade: If True, simulate fills and write journal entries (no real orders)
+            paper_balance: Simulated balance for paper trading (overrides real API balance)
         """
         self.config = config or load_config()
         self.use_strategy_manager = use_strategy_manager
         self.strategy_configs = strategy_configs
         self.dry_run = dry_run
         self.paper_trade = paper_trade
+        self.paper_balance = paper_balance
 
         self.client: Optional[AuthenticatedKalshiClient] = None
         self.risk: Optional[DeepStackIntegration] = None
@@ -305,7 +308,22 @@ class KalshiTradingBot:
         # 2. Get initial balance
         balance = await self.client.get_balance()
         account_balance = balance["available"]
-        logger.info(f"Account balance: ${account_balance:.2f}")
+        if self.paper_balance is not None:
+            logger.info(f"Real balance: ${account_balance:.2f} | Paper balance: ${self.paper_balance:.2f}")
+            # Scale risk params proportionally to paper balance
+            scale = self.paper_balance / max(account_balance, 1.0)
+            self.config.max_position_size = round(self.config.max_position_size * scale, 2)
+            self.config.daily_loss_limit = round(self.config.daily_loss_limit * scale, 2)
+            self.config.max_open_exposure = round(
+                getattr(self.config, 'max_open_exposure', 25) * scale, 2
+            )
+            logger.info(
+                f"[PAPER] Risk scaled {scale:.1f}x: max_position=${self.config.max_position_size}, "
+                f"daily_loss=${self.config.daily_loss_limit}, max_exposure=${self.config.max_open_exposure}"
+            )
+            account_balance = self.paper_balance
+        else:
+            logger.info(f"Account balance: ${account_balance:.2f}")
 
         # 2b. Portfolio drawdown protection — high-water mark loaded after
         # performance_tracker init (see step 5d below). Temporarily set from API.
@@ -1352,7 +1370,15 @@ class KalshiTradingBot:
         """Update account balance and position state, then push to dashboard."""
         # Get current balance
         balance = await self.client.get_balance()
-        self.risk.update_balance(balance["available"])
+        effective_balance = balance["available"]
+        if self.paper_balance is not None:
+            # Paper mode: use simulated balance, adjusted by paper P&L
+            paper_pnl = sum(
+                p.get("pnl_cents", 0) for p in self.open_positions.values()
+                if p.get("is_paper")
+            ) / 100
+            effective_balance = self.paper_balance + paper_pnl
+        self.risk.update_balance(effective_balance)
 
         # Sync positions with exchange
         await self._sync_positions()

@@ -10,6 +10,8 @@
         <string>/Users/eddiebelaval/clawd/projects/kalshi-trading/.venv/bin/python</string>
         <string>/Users/eddiebelaval/clawd/projects/kalshi-trading/run_bot.py</string>
         <string>--multi</string>
+        <string>--paper-balance</string>
+        <string>500</string>
     </array>
 
     <key>WorkingDirectory</key>
