@@ -318,7 +318,7 @@ analysis:
 # enables/disables strategies accordingly. Never overrides safety layers.
 governance:
   enabled: true
-  mode: advisory                # Changed from autonomous (P1-7: 149K+ decisions on near-zero data)
+  mode: autonomous              # Dae toggles strategies based on regime + fitness data
   lookback_periods: 20          # Market snapshots for rolling window
   min_confidence: 0.6           # Minimum regime confidence to act
   fitness_min_trades: 5         # Trades per regime to trust fitness score
@@ -360,7 +360,7 @@ heartbeat:
 # Does NOT replace StrategyRouter — additive knowledge-based layer.
 lexicon_signals:
   enabled: true
-  mode: "advisory"                   # "advisory" (log only) or "autonomous" (auto-toggle)
+  mode: "autonomous"                  # "advisory" (log only) or "autonomous" (auto-toggle)
   confidence_threshold: 0.6          # Minimum confidence to emit a signal
   telegram_digest: true              # Send periodic Telegram signal digest
   digest_interval_hours: 6           # Hours between Telegram digests
