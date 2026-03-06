@@ -1,0 +1,42 @@
+[Unit]
+Description=Dae — DeepStack Autonomous Trading Engine
+Documentation=file:///opt/deepstack/BUILDING.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=deepstack
+Group=deepstack
+WorkingDirectory=/opt/deepstack
+EnvironmentFile=/opt/deepstack/.env
+
+# Activate venv and run in multi-strategy mode
+ExecStart=/opt/deepstack/.venv/bin/python /opt/deepstack/run_bot.py --multi
+
+# Graceful shutdown — asyncio handles SIGINT cleanly
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# Restart on crash, not on clean exit
+Restart=on-failure
+RestartSec=10
+
+# Logging — journald captures stdout/stderr automatically
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=deepstack
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/deepstack/trade_journal.db /opt/deepstack/arena_results.db /opt/deepstack/kalshi_trader/mind/memory
+PrivateTmp=true
+
+# Resource limits (prevent runaway memory from data leak)
+MemoryMax=1G
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

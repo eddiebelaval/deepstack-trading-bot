@@ -1,0 +1,17 @@
+# /etc/logrotate.d/deepstack
+# Rotate DeepStack logs extracted from journald
+#
+# journald handles real-time log capture, but this ensures
+# exported log files don't grow unbounded on disk.
+
+/var/log/deepstack/*.log {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 deepstack deepstack
+    dateext
+    dateformat -%Y%m%d
+}
