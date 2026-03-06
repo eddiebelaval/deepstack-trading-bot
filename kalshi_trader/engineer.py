@@ -81,29 +81,20 @@ MAX_TOOL_ITERATIONS = 20
 MAX_FILE_SIZE_BYTES = 50_000  # 50KB read limit per file
 
 
-def _is_path_allowed(path_str: str) -> bool:
-    """Check if a path is within allowed boundaries."""
-    # Resolve to absolute, then make relative to project root
-    try:
-        target = Path(path_str).resolve()
-        # Must be within project root
-        target.relative_to(PROJECT_ROOT)
-        rel = str(target.relative_to(PROJECT_ROOT))
-    except (ValueError, RuntimeError):
-        return False
-
-    # Check blocked paths first (blocklist takes priority)
-    for blocked in BLOCKED_PATHS:
-        if rel.startswith(blocked) or blocked in rel:
-            return False
-
-    # Check allowed paths
-    for allowed in ALLOWED_PATHS:
-        if rel.startswith(allowed):
-            return True
-
-    # Read-only access to anything else in the project (for context)
-    return False
+def _invalidate_consciousness_cache(path: str) -> None:
+    """Invalidate consciousness cache when mind/ files are modified."""
+    if "mind/" in path or "consciousness" in path:
+        try:
+            from . import consciousness
+            # Cache keys are relative to mind/ (e.g., "memory/lessons.md")
+            mind_prefix = "kalshi_trader/mind/"
+            if mind_prefix in path:
+                cache_key = path[path.index(mind_prefix) + len(mind_prefix):]
+                consciousness.invalidate_cache(cache_key)
+            else:
+                consciousness.invalidate_cache()
+        except Exception:
+            pass  # Non-critical — cache will refresh on next load
 
 
 def _is_path_writable(path_str: str) -> bool:
@@ -262,8 +253,9 @@ def _execute_read_file(path: str) -> str:
     if not abs_path.exists():
         return f"ERROR: File not found: {path}"
 
-    if abs_path.stat().st_size > MAX_FILE_SIZE_BYTES:
-        return f"ERROR: File too large ({abs_path.stat().st_size} bytes, max {MAX_FILE_SIZE_BYTES})"
+    file_size = abs_path.stat().st_size
+    if file_size > MAX_FILE_SIZE_BYTES:
+        return f"ERROR: File too large ({file_size} bytes, max {MAX_FILE_SIZE_BYTES})"
 
     try:
         return abs_path.read_text(encoding="utf-8")
@@ -283,6 +275,7 @@ def _execute_write_file(path: str, content: str) -> str:
 
     try:
         abs_path.write_text(content, encoding="utf-8")
+        _invalidate_consciousness_cache(path)
         return f"OK: Wrote {len(content)} bytes to {path}"
     except Exception as e:
         return f"ERROR: Failed to write {path}: {e}"
@@ -313,6 +306,7 @@ def _execute_edit_file(path: str, old_string: str, new_string: str) -> str:
     new_content = content.replace(old_string, new_string, 1)
     try:
         abs_path.write_text(new_content, encoding="utf-8")
+        _invalidate_consciousness_cache(path)
         return f"OK: Edited {path} (replaced 1 occurrence)"
     except Exception as e:
         return f"ERROR: Failed to write {path}: {e}"

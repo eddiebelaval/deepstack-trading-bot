@@ -151,12 +151,16 @@ class LexiconSignalGenerator:
         for strategy_name in enable_list:
             if active_strategies and strategy_name not in active_strategies:
                 continue
+            supporting = self._get_supporting_indicators(
+                strategy_name, arsenal_by_category, regime_value,
+            )
             confidence = self._calculate_confidence(
                 action="enable",
                 strategy_name=strategy_name,
                 titan_map=titan_map,
                 arsenal_by_category=arsenal_by_category,
                 regime_value=regime_value,
+                supporting_indicators=supporting,
             )
             if confidence >= self.confidence_threshold:
                 signals.append(LexiconSignal(
@@ -168,9 +172,7 @@ class LexiconSignalGenerator:
                         titan_map, arsenal_by_category,
                     ),
                     titan_alignment=titan_map.get("primary", []) + titan_map.get("secondary", []),
-                    arsenal_support=self._get_supporting_indicators(
-                        strategy_name, arsenal_by_category, regime_value,
-                    ),
+                    arsenal_support=supporting,
                     regime=regime_value,
                 ))
 
@@ -413,6 +415,7 @@ class LexiconSignalGenerator:
         titan_map: Dict[str, List[str]],
         arsenal_by_category: Dict[str, List[str]],
         regime_value: str,
+        supporting_indicators: Optional[List[str]] = None,
     ) -> float:
         """
         Calculate confidence score for an enable signal.
@@ -428,6 +431,7 @@ class LexiconSignalGenerator:
             titan_map: Parsed titan alignment from playbook.
             arsenal_by_category: Parsed arsenal indicator categories.
             regime_value: Current regime.
+            supporting_indicators: Precomputed supporting indicators (avoids re-lookup).
 
         Returns:
             Confidence score between 0.0 and 0.9.
@@ -438,10 +442,11 @@ class LexiconSignalGenerator:
         base = 0.6
 
         # Arsenal boost: count indicators supporting this strategy in this regime
-        supporting = self._get_supporting_indicators(
-            strategy_name, arsenal_by_category, regime_value
-        )
-        arsenal_boost = min(len(supporting) * 0.1, 0.2)
+        if supporting_indicators is None:
+            supporting_indicators = self._get_supporting_indicators(
+                strategy_name, arsenal_by_category, regime_value
+            )
+        arsenal_boost = min(len(supporting_indicators) * 0.1, 0.2)
 
         # Titan boost: count primary + secondary titans
         titan_count = len(titan_map.get("primary", [])) + len(titan_map.get("secondary", []))

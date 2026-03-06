@@ -244,8 +244,8 @@ class TestPriorPersistence:
         assert prior.win_rate == 0.60
         assert prior.avg_win_cents == 8.0
 
-    def test_register_does_not_overwrite(self, db_path):
-        """INSERT OR IGNORE means re-registering doesn't clobber."""
+    def test_register_replaces_stale_prior(self, db_path):
+        """INSERT OR REPLACE means re-registering updates values (Round 2 P0 fix)."""
         t1 = PerformanceTracker(db_path=db_path)
         t1.register_prior("test_strat", {
             "win_rate": 0.60,
@@ -253,7 +253,7 @@ class TestPriorPersistence:
             "avg_loss_cents": 5.0,
         })
 
-        # Try to overwrite with different values
+        # Update with new values
         t1.register_prior("test_strat", {
             "win_rate": 0.99,
             "avg_win_cents": 100.0,
@@ -263,8 +263,8 @@ class TestPriorPersistence:
         prior = t1.get_prior("test_strat")
         t1.close()
 
-        # Original values should persist
-        assert prior.win_rate == 0.60
+        # Updated values should persist (INSERT OR REPLACE)
+        assert prior.win_rate == 0.99
 
 
 class TestHealthProgression:

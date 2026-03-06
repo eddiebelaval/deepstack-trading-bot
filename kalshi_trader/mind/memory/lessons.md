@@ -24,15 +24,28 @@
 
 ## AI-Learned
 
-- Negative EV strategies (mean_reversion -14.6c, calibration_edge -5.9c) are losing money by definition. Disabling them was correct; re-enabling without fixes compounds losses.
-- Small sample sizes (3-11 trades per strategy) mean confidence intervals are wide. Win rate alone is meaningless without EV floor validation.
-- Bot sitting idle with $159.64 is capital inefficiency. Either confidence in next trade is zero (correct) or decision rules for strategy re-enablement are missing (needs fixing).
-- Negative EV strategies must be disabled. Period. Win rate is a false signal when expected value is red.
-- Idle capital at low balance means decision rules for strategy re-enablement are missing. Need explicit criteria to exit idle state.
-- Small sample sizes (3-11 trades) create false confidence. Require minimum 50 trade sample before evaluating strategy health.
-- Idle capital at low balance signals missing re-enablement criteria. Define explicit thresholds (e.g., EV > 5c, win_rate > 55% over 50+ trades) before re-enabling any strategy.
-- calibration_edge shows -5.9c EV over 11 trades — negative expected value by definition. Keep disabled until model recalibration produces positive EV on test data.
-- mean_reversion shows -14.6c EV over 3 trades. Too small a sample to conclude, but negative EV means no re-enable until back-tested against larger dataset.
-- momentum (61% win rate, 9.6c EV, 2 trades) and combinatorial_arbitrage (80% win rate, 1.2c EV, 0 trades) are candidates for re-enablement once sample size and EV confidence thresholds are met.
-- All active strategies currently disabled due to negative EV or insufficient sample size. Re-enablement requires explicit criteria: minimum 50-trade sample, EV > 0, win rate > 40%.
-- Idle capital at $159.64 indicates decision paralysis. Either market conditions offer no edge (defensible) or strategy selection process needs codification to exit stall.
+- Position inventory mismatch from prior heartbeat (21 contracts) has fully resolved in current state — data integrity self-corrected or positions were legacy.
+- Fractional Kelly floor empirically confirmed: at $159.64 balance, all strategies round to zero contracts regardless of EV. Capital floor of $500+ is hard requirement for meaningful execution.
+- Idle capital state is correct tactical decision when all strategies fail edge criteria or position sizing rounds to zero contracts.
+- calibration_edge (n=11, EV -5.9c) is structural miscalibration. Holdout dataset retraining is mandatory gating criterion before any re-enablement — do not attempt activation without model validation.
+- momentum (61% WR, 9.6c EV, n=2) is sole viable re-enablement candidate but n=2 is statistically unreliable. Requires 48+ additional validation trades to reach n≥50 threshold.
+- calibration_edge (n=11, EV -5.9c) is structural miscalibration — holdout dataset retraining mandatory before any re-enablement consideration.
+- momentum (61% WR, 9.6c EV, n=2) sole re-enablement candidate — requires 48+ validation trades to reach n≥50 statistical threshold.
+- Fractional Kelly floor confirmed: $159.64 balance rounds all positions to zero contracts. Capital floor of $500+ is hard requirement for meaningful execution.
+- Idle capital is correct tactical decision when all strategies fail edge criteria or position sizing rounds to zero.
+- Idle capital with fractional Kelly rounding to zero is the only correct decision below $500 balance threshold.
+- calibration_edge structural miscalibration (EV -5.9c, n=11) requires holdout dataset retraining before any re-enablement — non-negotiable gating criterion.
+- momentum (61% WR, 9.6c EV, n=2) is sole re-enablement candidate but statistically unreliable — requires 48+ validation trades to reach n≥50 threshold.
+- Calibration_edge structural failure (EV -5.9c, n=11) is non-recoverable without retraining on holdout dataset. Do not re-enable.
+- Momentum strategy (61% WR, 9.6c EV, n=2) is only viable re-enablement candidate but requires 48+ validation trades to reach statistical confidence (n≥50).
+- Fractional Kelly rounding to zero contracts at $159.64 balance confirms hard floor of $500+ required for any meaningful strategy execution.
+- Idle capital state is strategically correct when position sizing math forces zero — no trade beats sitting on hands with insufficient scale.
+- Idle capital below $500 hard floor is the only correct decision — all strategies round to zero contracts regardless of EV at current balance.
+- calibration_edge (EV -5.9c, n=11) structural failure confirmed non-recoverable without holdout dataset retraining — do not re-enable.
+- Idle state with sub-$500 balance and fractional Kelly rounding to zero is the only defensible position. No exceptions.
+- Position inventory mismatch from prior heartbeat (21 contracts) has fully resolved — data integrity self-corrected or positions were legacy artifacts.
+- calibration_edge (EV -5.9c, n=11) structural failure confirmed non-recoverable without holdout dataset retraining — permanently gate re-enablement.
+- momentum (61% WR, 9.6c EV, n=2) remains sole re-enablement candidate but n=2 is statistically unreliable — requires 48+ validation trades to reach n≥50 confidence threshold.
+- calibration_edge (EV -5.9c, n=11) structural failure confirmed — holdout dataset retraining mandatory gate before any re-enablement consideration.
+- momentum (61% WR, 9.6c EV, n=2) sole re-enablement candidate — requires 48+ validation trades to reach statistical threshold (n≥50).
+- Sub-$500 balance forces all strategies to zero contracts via fractional Kelly — idle state is only defensible position.

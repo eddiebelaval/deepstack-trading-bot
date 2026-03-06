@@ -70,7 +70,7 @@ async def _fetch_indicator_categories(
             f"{supabase_url}/rest/v1/ds_tv_indicators",
             headers={
                 "apikey": supabase_key,
-                "Authorization": f"Bearer {supabase_key},",
+                "Authorization": f"Bearer {supabase_key}",
                 "Content-Type": "application/json",
                 "Prefer": "count=exact",
             },
