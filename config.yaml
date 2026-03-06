@@ -291,7 +291,7 @@ cryexc:
 # Requires IB TWS or Gateway running locally. Paper trading on port 7497, live on 7496.
 # Disabled by default — enable when TWS is running and you want stock trading.
 ibkr:
-  enabled: false              # Set true when TWS/Gateway is running
+  enabled: true               # Paper trading active (Phase 2)
   host: "127.0.0.1"
   port: 7497                  # 7497 = paper trading, 7496 = live
   client_id: 1
@@ -353,3 +353,23 @@ heartbeat:
   telegram_alerts: true             # Send alerts via Telegram
   lessons_write: true               # Allow writing to lessons.md
   max_lessons_lines: 50             # Cap lessons.md at this many lines
+
+# Lexicon Signal Generator — knowledge-based strategy overlay (Phase 2).
+# Reads regime playbooks + arsenal indicators to generate enable/disable/caution
+# signals for each strategy. Advisory mode logs and sends Telegram digests.
+# Does NOT replace StrategyRouter — additive knowledge-based layer.
+lexicon_signals:
+  enabled: true
+  mode: "advisory"                   # "advisory" (log only) or "autonomous" (auto-toggle)
+  confidence_threshold: 0.6          # Minimum confidence to emit a signal
+  telegram_digest: true              # Send periodic Telegram signal digest
+  digest_interval_hours: 6           # Hours between Telegram digests
+
+# Auto-Research Pipeline — continuous indicator discovery (Phase 2).
+# Identifies gaps in arsenal coverage by category/regime, triggers
+# targeted TradingView scrapes via DeepStack API, re-scores indicators.
+auto_research:
+  enabled: true
+  gap_check_interval_hours: 24       # How often to check for coverage gaps
+  max_scrapes_per_run: 5             # Cap targeted scrapes per execution
+  deepstack_api_url: "http://localhost:8000"  # DeepStack TradingView FastAPI server

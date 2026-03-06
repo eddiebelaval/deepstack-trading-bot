@@ -40,6 +40,9 @@ _STANDING_ORDERS_PATH = _MODULE_DIR / "mind" / "HEARTBEAT.md"
 _ARSENAL_REFRESH_SECONDS = 21600  # 6 hours
 _ARSENAL_PATH = _MODULE_DIR / "mind" / "lexicon" / "arsenal" / "tv-top-performers.md"
 
+# Auto-research: gap analysis + targeted scrape on 24-hour interval
+_AUTO_RESEARCH_SECONDS = 86400  # 24 hours
+
 
 class HeartbeatEngine:
     """
@@ -73,6 +76,13 @@ class HeartbeatEngine:
         self._telegram_alerts: bool = config.get("telegram_alerts", True)
         self._lessons_write: bool = config.get("lessons_write", True)
         self._max_lessons_lines: int = config.get("max_lessons_lines", 50)
+
+        # Auto-research config
+        self._auto_research_enabled: bool = config.get("auto_research_enabled", True)
+        self._auto_research_interval: int = config.get(
+            "auto_research_interval_seconds", _AUTO_RESEARCH_SECONDS
+        )
+        self._last_auto_research: float = 0
 
         # Load persisted state
         self._state: dict = self._load_state()
@@ -239,6 +249,9 @@ class HeartbeatEngine:
         # Arsenal refresh check (non-blocking — don't delay heartbeat evaluation)
         asyncio.create_task(self._maybe_refresh_arsenal())
 
+        # Auto-research gap check (non-blocking, 24h interval)
+        asyncio.create_task(self._maybe_run_auto_research())
+
         standing_orders = self._read_standing_orders()
         if not standing_orders:
             logger.debug("Heartbeat: no standing orders found, skipping AI cycle")
@@ -316,6 +329,61 @@ class HeartbeatEngine:
 
         except Exception as e:
             logger.debug(f"Heartbeat: arsenal refresh failed (non-critical): {e}")
+
+    async def _maybe_run_auto_research(self) -> None:
+        """Run auto-research gap analysis if stale (>24 hours)."""
+        if not self._auto_research_enabled:
+            return
+
+        now = time.time()
+        if now - self._last_auto_research < self._auto_research_interval:
+            return
+
+        self._last_auto_research = now
+
+        try:
+            import importlib
+            import sys as _sys
+
+            project_root = str(_MODULE_DIR.parent)
+            if project_root not in _sys.path:
+                _sys.path.insert(0, project_root)
+
+            mod = importlib.import_module("scripts.auto_research_pipeline")
+            gaps = await mod.discover_gaps()
+
+            if "error" in gaps:
+                logger.debug("Heartbeat: auto-research gap check returned error: %s", gaps["error"])
+                return
+
+            missing = gaps.get("missing_categories", [])
+            thin = gaps.get("thin_categories", [])
+
+            if missing or thin:
+                logger.info(
+                    "Heartbeat: auto-research found gaps — missing: %s, thin: %s",
+                    missing, thin,
+                )
+
+                # Load auto_research config from yaml
+                from kalshi_trader.config import load_yaml_config
+                yaml_config = load_yaml_config()
+                ar_config = yaml_config.get("auto_research", {})
+
+                result = await mod.run_targeted_research(gaps, ar_config)
+
+                # Alert via Telegram if new top performers found
+                if result.get("arsenal_refreshed") and self._telegram_alerts and self._telegram:
+                    scrapes = result.get("scrapes_triggered", 0)
+                    await self._send_telegram_alert(
+                        [f"Auto-research: {scrapes} targeted scrapes completed, arsenal refreshed."],
+                        header="[Auto-Research]",
+                    )
+            else:
+                logger.debug("Heartbeat: auto-research — no coverage gaps found")
+
+        except Exception as e:
+            logger.debug("Heartbeat: auto-research failed (non-critical): %s", e)
 
     def _read_standing_orders(self) -> str:
         """Read HEARTBEAT.md standing orders. Fresh read every time (no cache)."""

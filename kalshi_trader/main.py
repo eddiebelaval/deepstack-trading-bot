@@ -131,6 +131,9 @@ class KalshiTradingBot:
         # IBKR market adapter (optional, enabled via config)
         self._ibkr_market = None
 
+        # Lexicon order router (Phase 2, routes signals to IBKR paper trades)
+        self._lexicon_order_router = None
+
         # Health monitor (self-healing watchdog)
         self.health_monitor: Optional[HealthMonitor] = None
 
@@ -383,6 +386,14 @@ class KalshiTradingBot:
                 reenable_cooldown_hours=gov_cfg.reenable_cooldown_hours,
             )
             logger.info("Market governor initialized (mode=%s)", gov_cfg.mode)
+
+            # Attach LexiconSignalGenerator if enabled (Phase 2)
+            if yaml_cfg.lexicon_signals.enabled:
+                from .strategies.lexicon_signal_generator import LexiconSignalGenerator
+                sig_config = yaml_cfg.lexicon_signals.model_dump()
+                sig_gen = LexiconSignalGenerator(sig_config)
+                self.market_governor.set_lexicon_signal_generator(sig_gen)
+                logger.info("Lexicon signal generator attached to governance engine")
         else:
             logger.info("Market governor disabled (governance.enabled=false)")
 
@@ -588,6 +599,15 @@ class KalshiTradingBot:
                         f"port={ibkr_config['port']}, "
                         f"watchlist={ibkr_config['watchlist']}"
                     )
+
+                    # Attach LexiconOrderRouter for paper signal trading (Phase 2)
+                    if ibkr_config.get("port") == 7497:  # Paper port only
+                        from markets.ibkr import LexiconOrderRouter
+                        self._lexicon_order_router = LexiconOrderRouter(
+                            ibkr_market=ibkr_market,
+                            max_order_value_cents=self.config.max_position_size * 100,
+                        )
+                        logger.info("LexiconOrderRouter attached (paper mode)")
                 else:
                     logger.warning("IBKR connection failed — stock trading disabled")
             except Exception as e:
