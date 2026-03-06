@@ -203,7 +203,7 @@ class TelegramBridge:
             elif intent == "command":
                 # Check for Phase 2 read commands first
                 command_name = classified.get("command", "")
-                if command_name in ("signals", "ibkr", "arsenal"):
+                if command_name in ("signals", "ibkr", "arsenal", "diagnose"):
                     response = await self._handle_phase2_command(command_name)
                 else:
                     response = await self._handle_command(text, classified)
@@ -249,6 +249,7 @@ Parse the user's message into one of these categories:
   - "signals" / "show signals" / "what signals" -> {"type": "command", "command": "signals", "args": {}}
   - "ibkr" / "ibkr status" / "paper positions" -> {"type": "command", "command": "ibkr", "args": {}}
   - "arsenal" / "arsenal status" / "show arsenal" / "top indicators" -> {"type": "command", "command": "arsenal", "args": {}}
+  - "diagnose" / "run diagnostics" / "test api" / "check connectivity" -> {"type": "command", "command": "diagnose", "args": {}}
 
 - engineer: Requests for Dae to modify his own code, fix bugs, improve strategies, or update config. Examples:
   - "fix the momentum strategy" -> {"type": "engineer", "task": "fix the momentum strategy"}
@@ -460,6 +461,8 @@ You are Dae, responding to Eddie via Telegram.
             return await self._cmd_ibkr()
         elif command_name == "arsenal":
             return await self._cmd_arsenal()
+        elif command_name == "diagnose":
+            return await self._cmd_diagnose()
         return f"Unknown Phase 2 command: {command_name}"
 
     async def _cmd_signals(self) -> str:
@@ -586,6 +589,69 @@ You are Dae, responding to Eddie via Telegram.
         ]
         for i, name in enumerate(top_5_names, 1):
             lines.append(f"  {i}. {name}")
+
+        return "\n".join(lines)
+
+    async def _cmd_diagnose(self) -> str:
+        """Run live API diagnostics and return results."""
+        lines = ["[API Diagnostic]", ""]
+
+        # Auth + balance
+        client = getattr(self.bot, "_client", None) or getattr(self.bot, "client", None)
+        if not client:
+            return "[API Diagnostic]\nNo Kalshi client available."
+
+        try:
+            balance = await client.get_balance()
+            lines.append(f"Auth: OK")
+            lines.append(f"Balance: ${balance / 100:.2f}")
+        except Exception as e:
+            lines.append(f"Auth/Balance: FAIL — {str(e)[:100]}")
+
+        # Positions
+        try:
+            positions = await client.get_positions()
+            lines.append(f"Positions: {len(positions)} open")
+        except Exception as e:
+            lines.append(f"Positions: FAIL — {str(e)[:100]}")
+
+        # Market data — test each configured series
+        lines.append("")
+        try:
+            from .config import get_strategy_configs
+            strategy_configs = get_strategy_configs()
+            tested = set()
+            for sc in strategy_configs:
+                if not sc.get("enabled"):
+                    continue
+                for market in sc.get("markets", []):
+                    series = market.get("series", "")
+                    if not series or series in tested or series == "*":
+                        continue
+                    tested.add(series)
+                    try:
+                        markets = await client.get_markets(
+                            series_ticker=series, status="open", limit=5
+                        )
+                        lines.append(f"  {series}: {len(markets)} open")
+                    except Exception as e:
+                        lines.append(f"  {series}: FAIL — {str(e)[:80]}")
+        except Exception as e:
+            lines.append(f"Series test: FAIL — {str(e)[:100]}")
+
+        # Raw fetch (no series filter)
+        try:
+            all_markets = await client.get_markets(status="open", limit=5)
+            lines.append(f"\nAll markets (no filter): {len(all_markets)} returned")
+        except Exception as e:
+            lines.append(f"\nAll markets: FAIL — {str(e)[:100]}")
+
+        # Health monitor state
+        health = getattr(self.bot, "_health_monitor", None)
+        if health:
+            zero_count = getattr(health, "_zero_markets_counter", 0)
+            if zero_count > 0:
+                lines.append(f"\nZero-market streak: {zero_count} cycles")
 
         return "\n".join(lines)
 
