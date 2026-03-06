@@ -994,6 +994,27 @@ class GovernanceEngine:
                         "Governance | lexicon signals: %d recommendations",
                         len(lexicon_signals),
                     )
+                    # Autonomous mode: apply lexicon signals to strategy manager
+                    if self._lexicon_signal_generator.mode == "autonomous" and strategy_manager:
+                        for sig in lexicon_signals:
+                            if sig.confidence < self._lexicon_signal_generator.confidence_threshold:
+                                continue
+                            if sig.strategy_name not in active_strategies:
+                                continue
+                            if sig.strategy_name in safety_disabled:
+                                continue
+                            if sig.action == "disable":
+                                strategy_manager.disable_strategy(sig.strategy_name)
+                                logger.info(
+                                    "Lexicon DISABLED '%s' (conf=%.2f regime=%s reason=%s)",
+                                    sig.strategy_name, sig.confidence, sig.regime, sig.reasoning,
+                                )
+                            elif sig.action == "enable":
+                                strategy_manager.enable_strategy(sig.strategy_name)
+                                logger.info(
+                                    "Lexicon ENABLED '%s' (conf=%.2f regime=%s reason=%s)",
+                                    sig.strategy_name, sig.confidence, sig.regime, sig.reasoning,
+                                )
             except Exception as e:
                 logger.warning("Governance | lexicon signal generation failed: %s", e)
 

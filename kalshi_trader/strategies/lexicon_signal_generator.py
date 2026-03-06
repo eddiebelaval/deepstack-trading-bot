@@ -14,8 +14,8 @@ Architecture:
             5. Apply contrarian bias from Eddie's playbook
         -> List[LexiconSignal]
 
-Advisory mode: log signals + Telegram digest (default)
-Autonomous mode (future): call strategy_manager.enable/disable_strategy()
+Advisory mode: log signals + Telegram digest
+Autonomous mode: GovernanceEngine applies signals via strategy_manager.enable/disable_strategy()
 
 Does NOT replace StrategyRouter. StrategyRouter uses Bayesian priors from
 observed trade outcomes. LexiconSignalGenerator provides a knowledge-based
