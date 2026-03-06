@@ -577,17 +577,6 @@ You are Dae, responding to Eddie via Telegram.
                     if len(top_5_names) < 5:
                         top_5_names.append(cells[1])
 
-        # Gap analysis from regime map
-        regime_map_text = consciousness.load_lexicon_for_regime(
-            getattr(
-                getattr(
-                    getattr(self.bot, "market_governor", None),
-                    "current_regime", None
-                ),
-                "regime", None
-            ).value if getattr(getattr(self.bot, "market_governor", None), "current_regime", None) else "trending_up"
-        )
-
         lines = [
             "[Arsenal Status]",
             f"Last Refresh: {refresh_line or 'unknown'}",

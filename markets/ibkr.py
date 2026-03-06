@@ -14,6 +14,7 @@ Design:
 
 import asyncio
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -463,7 +464,7 @@ class LexiconOrderRouter:
         self.max_positions = max_positions
         self.max_daily_loss_cents = max_daily_loss_cents
         self.max_order_value_cents = max_order_value_cents
-        self._order_log: List[LexiconOrder] = []
+        self._order_log: deque = deque(maxlen=500)
         self._daily_pnl_cents: int = 0
 
         logger.info(
