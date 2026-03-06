@@ -417,6 +417,36 @@ class LexiconSignalsConfig(BaseModel):
     )
 
 
+class GraduationConfig(BaseModel):
+    """Go-Live Graduation Gate configuration — paper-to-live transition thresholds."""
+
+    enabled: bool = Field(default=False, description="Enable graduation gate tracking")
+    min_paper_trades: int = Field(
+        default=50, ge=10, le=1000,
+        description="Minimum closed paper trades required",
+    )
+    min_win_rate: float = Field(
+        default=0.45, ge=0.0, le=1.0,
+        description="Minimum win rate threshold",
+    )
+    max_drawdown_pct: float = Field(
+        default=15.0, ge=1.0, le=100.0,
+        description="Maximum drawdown as percentage of paper balance",
+    )
+    min_profitable_regimes: int = Field(
+        default=2, ge=1, le=10,
+        description="Must be profitable in this many distinct market regimes",
+    )
+    paper_balance_cents: int = Field(
+        default=200000, ge=10000,
+        description="Paper balance in cents for drawdown percentage calculation",
+    )
+    notify_telegram: bool = Field(
+        default=True,
+        description="Send Telegram alert when all graduation thresholds pass",
+    )
+
+
 class AutoResearchConfig(BaseModel):
     """Auto-Research Pipeline configuration (Phase 2)."""
 
@@ -490,6 +520,10 @@ class YAMLConfig(BaseModel):
     auto_research: AutoResearchConfig = Field(
         default_factory=AutoResearchConfig,
         description="Auto-research pipeline settings (Phase 2)",
+    )
+    graduation: GraduationConfig = Field(
+        default_factory=GraduationConfig,
+        description="Go-live graduation gate settings",
     )
 
 

@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from . import consciousness
+from .graduation_gate import GraduationGate
 from .self_knowledge import gather_self_knowledge
 
 logger = logging.getLogger(__name__)
@@ -73,11 +74,16 @@ class TelegramBridge:
         self._chat_history: deque = deque(maxlen=_MAX_HISTORY_MESSAGES)
         self._session_id: str = uuid.uuid4().hex[:12]
         self._db_path: Optional[str] = None
+        self._graduation_gate: Optional[GraduationGate] = None
 
     @property
     def is_available(self) -> bool:
         """Check if Telegram credentials are loaded."""
         return bool(self._token and self._chat_id)
+
+    def set_graduation_gate(self, gate: GraduationGate) -> None:
+        """Set the graduation gate reference for /graduation command."""
+        self._graduation_gate = gate
 
     async def connect(self) -> None:
         """Load credentials and initialize HTTP clients."""
@@ -386,7 +392,7 @@ class TelegramBridge:
             elif intent == "command":
                 # Check for Phase 2 read commands first
                 command_name = classified.get("command", "")
-                if command_name in ("signals", "ibkr", "arsenal", "diagnose"):
+                if command_name in ("signals", "ibkr", "arsenal", "diagnose", "graduation"):
                     response = await self._handle_phase2_command(command_name)
                 else:
                     response = await self._handle_command(text, classified)
@@ -440,6 +446,7 @@ Parse the user's message into one of these categories:
   - "ibkr" / "ibkr status" / "paper positions" -> {"type": "command", "command": "ibkr", "args": {}}
   - "arsenal" / "arsenal status" / "show arsenal" / "top indicators" -> {"type": "command", "command": "arsenal", "args": {}}
   - "diagnose" / "run diagnostics" / "test api" / "check connectivity" -> {"type": "command", "command": "diagnose", "args": {}}
+  - "graduation" / "graduation status" / "go-live status" / "ready for live?" -> {"type": "command", "command": "graduation", "args": {}}
 
 - engineer: Requests for Dae to modify his own code, fix bugs, improve strategies, or update config. Examples:
   - "fix the momentum strategy" -> {"type": "engineer", "task": "fix the momentum strategy"}
@@ -677,6 +684,8 @@ Only tag genuinely important facts. Don't tag routine questions or status checks
             return await self._cmd_arsenal()
         elif command_name == "diagnose":
             return await self._cmd_diagnose()
+        elif command_name == "graduation":
+            return self._cmd_graduation()
         return f"Unknown Phase 2 command: {command_name}"
 
     async def _cmd_signals(self) -> str:
@@ -870,6 +879,12 @@ Only tag genuinely important facts. Don't tag routine questions or status checks
                 lines.append(f"\nZero-market streak: {zero_count} cycles")
 
         return "\n".join(lines)
+
+    def _cmd_graduation(self) -> str:
+        """Show graduation gate progress toward go-live readiness."""
+        if not self._graduation_gate:
+            return "Graduation gate not initialized. Set graduation.enabled=true in config.yaml."
+        return self._graduation_gate.get_progress_summary()
 
     async def _handle_command(self, text: str, classified: dict) -> str:
         """

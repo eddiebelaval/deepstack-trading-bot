@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from . import consciousness
+from .graduation_gate import GraduationGate
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,9 @@ class HeartbeatEngine:
         )
         self._last_auto_research: float = time.time()  # Wait full interval before first run
 
+        # Graduation gate (optional, set via set_graduation_gate())
+        self._graduation_gate: Optional[GraduationGate] = None
+
         # Load persisted state
         self._state: dict = self._load_state()
         self._today: str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -111,6 +115,11 @@ class HeartbeatEngine:
         """Set the Telegram bridge reference for sending alerts."""
         self._telegram = telegram_bridge
         logger.debug("Heartbeat: Telegram bridge connected")
+
+    def set_graduation_gate(self, gate: GraduationGate) -> None:
+        """Set the graduation gate reference for go-live tracking."""
+        self._graduation_gate = gate
+        logger.debug("Heartbeat: graduation gate connected")
 
     async def close(self) -> None:
         """Clean up HTTP client."""
@@ -154,6 +163,29 @@ class HeartbeatEngine:
         # Send alerts via Telegram
         if alerts and self._telegram_alerts:
             await self._send_telegram_alert(alerts)
+
+        # Graduation gate check (Tier 1 — free, deterministic)
+        # Caches report for reuse in AI heartbeat context (avoids double evaluation)
+        self._last_graduation_report = None
+        if self._graduation_gate:
+            try:
+                report = self._graduation_gate.evaluate()
+                self._last_graduation_report = report
+                if report.ready and not self._state.get("graduation_notified", False):
+                    await self._send_telegram_alert(
+                        [
+                            "GRADUATION READY — All thresholds passed.",
+                            f"Trades: {report.paper_trades_closed}/{report.min_trades}",
+                            f"Win Rate: {report.win_rate:.0%}",
+                            f"Max Drawdown: {report.max_drawdown_pct:.1f}%",
+                            f"Profitable Regimes: {', '.join(report.profitable_regimes)}",
+                            "Paper trading goals met. Ready for go-live review.",
+                        ],
+                        header="[Graduation Gate]",
+                    )
+                    self._state["graduation_notified"] = True
+            except Exception as e:
+                logger.info(f"Heartbeat: graduation check failed: {e}")
 
         # Tier 2: AI heartbeat on interval
         now = time.time()
@@ -433,6 +465,19 @@ class HeartbeatEngine:
         if governor:
             regime_info = getattr(self._bot, "_current_regime", "unknown")
 
+        # Graduation progress (reuses cached report from tick() to avoid double evaluation)
+        graduation_section = ""
+        if self._graduation_gate:
+            try:
+                graduation_section = (
+                    "\n\n# Graduation Gate Progress\n\n"
+                    + self._graduation_gate.get_progress_summary(
+                        report=self._last_graduation_report
+                    )
+                )
+            except Exception:
+                pass
+
         context = f"""# Standing Orders
 
 {standing_orders}
@@ -456,7 +501,7 @@ class HeartbeatEngine:
 
 # Previous Heartbeat Summary
 
-{self._state.get('last_ai_summary', 'First heartbeat — no previous data.')}"""
+{self._state.get('last_ai_summary', 'First heartbeat — no previous data.')}{graduation_section}"""
 
         return context
 
@@ -558,6 +603,7 @@ Rules:
                 "pnl_alert_sent": False,
                 "consec_loss_alerted": {},
                 "winrate_alerted": {},
+                "graduation_notified": False,
                 "last_ai_heartbeat": None,
                 "last_ai_summary": "",
             }

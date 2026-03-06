@@ -373,3 +373,14 @@ auto_research:
   gap_check_interval_hours: 24       # How often to check for coverage gaps
   max_scrapes_per_run: 5             # Cap targeted scrapes per execution
   deepstack_api_url: "http://localhost:8000"  # DeepStack TradingView FastAPI server
+
+# Go-Live Graduation Gate — measurable thresholds for paper -> live transition.
+# Advisory only: Dae tracks progress, Eddie flips the switch.
+graduation:
+  enabled: true
+  min_paper_trades: 50               # Minimum closed paper trades
+  min_win_rate: 0.45                 # Minimum win rate (45%)
+  max_drawdown_pct: 15.0             # Max drawdown as % of paper balance ($300 on $2K)
+  min_profitable_regimes: 2          # Must be profitable in 2+ distinct regimes
+  paper_balance_cents: 200000        # Paper balance in cents ($2,000) for drawdown calc
+  notify_telegram: true              # Send Telegram alert when all thresholds pass
