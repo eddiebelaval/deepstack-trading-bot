@@ -42,7 +42,7 @@ async def main():
         print(f"FAIL: Credentials invalid — {error}")
         return
 
-    print(f"API URL: {config.api_url}")
+    print(f"API URL: {config.effective_base_url}")
     print(f"API Key: {config.api_key_id[:8]}...")
     print()
 
@@ -58,7 +58,9 @@ async def main():
     # Balance
     try:
         balance = await client.get_balance()
-        print(f"BALANCE: ${balance / 100:.2f}")
+        cash = balance.get("balance", 0)
+        portfolio = balance.get("portfolio_value", 0)
+        print(f"BALANCE: ${cash:.2f} cash, ${portfolio:.2f} portfolio value")
     except Exception as e:
         print(f"BALANCE: FAIL — {e}")
 

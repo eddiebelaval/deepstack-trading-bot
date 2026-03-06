@@ -603,8 +603,10 @@ You are Dae, responding to Eddie via Telegram.
 
         try:
             balance = await client.get_balance()
+            cash = balance.get("balance", 0)
+            portfolio = balance.get("portfolio_value", 0)
             lines.append(f"Auth: OK")
-            lines.append(f"Balance: ${balance / 100:.2f}")
+            lines.append(f"Balance: ${cash:.2f} cash, ${portfolio:.2f} portfolio")
         except Exception as e:
             lines.append(f"Auth/Balance: FAIL — {str(e)[:100]}")
 
