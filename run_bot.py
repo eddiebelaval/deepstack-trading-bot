@@ -117,6 +117,13 @@ Examples:
     )
 
     parser.add_argument(
+        "--paper-balance",
+        type=float,
+        default=None,
+        help="Simulated balance for paper trading (e.g., --paper-balance 500). Implies --paper-trade.",
+    )
+
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable verbose/debug logging",
@@ -288,6 +295,10 @@ def main():
     print(f"Journal DB:         [configured]")
     print()
 
+    # --paper-balance implies --paper-trade
+    if args.paper_balance is not None:
+        args.paper_trade = True
+
     if args.paper_trade and args.dry_run:
         print("ERROR: --paper-trade and --dry-run are mutually exclusive")
         print("  --dry-run: logs only, no journal entries")
@@ -303,6 +314,8 @@ def main():
         print("  Journal: REAL (tagged paper_trade=true)")
         print("  Risk/Kelly: REAL (updates normally)")
         print("  API: Market data only (no order placement)")
+        if args.paper_balance:
+            print(f"  Balance: SIMULATED (${args.paper_balance:.2f})")
         print()
 
     print("Starting bot... (Ctrl+C to stop)")
@@ -315,6 +328,7 @@ def main():
         strategy_configs=strategy_configs,
         dry_run=args.dry_run,
         paper_trade=args.paper_trade,
+        paper_balance=args.paper_balance,
     )
     asyncio.run(bot.start())
 
