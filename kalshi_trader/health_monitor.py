@@ -46,6 +46,8 @@ STALE_REGIME_ROWS_KEEP = 500
 STALE_CAPTAINS_LOG_MAX = 100
 STALE_CAPTAINS_LOG_KEEP = 50
 CYCLE_STALL_SECONDS = 300  # 5 minutes without a cycle = stalled
+ZERO_MARKETS_WARN_CYCLES = 10   # WARNING after 10 cycles (~10 min) of zero markets
+ZERO_MARKETS_CRITICAL_CYCLES = 60  # CRITICAL after 60 cycles (~1 hour) — Telegram alert
 
 
 @dataclass
@@ -119,10 +121,12 @@ class HealthMonitor:
 
         # Counters
         self._zero_opp_counter = 0
+        self._zero_markets_counter = 0  # Consecutive cycles with zero markets from API
         self._total_cycles = 0
         self._cycles_since_last_trade = 0
         self._error_buffer: List[str] = []  # Rolling buffer of recent errors
         self._heal_actions: List[str] = []  # Actions taken this session
+        self._zero_markets_alerted = False  # Prevent Telegram spam
 
         # Original threshold values (for clamped widening)
         self._original_thresholds: Dict[str, Dict[str, Any]] = {}
@@ -275,8 +279,31 @@ class HealthMonitor:
         """Check if we're getting non-zero markets from scans."""
         scanned = self._bot._last_scanned_markets
         if not scanned:
+            self._zero_markets_counter += 1
             status.market_data_status = "unavailable"
+
+            if self._zero_markets_counter >= ZERO_MARKETS_CRITICAL_CYCLES:
+                status.market_data_status = "critical"
+                logger.error(
+                    "CRITICAL: %d consecutive cycles with zero markets. "
+                    "API may be down, series tickers invalid, or account restricted.",
+                    self._zero_markets_counter,
+                )
+                if not self._zero_markets_alerted:
+                    self._send_zero_markets_alert()
+                    self._zero_markets_alerted = True
+            elif self._zero_markets_counter >= ZERO_MARKETS_WARN_CYCLES:
+                status.market_data_status = "degraded"
+                logger.warning(
+                    "Zero markets for %d consecutive cycles. "
+                    "Check series tickers and API connectivity.",
+                    self._zero_markets_counter,
+                )
             return
+
+        # Markets found — reset counter
+        self._zero_markets_counter = 0
+        self._zero_markets_alerted = False
 
         # Count markets per series
         series_counts: Dict[str, int] = {}
@@ -286,6 +313,31 @@ class HealthMonitor:
 
         status.markets_available = series_counts
         status.market_data_status = "fresh"
+
+    def _send_zero_markets_alert(self) -> None:
+        """Send Telegram alert when market data has been empty for too long."""
+        telegram = getattr(self._bot, "telegram_bridge", None)
+        if not telegram or not telegram.is_available:
+            return
+
+        message = (
+            "[HEALTH ALERT] Market data feed dead.\n"
+            f"{self._zero_markets_counter} consecutive cycles with zero markets.\n"
+            "Possible causes: series tickers invalid, API down, account restricted.\n"
+            "Manual intervention required."
+        )
+
+        async def _send():
+            try:
+                await telegram._send_message(message)
+            except Exception:
+                pass
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_send())
+        except RuntimeError:
+            pass
 
     def _check_strategy_activity(self, status: HealthStatus) -> None:
         """Check if strategies are finding any candidates."""

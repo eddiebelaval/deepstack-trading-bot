@@ -517,7 +517,7 @@ class AuthenticatedKalshiClient:
             List of market dictionaries
         """
         params = {"status": status, "limit": limit}
-        if series_ticker:
+        if series_ticker and series_ticker != "*":
             params["series_ticker"] = series_ticker
 
         all_markets = []
@@ -526,6 +526,15 @@ class AuthenticatedKalshiClient:
         while pages_fetched < (max_pages if paginate else 1):
             response = await self._request("GET", "/markets", params=params)
             markets = response.get("markets", [])
+
+            # Debug: log when API returns zero markets so we can diagnose dead feeds
+            if not markets and pages_fetched == 0:
+                logger.warning(
+                    "get_markets returned 0 results | series=%s status=%s | "
+                    "response_keys=%s",
+                    series_ticker or "(all)", status,
+                    list(response.keys()) if response else "empty",
+                )
 
             all_markets.extend([
                 {
