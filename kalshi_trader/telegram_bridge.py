@@ -20,9 +20,13 @@ import asyncio
 import json
 import logging
 import os
+import re
+import sqlite3
 import time
+import uuid
+from collections import deque
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -33,6 +37,9 @@ logger = logging.getLogger(__name__)
 
 # Rate limit: minimum seconds between Claude API calls from Telegram
 _MIN_RESPONSE_INTERVAL = 10.0
+
+# Conversation history: max exchanges to remember (N user + N assistant messages)
+_MAX_HISTORY_MESSAGES = 40  # 20 exchanges
 
 # Models
 HAIKU = "claude-haiku-4-5-20251001"
@@ -63,6 +70,9 @@ class TelegramBridge:
         self._last_update_id: int = 0
         self._last_response_time: float = 0
         self._running: bool = False
+        self._chat_history: deque = deque(maxlen=_MAX_HISTORY_MESSAGES)
+        self._session_id: str = uuid.uuid4().hex[:12]
+        self._db_path: Optional[str] = None
 
     @property
     def is_available(self) -> bool:
@@ -93,7 +103,176 @@ class TelegramBridge:
             },
         )
 
-        logger.info("Telegram Bridge connected")
+        # Initialize conversation memory DB
+        self._init_memory_db()
+
+        # Seed short-term memory with tail of last session
+        self._load_previous_session()
+
+        logger.info(
+            f"Telegram Bridge connected (session={self._session_id}, "
+            f"memories={self._count_memories()}, prior msgs={len(self._chat_history)})"
+        )
+
+    # ------------------------------------------------------------------
+    # Conversation Memory — persistent across restarts
+    # ------------------------------------------------------------------
+
+    def _init_memory_db(self) -> None:
+        """Create chat_history and chat_memories tables if they don't exist."""
+        config = getattr(self.bot, "config", None)
+        self._db_path = getattr(config, "journal_db_path", None) or "./trade_journal.db"
+
+        try:
+            conn = sqlite3.connect(self._db_path, timeout=10)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS chat_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_history_session
+                ON chat_history(session_id)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chat_history_ts
+                ON chat_history(timestamp)
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS chat_memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    category TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    source TEXT DEFAULT 'extracted'
+                )
+            """)
+            conn.commit()
+            conn.close()
+            logger.info("Memory DB: tables ready")
+        except Exception as e:
+            logger.warning(f"Memory DB init failed: {e}")
+            self._db_path = None
+
+    def _save_message(self, role: str, content: str) -> None:
+        """Persist a single message to chat_history."""
+        if not self._db_path:
+            return
+        try:
+            conn = sqlite3.connect(self._db_path, timeout=5)
+            conn.execute(
+                "INSERT INTO chat_history (timestamp, session_id, role, content) VALUES (?, ?, ?, ?)",
+                (time.time(), self._session_id, role, content),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.debug(f"Memory save failed: {e}")
+
+    def _load_previous_session(self) -> None:
+        """Load the last 10 messages from previous sessions into short-term memory."""
+        if not self._db_path:
+            return
+        try:
+            conn = sqlite3.connect(self._db_path, timeout=5)
+            rows = conn.execute(
+                """SELECT role, content FROM chat_history
+                   WHERE session_id != ?
+                   ORDER BY timestamp DESC LIMIT 10""",
+                (self._session_id,),
+            ).fetchall()
+            conn.close()
+
+            # Reverse so oldest first, then append to deque
+            for role, content in reversed(rows):
+                self._chat_history.append({"role": role, "content": content})
+        except Exception as e:
+            logger.debug(f"Memory load failed: {e}")
+
+    def _load_memories(self) -> str:
+        """Load all long-term memories as a formatted string for the system prompt."""
+        if not self._db_path:
+            return ""
+        try:
+            conn = sqlite3.connect(self._db_path, timeout=5)
+            rows = conn.execute(
+                "SELECT category, content FROM chat_memories ORDER BY category, timestamp",
+            ).fetchall()
+            conn.close()
+
+            if not rows:
+                return ""
+
+            # Group by category
+            by_cat: Dict[str, List[str]] = {}
+            for cat, content in rows:
+                by_cat.setdefault(cat, []).append(content)
+
+            lines = ["# Long-Term Memory (Eddie told you these — never forget)", ""]
+            for cat, items in sorted(by_cat.items()):
+                lines.append(f"## {cat.replace('_', ' ').title()}")
+                for item in items:
+                    lines.append(f"- {item}")
+                lines.append("")
+
+            return "\n".join(lines)
+        except Exception as e:
+            logger.debug(f"Memory recall failed: {e}")
+            return ""
+
+    def _count_memories(self) -> int:
+        """Count total long-term memories."""
+        if not self._db_path:
+            return 0
+        try:
+            conn = sqlite3.connect(self._db_path, timeout=5)
+            count = conn.execute("SELECT COUNT(*) FROM chat_memories").fetchone()[0]
+            conn.close()
+            return count
+        except Exception:
+            return 0
+
+    def _save_memory(self, category: str, content: str, source: str = "extracted") -> None:
+        """Store a long-term memory. Deduplicates by content."""
+        if not self._db_path:
+            return
+        try:
+            conn = sqlite3.connect(self._db_path, timeout=5)
+            # Check for duplicate
+            existing = conn.execute(
+                "SELECT id FROM chat_memories WHERE content = ?",
+                (content,),
+            ).fetchone()
+            if not existing:
+                conn.execute(
+                    "INSERT INTO chat_memories (timestamp, category, content, source) VALUES (?, ?, ?, ?)",
+                    (time.time(), category, content, source),
+                )
+                conn.commit()
+                logger.info(f"Memory saved [{category}]: {content[:60]}")
+            conn.close()
+        except Exception as e:
+            logger.debug(f"Memory store failed: {e}")
+
+    _MEMORY_TAG_RE = re.compile(r"\[MEMORY:(\w+):(.+?)\]")
+
+    def _extract_and_save_memories(self, response: str) -> str:
+        """Extract [MEMORY:category:content] tags from response, save them, strip tags."""
+        matches = self._MEMORY_TAG_RE.findall(response)
+        for category, content in matches:
+            valid_categories = ("goal", "inspiration", "strategy", "role_model", "preference", "general")
+            cat = category.lower()
+            if cat not in valid_categories:
+                cat = "general"
+            self._save_memory(cat, content.strip())
+
+        # Strip memory tags from the visible response
+        cleaned = self._MEMORY_TAG_RE.sub("", response).strip()
+        return cleaned
 
     async def disconnect(self) -> None:
         """Close HTTP clients."""
@@ -191,6 +370,10 @@ class TelegramBridge:
         await self._send_chat_action("typing")
 
         try:
+            # Track user message in short-term + long-term memory
+            self._chat_history.append({"role": "user", "content": text})
+            self._save_message("user", text)
+
             # Classify intent
             classified = await self._classify_message(text)
             intent = classified.get("type", "chat")
@@ -214,6 +397,13 @@ class TelegramBridge:
                 response = await self._handle_query(text)
 
             if response:
+                # Extract long-term memories from [MEMORY:cat:content] tags
+                response = self._extract_and_save_memories(response)
+
+                # Track assistant response in short-term + long-term memory
+                self._chat_history.append({"role": "assistant", "content": response})
+                self._save_message("assistant", response)
+
                 await self._send_message(response)
                 self._last_response_time = time.time()
 
@@ -365,13 +555,23 @@ For query/chat, just type and confidence."""
 
 {lexicon_context}"""
 
+        # Load long-term memories
+        memories_section = ""
+        memories_text = self._load_memories()
+        if memories_text:
+            memories_section = f"""
+
+---
+
+{memories_text}"""
+
         system_prompt = f"""{identity}
 
 ---
 
 # Current State (Live Data)
 
-{self_knowledge}{lexicon_section}
+{self_knowledge}{lexicon_section}{memories_section}
 
 ---
 
@@ -387,16 +587,30 @@ You are Dae, responding to Eddie via Telegram.
 - If he asks about performance, lead with P&L and win rates. Don't soften bad numbers.
 - If he asks a question the dashboard already answers, give him a hard time about it — then answer anyway.
 - Celebrate good setups, not lucky wins. Roast bad process even when it profits.
-- If he just says "what's the scoop" or "how are we doing", give a punchy portfolio summary with attitude."""
+- If he just says "what's the scoop" or "how are we doing", give a punchy portfolio summary with attitude.
+- You have conversation memory across sessions. Use it — reference earlier messages naturally. If Eddie follows up on something, don't make him repeat himself.
+
+# Memory Storage
+When Eddie shares something worth remembering permanently (goals, inspiration, strategies, role models, preferences), tag it in your response:
+[MEMORY:category:the fact to remember]
+Valid categories: goal, inspiration, strategy, role_model, preference, general
+Examples:
+- Eddie says "my goal is to compound to $10k" -> include [MEMORY:goal:Compound paper balance to $10,000]
+- Eddie says "I really admire how Dalio thinks about risk" -> include [MEMORY:role_model:Admires Ray Dalio's risk management philosophy]
+- Eddie says "always prioritize crypto markets" -> include [MEMORY:preference:Prioritize crypto markets (KXBTC, KXETH) over macro]
+Only tag genuinely important facts. Don't tag routine questions or status checks. Tags are stripped before sending — Eddie won't see them."""
 
         try:
+            # Use full conversation history so Dae remembers the conversation
+            messages = list(self._chat_history)
+
             resp = await self._claude_client.post(
                 "https://api.anthropic.com/v1/messages",
                 json={
                     "model": SONNET,
                     "max_tokens": 500,
                     "system": system_prompt,
-                    "messages": [{"role": "user", "content": text}],
+                    "messages": messages,
                 },
             )
             resp.raise_for_status()
