@@ -389,6 +389,57 @@ class IBKRConfig(BaseModel):
     )
 
 
+class LexiconSignalsConfig(BaseModel):
+    """Lexicon Signal Generator configuration (Phase 2)."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable lexicon signal generation",
+    )
+    mode: str = Field(
+        default="advisory",
+        description="Signal mode: 'advisory' (log only) or 'autonomous' (auto-toggle)",
+    )
+    confidence_threshold: float = Field(
+        default=0.6,
+        description="Minimum confidence to emit a signal",
+        ge=0.0,
+        le=1.0,
+    )
+    telegram_digest: bool = Field(
+        default=True,
+        description="Send periodic Telegram signal digest",
+    )
+    digest_interval_hours: int = Field(
+        default=6,
+        description="Hours between Telegram signal digests",
+        ge=1,
+    )
+
+
+class AutoResearchConfig(BaseModel):
+    """Auto-Research Pipeline configuration (Phase 2)."""
+
+    enabled: bool = Field(
+        default=True,
+        description="Enable auto-research gap analysis and targeted scrapes",
+    )
+    gap_check_interval_hours: int = Field(
+        default=24,
+        description="Hours between gap analysis checks",
+        ge=1,
+    )
+    max_scrapes_per_run: int = Field(
+        default=5,
+        description="Maximum targeted scrapes per execution",
+        ge=1,
+    )
+    deepstack_api_url: str = Field(
+        default="http://localhost:8000",
+        description="DeepStack TradingView FastAPI server URL",
+    )
+
+
 class YAMLConfig(BaseModel):
     """Full YAML configuration structure."""
 
@@ -431,6 +482,14 @@ class YAMLConfig(BaseModel):
     heartbeat: HeartbeatConfig = Field(
         default_factory=HeartbeatConfig,
         description="Heartbeat self-regulation engine settings",
+    )
+    lexicon_signals: LexiconSignalsConfig = Field(
+        default_factory=LexiconSignalsConfig,
+        description="Lexicon signal generator settings (Phase 2)",
+    )
+    auto_research: AutoResearchConfig = Field(
+        default_factory=AutoResearchConfig,
+        description="Auto-research pipeline settings (Phase 2)",
     )
 
 
