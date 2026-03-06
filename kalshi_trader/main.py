@@ -1284,8 +1284,9 @@ class KalshiTradingBot:
         # 2e. Run AI analysis on timer (every 30 min when enabled)
         await self._run_ai_analysis()
 
-        # 2f. Run market governance (regime detection + strategy routing)
-        await self._run_governance()
+        # 2f. Market governance moved to after scan (see _run_multi_strategy_cycle)
+        # Was here — caused cold-start: governance read empty _last_scanned_markets
+        # Now runs after scan_all_opportunities populates market data.
 
         # 2g. Periodic adaptive threshold refresh (every ~100 cycles)
         self._trading_cycle_count += 1
@@ -2392,9 +2393,11 @@ class KalshiTradingBot:
             existing_positions=self.open_positions,
         )
 
-        # Cache scanned market data for governance feed (cold-start fix)
-        # Pull from strategy manager's market cache to feed the governor
+        # Cache scanned market data for governance feed
         self._last_scanned_markets = self._collect_scanned_market_snapshots()
+
+        # Run governance AFTER scan — needs fresh market data for regime detection
+        await self._run_governance()
 
         # Record cycle for health monitor
         if self.health_monitor:
