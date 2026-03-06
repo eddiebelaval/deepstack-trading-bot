@@ -82,7 +82,7 @@ class HeartbeatEngine:
         self._auto_research_interval: int = config.get(
             "auto_research_interval_seconds", _AUTO_RESEARCH_SECONDS
         )
-        self._last_auto_research: float = 0
+        self._last_auto_research: float = time.time()  # Wait full interval before first run
 
         # Load persisted state
         self._state: dict = self._load_state()
@@ -339,8 +339,6 @@ class HeartbeatEngine:
         if now - self._last_auto_research < self._auto_research_interval:
             return
 
-        self._last_auto_research = now
-
         try:
             import importlib
             import sys as _sys
@@ -381,6 +379,9 @@ class HeartbeatEngine:
                     )
             else:
                 logger.debug("Heartbeat: auto-research — no coverage gaps found")
+
+            # Only mark completed after successful run
+            self._last_auto_research = now
 
         except Exception as e:
             logger.debug("Heartbeat: auto-research failed (non-critical): %s", e)

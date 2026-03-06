@@ -49,12 +49,28 @@ from .exceptions import (
     RiskLimitExceeded,
 )
 
-# Configure logging
+# Configure logging with file rotation
+_LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+_LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    format=_LOG_FORMAT,
+    datefmt=_LOG_DATEFMT,
 )
+
+# Add rotating file handler (10 MB max, keep 3 backups)
+_LOG_DIR = Path(__file__).parent.parent / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+from logging.handlers import RotatingFileHandler
+_file_handler = RotatingFileHandler(
+    _LOG_DIR / "deepstack.log",
+    maxBytes=10 * 1024 * 1024,
+    backupCount=3,
+    encoding="utf-8",
+)
+_file_handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+logging.getLogger().addHandler(_file_handler)
+
 logger = logging.getLogger(__name__)
 
 
