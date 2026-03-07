@@ -463,7 +463,9 @@ class HeartbeatEngine:
         governor = getattr(self._bot, "market_governor", None)
         regime_info = "unknown"
         if governor:
-            regime_info = getattr(self._bot, "_current_regime", "unknown")
+            regime_snapshot = getattr(governor, "current_regime", None)
+            if regime_snapshot:
+                regime_info = f"{regime_snapshot.regime.value} (confidence={regime_snapshot.confidence:.2f})"
 
         # Graduation progress (reuses cached report from tick() to avoid double evaluation)
         graduation_section = ""

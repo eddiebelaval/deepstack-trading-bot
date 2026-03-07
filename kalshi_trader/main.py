@@ -1368,11 +1368,12 @@ class KalshiTradingBot:
             await self._scan_and_trade_legacy()
 
         # 5. Captain's Log — narrate if conditions met
+        _regime_snap = getattr(self.market_governor, 'current_regime', None) if self.market_governor else None
         bot_state = {
             "balance": self.risk.account_balance,
             "daily_pnl": self.risk.get_daily_stats()["daily_pnl"],
             "open_positions": len(self.open_positions),
-            "regime": getattr(self, '_current_regime', 'unknown'),
+            "regime": _regime_snap.regime.value if _regime_snap else 'unknown',
             "active_strategies": [
                 name for name, s in self.strategy_manager._strategies.items() if s.enabled
             ] if self.strategy_manager else [],
@@ -1933,7 +1934,7 @@ class KalshiTradingBot:
         safety_disabled = self._auto_disabled_strategies if self.strategy_manager else set()
 
         # Capture pre-cycle regime for change detection
-        pre_regime = getattr(self.market_governor, '_current_regime', None)
+        pre_regime = getattr(self.market_governor, 'current_regime', None)
 
         await self.market_governor.run_cycle(
             active_strategies=active_strategies,
@@ -1943,15 +1944,17 @@ class KalshiTradingBot:
 
         # Captain's Log: detect regime changes and bleed alerts
         if self.captains_log:
-            post_regime = getattr(self.market_governor, '_current_regime', None)
-            if pre_regime and post_regime and pre_regime != post_regime:
+            post_regime = getattr(self.market_governor, 'current_regime', None)
+            pre_val = pre_regime.regime if pre_regime else None
+            post_val = post_regime.regime if post_regime else None
+            if pre_val and post_val and pre_val != post_val:
                 self.captains_log.record_event(NarrationEvent(
                     event_type="regime_shift",
                     priority=EventPriority.SIGNIFICANT,
                     timestamp=datetime.now(timezone.utc),
-                    summary=f"Regime shift: {pre_regime} -> {post_regime}.",
+                    summary=f"Regime shift: {pre_val.value} -> {post_val.value}.",
                     strategy=None,
-                    metadata={"from": str(pre_regime), "to": str(post_regime)},
+                    metadata={"from": pre_val.value, "to": post_val.value},
                 ))
 
             # Check for bleed alerts from governance

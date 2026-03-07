@@ -201,11 +201,12 @@ def _gather_regime(bot) -> str:
     governor = getattr(bot, 'market_governor', None)
     if governor:
         try:
-            regime = getattr(governor, '_current_regime', None)
-            confidence = getattr(governor, '_regime_confidence', None)
-            lines.append(f"- Current regime: {regime or 'unknown'}")
-            if confidence is not None:
-                lines.append(f"- Confidence: {confidence:.1%}")
+            regime_snapshot = getattr(governor, 'current_regime', None)
+            if regime_snapshot:
+                lines.append(f"- Current regime: {regime_snapshot.regime.value}")
+                lines.append(f"- Confidence: {regime_snapshot.confidence:.1%}")
+            else:
+                lines.append("- Current regime: unknown (no snapshots yet)")
         except Exception:
             lines.append("- Regime detection error")
     else:
