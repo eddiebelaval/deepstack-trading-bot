@@ -420,7 +420,15 @@ class PerformanceTracker:
             health_status = "warning"
             consecutive_warnings = prev_warnings + 1
 
-            if consecutive_warnings >= 3 and observed_count >= self.grace_period_trades:
+            # Sustained warning override: if a strategy has been warning for
+            # 100+ consecutive cycles, the grace period no longer protects it.
+            # At that point the blend has had ample time to recover — if EV is
+            # still negative, the strategy is genuinely underperforming.
+            grace_met = (
+                observed_count >= self.grace_period_trades
+                or consecutive_warnings >= 100
+            )
+            if consecutive_warnings >= 3 and grace_met:
                 health_status = "critical"
         elif ev < 0 and observed_count >= 3 and confidence <= 0.2:
             # Low-confidence override: strategy has 3+ trades and blended EV
@@ -431,7 +439,11 @@ class PerformanceTracker:
             health_status = "warning"
             consecutive_warnings = prev_warnings + 1
 
-            if consecutive_warnings >= 5 and observed_count >= self.grace_period_trades:
+            grace_met = (
+                observed_count >= self.grace_period_trades
+                or consecutive_warnings >= 100
+            )
+            if consecutive_warnings >= 5 and grace_met:
                 health_status = "critical"
         else:
             consecutive_warnings = 0
