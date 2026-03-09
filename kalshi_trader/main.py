@@ -218,6 +218,7 @@ class KalshiTradingBot:
         self._inaction_alert_threshold: int = 50  # WARNING at ~25 min
         self._inaction_error_threshold: int = 120  # ERROR at ~1h
         self._inaction_critical_threshold: int = 240  # CRITICAL at ~2h
+        self._inaction_disable_threshold: int = 480  # Auto-disable at ~4h of zero opportunities
         self._inaction_repeat_interval: int = 100  # Re-alert every ~50 min
         self._inaction_last_alert_cycle: Dict[str, int] = {}  # Track last alert cycle per strategy
 
@@ -2451,7 +2452,19 @@ class KalshiTradingBot:
                         interval = self.config.poll_interval_seconds
                         minutes = (cycles * interval) / 60
                         # Escalating severity
-                        if cycles >= self._inaction_critical_threshold:
+                        if cycles >= self._inaction_disable_threshold:
+                            # Auto-disable after sustained inaction — strategy
+                            # is either broken or has no viable markets.
+                            await self._auto_disable_strategy(
+                                name,
+                                reason=(
+                                    f"ZERO opportunities for {cycles} cycles "
+                                    f"(~{minutes:.0f} min). Auto-disabling dead-weight strategy."
+                                ),
+                                log_prefix="INACTION AUTO-DISABLE",
+                            )
+                            self._inaction_cycles[name] = 0
+                        elif cycles >= self._inaction_critical_threshold:
                             logger.critical(
                                 f"INACTION CRITICAL: Strategy '{name}' — ZERO "
                                 f"opportunities for {cycles} cycles (~{minutes:.0f} min). "

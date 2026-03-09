@@ -416,10 +416,22 @@ class PerformanceTracker:
         consecutive_warnings = 0
 
         if ev < 0 and confidence > 0.2:
+            # Standard path: enough data to trust the blend
             health_status = "warning"
             consecutive_warnings = prev_warnings + 1
 
             if consecutive_warnings >= 3 and observed_count >= self.grace_period_trades:
+                health_status = "critical"
+        elif ev < 0 and observed_count >= 3 and confidence <= 0.2:
+            # Low-confidence override: strategy has 3+ trades and blended EV
+            # is negative even with optimistic priors dominating. This is a
+            # strong signal — the observed data is bad enough to drag the
+            # prior-weighted blend below zero. Use a longer fuse (5 warnings)
+            # before escalating to critical.
+            health_status = "warning"
+            consecutive_warnings = prev_warnings + 1
+
+            if consecutive_warnings >= 5 and observed_count >= self.grace_period_trades:
                 health_status = "critical"
         else:
             consecutive_warnings = 0
