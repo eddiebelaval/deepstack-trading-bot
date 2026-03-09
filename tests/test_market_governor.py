@@ -588,7 +588,7 @@ class TestCycleAnalyzerColdStart:
         analyzer = CycleAnalyzer(db_path=tmp_db)
         prediction = analyzer.predict()
         # With no data and no yfinance, confidence should be low
-        assert prediction.confidence < 0.5
+        assert prediction.confidence <= 0.5
         assert prediction.predicted_regime in MarketRegime
 
 

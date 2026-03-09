@@ -922,6 +922,13 @@ class GovernanceEngine:
         # Track governance-disabled strategies and their cooldown times
         self._governance_disabled: Dict[str, datetime] = {}
 
+        # Regime hysteresis: require new regime to persist for N consecutive
+        # detections before switching. Prevents Lexicon signal flapping on
+        # regime boundaries (e.g., oscillating between high_vol_choppy and
+        # low_vol_calm every few cycles).
+        self._regime_hold_cycles: int = 3
+        self._pending_regime_count: int = 0
+
         # Lexicon signal generator (Phase 2) — knowledge-based strategy overlay
         self._lexicon_signal_generator = None
         self._last_lexicon_signals: list = []
@@ -963,7 +970,38 @@ class GovernanceEngine:
         active_strategies = active_strategies or []
         safety_disabled = safety_disabled or set()
 
-        snapshot = self.regime_detector.detect()
+        raw_snapshot = self.regime_detector.detect()
+
+        # Regime hysteresis: only switch if new regime persists for
+        # _regime_hold_cycles consecutive detections. This prevents
+        # Lexicon signal flapping on regime boundaries.
+        if (
+            self.current_regime is not None
+            and raw_snapshot.regime != self.current_regime.regime
+        ):
+            self._pending_regime_count += 1
+            if self._pending_regime_count < self._regime_hold_cycles:
+                # New regime hasn't persisted long enough — keep current
+                snapshot = self.current_regime
+                logger.debug(
+                    "Regime hysteresis: holding %s (pending %s for %d/%d cycles)",
+                    snapshot.regime.value, raw_snapshot.regime.value,
+                    self._pending_regime_count, self._regime_hold_cycles,
+                )
+            else:
+                # New regime persisted — switch
+                snapshot = raw_snapshot
+                self._pending_regime_count = 0
+                logger.info(
+                    "Regime hysteresis: switching %s -> %s (held for %d cycles)",
+                    self.current_regime.regime.value, snapshot.regime.value,
+                    self._regime_hold_cycles,
+                )
+        else:
+            # Same regime as before (or first detection) — reset counter
+            snapshot = raw_snapshot
+            self._pending_regime_count = 0
+
         self.current_regime = snapshot
 
         # Persist regime
