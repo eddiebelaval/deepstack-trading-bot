@@ -11,7 +11,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const apiUrl = process.env.DS_TV_API_URL || 'http://localhost:8100';
+    const apiUrl = process.env.DS_TV_API_URL;
+    if (!apiUrl) {
+      return NextResponse.json({ error: 'DS_TV_API_URL not configured' }, { status: 503 });
+    }
     const res = await fetch(`${apiUrl}/backtest`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
