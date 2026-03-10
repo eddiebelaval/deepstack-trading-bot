@@ -111,7 +111,7 @@ function LoginForm() {
       </div>
 
       <div className="text-center mt-4 text-[9px] text-terminal-dim/30">
-        DEEPSTACK v2.1.0 | id8Labs
+        DAE v3.0 | id8Labs
       </div>
     </div>
   );

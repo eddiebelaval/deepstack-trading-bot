@@ -4,12 +4,12 @@ test.describe('Dashboard E2E Tests', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     // Wait for dashboard to load
-    await page.waitForSelector('text=DEEPSTACK TRADER v2.0', { timeout: 10000 });
+    await page.waitForSelector('text=DAE v3.0', { timeout: 10000 });
   });
 
   test.describe('Page Load', () => {
     test('should display the dashboard header', async ({ page }) => {
-      await expect(page.getByText('DEEPSTACK TRADER v2.0').first()).toBeVisible();
+      await expect(page.getByText('DAE v3.0').first()).toBeVisible();
     });
 
     test('should show strategy cards', async ({ page }) => {
@@ -181,7 +181,7 @@ test.describe('Dashboard E2E Tests', () => {
     test('should show connection status in footer', async ({ page }) => {
       // Look for the footer area - may be a div not a footer element
       // Check for version info which is typically in the footer
-      const versionText = page.locator('text=v2.0');
+      const versionText = page.locator('text=v3.0');
       await expect(versionText.first()).toBeVisible();
     });
   });
@@ -195,7 +195,7 @@ test.describe('Dashboard E2E Tests', () => {
 
       // Refresh page
       await page.reload();
-      await page.waitForSelector('text=DEEPSTACK TRADER v2.0');
+      await page.waitForSelector('text=DAE v3.0');
 
       // Get trades count after refresh
       const afterResponse = await page.request.get('/api/trades');
@@ -214,14 +214,14 @@ test.describe('Dashboard E2E Tests', () => {
       // Give more time for mobile layout to render
       await page.waitForTimeout(2000);
 
-      await expect(page.getByText('DEEPSTACK TRADER v2.0').first()).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText('DAE v3.0').first()).toBeVisible({ timeout: 10000 });
     });
 
     test('should display properly on tablet', async ({ page }) => {
       await page.setViewportSize({ width: 768, height: 1024 });
       await page.reload();
 
-      await expect(page.getByText('DEEPSTACK TRADER v2.0').first()).toBeVisible();
+      await expect(page.getByText('DAE v3.0').first()).toBeVisible();
     });
   });
 });
