@@ -102,7 +102,7 @@ interface GateResult {
 
 export async function GET() {
   try {
-    const results: GateResult[] = withDb((db) => GATES.map((gate) => {
+    const dbResults = withDb((db) => GATES.map((gate) => {
       // Build placeholder list for SQL IN clause
       const placeholders = gate.strategies.map(() => '?').join(',');
 
@@ -256,7 +256,7 @@ export async function GET() {
     }));
 
     return NextResponse.json(
-      { gates: results },
+      { gates: dbResults ?? [] },
       { headers: { 'Cache-Control': 'private, max-age=15' } },
     );
   } catch (error) {

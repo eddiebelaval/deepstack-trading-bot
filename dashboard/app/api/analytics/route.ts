@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json(
-      { view, data },
+      { view, data: data ?? [] },
       { headers: { 'Cache-Control': 'private, max-age=15' } },
     );
   } catch (error) {
