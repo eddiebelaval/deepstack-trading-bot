@@ -10,7 +10,6 @@ import type {
   Order,
   BotConfig,
   CaptainsLogEntry,
-  StrategyStatus,
 } from '@/lib/types';
 import { centsToUSD, shortTime } from '@/lib/format';
 

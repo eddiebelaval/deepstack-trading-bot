@@ -10,7 +10,6 @@ import type {
 } from '@/lib/types';
 import {
   centsToUSD,
-  shortTime,
   shortDate,
   stripMarkdown,
   truncateNote,

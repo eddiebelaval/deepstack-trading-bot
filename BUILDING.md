@@ -322,6 +322,61 @@ IBKR uses a single TCP connection (ib_async). When that connection drops, every 
 
 ---
 
+## Phase 11: Dashboard v3 + Security Audit (Mar 10)
+
+**The dashboard was a single-page monolith with 34 orphaned components from v2.** This phase rebuilt it as a multi-page app and hardened every API route.
+
+### What Was Built
+
+**Dashboard v3 — Multi-Page Architecture**
+- **4 dedicated pages** replacing the single-page layout:
+  - `/` — Command Center: hero balance bar, strategy cards, analytics panel
+  - `/ops` — Operations: strategy toggles, Captain's Log, equity curve, risk meters
+  - `/intel` — Intelligence: regime history, governance decisions, forward signals
+  - `/graduation` — Graduation Gates: per-asset-class gate progress with fitness heatmap
+- **WeatherMap** (`components/WeatherMap.tsx`) — NOAA-style canvas radar visualization of market regime. D3 interpolateRgb color gradients, animated scan lines, quadrant labels.
+- **AnalyticsPanel** (`components/AnalyticsPanel.tsx`) — 6 switchable chart views: daily P&L, cumulative, drawdown, win rate, regime breakdown, fitness heatmap. All recharts-based.
+- **Terminal aesthetic** — green-on-black phosphor theme with custom CSS variables, glow effects, hierarchy system for visual depth.
+- **Research page** (`/research`) — TradingView indicator leaderboard with composite scoring.
+
+**Security Audit Remediation**
+- **PostgREST filter injection** — 5 filter params in `lib/db-postgres.ts` were vulnerable to operator injection. Fixed with `encodeURIComponent()`.
+- **Stricter ISO date regex** — validation for date params tightened to reject malformed timestamps.
+- **API route hardening** — whitelist validation on sort columns, order direction, candlestick periods. NaN guards on all numeric params.
+- **Backtest proxy** — removed silent localhost fallback, replaced with explicit 503 when `DS_TV_API_URL` not configured.
+
+**Dead Code Cleanup**
+- **34 orphaned components** deleted (v2 remnants: Sidebar, Header, StrategyRow, PnLChart, Toast, WinRateGauge, CaptainsLog, etc.)
+- **3 unused hooks** deleted (useKeyboardShortcuts, useSessionTimeout, useSoundEffects)
+- **3 dead API routes** deleted (/api/commands, /api/fills, /api/settlements)
+- **~180 lines dead CSS** removed from globals.css (unused animations, dead classes)
+- **Analytics API** migrated to `withDb()` pattern, added `VALID_VIEWS` set for early validation
+
+**Bug Fixes**
+- **D3 color format mismatch** — `hexToRGBA` assumed `#RRGGBB` but D3's `interpolateRgb` returns `rgb(R,G,B)`. Created `colorToRGBA` with regex detection of both formats.
+- **Chart crashes on non-daily_pnl views** — YAxis ordering, null `.toFixed()` calls, SVG defs ordering in recharts.
+- **formatStrategyName TypeError** — null coalescing guard `(name ?? 'UNKNOWN')`.
+- **React key warnings** — duplicate keys in FitnessHeatmap fixed with index-composite patterns.
+
+### Key Commits
+```
+084e20f feat(dashboard): v3 multi-page rewrite — graduation, ops, intel, chat
+ca13a6d feat(engine): multi-asset graduation gates, IBKR bridge, new strategies
+72435ca fix(security): audit remediation — filter injection, dead code cleanup
+```
+
+### Architecture Decisions
+- **Multi-page over single-page**: The v2 dashboard crammed everything into one scrollable page. At 6+ panels, it was overwhelming and slow. Splitting by concern (command/ops/intel/graduation) keeps each page focused and fast.
+- **Canvas radar over SVG chart**: WeatherMap uses raw canvas for the radar effect. SVG would've been cleaner for interactivity but canvas gives the authentic NOAA weather radar look that sells the terminal aesthetic.
+- **Shared format utilities**: Centralized `REGIME_COLORS`, `formatGateValue`, `regimeColor` into `lib/format.ts` to eliminate duplication across 4+ components.
+
+### Lessons
+- **D3 color formats bite you**: `interpolateRgb` returns CSS `rgb()` strings, not hex. Any parser assuming hex will silently produce garbage colors. Always handle both formats.
+- **Recharts component ordering matters**: `YAxis` with `yAxisId` must appear before any `Line`/`Bar` that references that ID. Silent crash otherwise.
+- **Dead code compounds**: 34 orphaned components = 5,814 lines of deleted code. The v2→v3 rewrite left more dead code than live code. Regular audits prevent this accumulation.
+
+---
+
 ## Current Architecture
 
 ```
@@ -370,7 +425,22 @@ kalshi-trading/
 │   ├── kalshi.py            # Kalshi API
 │   ├── polymarket.py        # Polymarket API (read-only)
 │   └── ibkr.py              # Interactive Brokers (with LexiconOrderRouter)
-├── dashboard/                # Next.js 14 control plane
+├── dashboard/                # Next.js 14 control plane (v3 multi-page)
+│   ├── app/
+│   │   ├── page.tsx          # Command Center (hero bar, strategy cards, analytics)
+│   │   ├── ops/page.tsx      # Operations (toggles, Captain's Log, equity curve)
+│   │   ├── intel/page.tsx    # Intelligence (regime history, governance, signals)
+│   │   ├── graduation/page.tsx # Graduation Gates (per-asset gate progress)
+│   │   └── research/page.tsx # TradingView indicator leaderboard
+│   ├── components/
+│   │   ├── WeatherMap.tsx    # NOAA-style canvas radar (D3 color gradients)
+│   │   ├── AnalyticsPanel.tsx # 6 chart views (recharts)
+│   │   ├── Nav.tsx           # Terminal-style navigation
+│   │   └── StratCard.tsx     # Strategy status cards
+│   └── lib/
+│       ├── db-postgres.ts    # PostgREST abstraction (security-hardened)
+│       ├── format.ts         # Shared formatters (currency, time, regime colors)
+│       └── types.ts          # TypeScript interfaces
 ├── tests/                    # 38+ tests
 ├── config.yaml              # Runtime configuration
 ├── trade_journal.db         # Local persistence (25MB)
@@ -397,9 +467,9 @@ kalshi-trading/
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 100+ |
-| Active build days | 13 (Feb 7 — Mar 10, 2026) |
-| PRs merged | 49+ |
+| Total commits | 110+ |
+| Active build days | 14 (Feb 7 — Mar 10, 2026) |
+| PRs merged | 69 |
 | Strategies | 19 (6 active, 13 disabled) |
 | Tests | 38+ |
 | Real balance | ~$159.64 (from $200 initial) |

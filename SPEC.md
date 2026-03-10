@@ -1,9 +1,9 @@
 # SPEC.md -- Living Specification
 ## DeepStack
 
-> Last reconciled: 2026-03-10 | Build stage: Phase 10 (Wealth Engine)
+> Last reconciled: 2026-03-10 | Build stage: Phase 11 (Dashboard v3 + Security Audit)
 > Drift status: CURRENT
-> VISION alignment: 45% (5 of 11 pillars realized)
+> VISION alignment: 55% (6 of 11 pillars realized)
 
 ---
 
@@ -63,7 +63,15 @@ What this system can do TODAY.
 - **Heartbeat:** Deterministic health checks + periodic AI heartbeat. Arsenal refresh.
 
 ### Observability
-- **Dashboard:** Live at milo.deepstack.trade (Vercel, deepstack-control project). Real-time via Supabase.
+- **Dashboard v3:** Live at milo.deepstack.trade (Vercel, deepstack-control project). Multi-page architecture:
+  - `/` — Command Center: hero balance bar, strategy cards with health dots, AnalyticsPanel (6 chart views)
+  - `/ops` — Operations: strategy toggles with enable/disable, Captain's Log feed, equity curve, risk meters
+  - `/intel` — Intelligence: regime history table, governance decisions, forward signal bridge status, WeatherMap radar
+  - `/graduation` — Graduation Gates: per-asset-class gate progress, fitness heatmap, gate check status
+  - `/research` — TradingView indicator leaderboard with composite scoring
+- **WeatherMap:** NOAA-style canvas radar visualization of market regime. D3 color interpolation, animated scan lines, 4-quadrant layout.
+- **AnalyticsPanel:** 6 switchable views — daily P&L bars, cumulative equity line, drawdown chart, win rate trend with dual Y-axis, regime breakdown area chart, fitness heatmap grid.
+- **API Security:** All PostgREST filters use `encodeURIComponent()`. Whitelist validation on sort columns, order direction. NaN guards on all numeric params. Strict ISO date regex validation.
 - **Telegram Bridge:** Two-way communication. Bot sends alerts. User sends natural language commands. Memory across sessions.
 - **Health Monitor:** Detects zombie states, opportunity drought, API connectivity, WAL size, log growth.
 - **Logging:** Rotating log files (10MB rotation). Bot runs via launchd (com.id8labs.deepstack-bot).
