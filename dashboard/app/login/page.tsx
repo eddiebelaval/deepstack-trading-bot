@@ -1,13 +1,12 @@
 'use client';
 
 import { Suspense, useState, FormEvent } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 
 function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   async function handleSubmit(e: FormEvent) {
@@ -26,7 +25,11 @@ function LoginForm() {
         const from = searchParams.get('from') || '/';
         // Prevent open redirect — only allow relative paths on this origin
         const safePath = from.startsWith('/') && !from.startsWith('//') ? from : '/';
-        router.push(safePath);
+        // Use window.location instead of router.push to bypass Next.js
+        // router cache — the pre-auth 307 redirect is cached and would
+        // loop back to /login even after the cookie is set.
+        window.location.href = safePath;
+        return;
       } else {
         const data = await response.json();
         setError(data.error || 'Authentication failed');
