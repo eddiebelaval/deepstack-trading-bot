@@ -47,7 +47,7 @@ def _db_connection(
 
 
 class MarketRegime(Enum):
-    """Market condition classification derived from Kalshi data."""
+    """Market condition classification derived from market data."""
 
     TRENDING_UP = "trending_up"
     TRENDING_DOWN = "trending_down"
@@ -90,9 +90,10 @@ class MarketSnapshot:
 
     timestamp: datetime
     ticker: str
-    yes_price: float  # 0-100 cents
+    yes_price: float  # 0-100 cents (prediction markets) or dollar cents (stocks)
     volume: int
     open_interest: Optional[int] = None
+    asset_class: str = "prediction_market"  # "prediction_market", "stock", "bond", "future", "option"
 
 
 @dataclass
@@ -106,7 +107,10 @@ class RegimePrediction:
 
 class RegimeDetector:
     """
-    Classifies current market conditions into a regime using Kalshi data.
+    Classifies current market conditions into a regime from price data.
+
+    Scale-independent — works for prediction markets (0-100c), stocks ($550),
+    bonds, futures, or any asset class. All 4 factors are normalized ratios.
 
     Computes 4 factors from a rolling window of market snapshots:
     1. Volatility — normalized price range across active markets
@@ -416,6 +420,21 @@ class StrategyRouter:
         "tv_signals": {
             "trending_up": 0.6, "trending_down": 0.6,
             "mean_reverting": 0.5, "high_vol_choppy": 0.5, "low_vol_calm": 0.5,
+        },
+        # Stock strategies — fitness evaluated against STOCK regime, not PM regime
+        "stock_momentum": {
+            "trending_up": 0.9, "trending_down": 0.2,
+            "mean_reverting": 0.5, "high_vol_choppy": 0.2, "low_vol_calm": 0.6,
+        },
+        # Futures — trend-following, only enters with clear directional regime
+        "futures_trend": {
+            "trending_up": 0.9, "trending_down": 0.85,
+            "mean_reverting": 0.1, "high_vol_choppy": 0.1, "low_vol_calm": 0.2,
+        },
+        # Options — income strategy (selling puts), avoid high vol / downtrends
+        "options_income": {
+            "trending_up": 0.8, "trending_down": 0.1,
+            "mean_reverting": 0.7, "high_vol_choppy": 0.15, "low_vol_calm": 0.85,
         },
     }
 
@@ -902,6 +921,8 @@ class GovernanceEngine:
         self.reenable_cooldown_hours = reenable_cooldown_hours
 
         self.regime_detector = RegimeDetector(lookback_periods=lookback_periods)
+        self.stock_regime_detector = RegimeDetector(lookback_periods=lookback_periods)
+        self._source_column_migrated = False
         self.strategy_router = StrategyRouter(
             db_path=str(self.db_path),
             prior_strength=fitness_min_trades,
@@ -916,6 +937,7 @@ class GovernanceEngine:
         )
         self.cycle_analyzer = CycleAnalyzer(db_path=str(self.db_path))
         self.current_regime: Optional[RegimeSnapshot] = None
+        self.current_stock_regime: Optional[RegimeSnapshot] = None
         self.current_prediction: Optional[RegimePrediction] = None
         self._decisions: List[GovernanceDecision] = []
 
@@ -928,6 +950,10 @@ class GovernanceEngine:
         # low_vol_calm every few cycles).
         self._regime_hold_cycles: int = 3
         self._pending_regime_count: int = 0
+
+        # Forward signal bias from prediction market bridge (Phase 3)
+        # Dict of {regime_name: weight} that biases stock regime detection
+        self._forward_signal_bias: Optional[Dict[str, float]] = None
 
         # Lexicon signal generator (Phase 2) — knowledge-based strategy overlay
         self._lexicon_signal_generator = None
@@ -946,6 +972,26 @@ class GovernanceEngine:
     def feed_market_data(self, markets: List[MarketSnapshot]) -> None:
         """Feed a batch of market data from the current trading cycle."""
         self.regime_detector.add_snapshot(markets)
+
+    def feed_stock_data(self, markets: List[MarketSnapshot]) -> None:
+        """Feed a batch of stock/ETF/index data for equity regime detection.
+
+        Accepts snapshots from IBKR (stocks, bond ETFs, VIX, futures proxies).
+        Uses a separate RegimeDetector instance so stock regime is independent
+        of prediction market regime.
+        """
+        if markets:
+            self.stock_regime_detector.add_snapshot(markets)
+
+    def get_regime_for_asset_class(self, asset_class: str) -> Optional[RegimeSnapshot]:
+        """Get the current regime for a given asset class.
+
+        Stock-like asset classes (stock, bond, future, option) use the stock
+        regime detector. Prediction markets use the PM detector.
+        """
+        if asset_class in ("stock", "bond", "future", "option"):
+            return self.current_stock_regime
+        return self.current_regime
 
     async def run_cycle(
         self,
@@ -1018,6 +1064,74 @@ class GovernanceEngine:
             snapshot.volume_ratio,
             snapshot.num_markets_sampled,
         )
+
+        # Stock regime detection — separate detector, same algorithm
+        stock_raw = self.stock_regime_detector.detect()
+        if stock_raw.num_markets_sampled > 0:
+            # Apply forward signal bias from prediction market bridge
+            # If prediction markets are signaling a direction that matches
+            # the detected stock regime, boost confidence. If they disagree,
+            # reduce it. This gives the bot "sight" — prediction markets
+            # move before stocks, so this accelerates regime shifts.
+            if self._forward_signal_bias:
+                regime_key = stock_raw.regime.value
+                bias_weight = self._forward_signal_bias.get(regime_key, 0)
+                if bias_weight > 0:
+                    # Forward signals CONFIRM stock regime — boost confidence
+                    boosted = min(1.0, stock_raw.confidence + bias_weight * 0.3)
+                    if boosted > stock_raw.confidence:
+                        logger.info(
+                            "Forward signal confirms stock regime %s — "
+                            "boosting confidence %.2f -> %.2f",
+                            regime_key, stock_raw.confidence, boosted,
+                        )
+                        stock_raw = RegimeSnapshot(
+                            regime=stock_raw.regime,
+                            confidence=boosted,
+                            timestamp=stock_raw.timestamp,
+                            volatility=stock_raw.volatility,
+                            trend_strength=stock_raw.trend_strength,
+                            mean_reversion_score=stock_raw.mean_reversion_score,
+                            volume_ratio=stock_raw.volume_ratio,
+                            num_markets_sampled=stock_raw.num_markets_sampled,
+                        )
+                else:
+                    # Check if forward signals point to a DIFFERENT regime
+                    max_bias_regime = max(self._forward_signal_bias, key=self._forward_signal_bias.get)
+                    max_bias = self._forward_signal_bias[max_bias_regime]
+                    if max_bias > 0.3 and max_bias_regime != regime_key:
+                        # Strong forward signal disagrees — dampen stock confidence
+                        dampened = max(0.1, stock_raw.confidence - max_bias * 0.15)
+                        logger.info(
+                            "Forward signal diverges: %s (bias=%.2f) vs stock %s — "
+                            "dampening confidence %.2f -> %.2f",
+                            max_bias_regime, max_bias, regime_key,
+                            stock_raw.confidence, dampened,
+                        )
+                        stock_raw = RegimeSnapshot(
+                            regime=stock_raw.regime,
+                            confidence=dampened,
+                            timestamp=stock_raw.timestamp,
+                            volatility=stock_raw.volatility,
+                            trend_strength=stock_raw.trend_strength,
+                            mean_reversion_score=stock_raw.mean_reversion_score,
+                            volume_ratio=stock_raw.volume_ratio,
+                            num_markets_sampled=stock_raw.num_markets_sampled,
+                        )
+
+            self.current_stock_regime = stock_raw
+            self._persist_regime(stock_raw, regime_source="stock")
+            logger.info(
+                "Governance | stock_regime=%s confidence=%.2f volatility=%.2f "
+                "trend=%.2f mean_rev=%.2f vol_ratio=%.2f markets=%d",
+                stock_raw.regime.value,
+                stock_raw.confidence,
+                stock_raw.volatility,
+                stock_raw.trend_strength,
+                stock_raw.mean_reversion_score,
+                stock_raw.volume_ratio,
+                stock_raw.num_markets_sampled,
+            )
 
         # Lexicon signal generation (Phase 2) — knowledge-based overlay
         if self._lexicon_signal_generator:
@@ -1170,15 +1284,34 @@ class GovernanceEngine:
             mode=self.mode,
         ))
 
-    def _persist_regime(self, snapshot: RegimeSnapshot) -> None:
-        """Save regime snapshot to SQLite."""
+    def _persist_regime(
+        self, snapshot: RegimeSnapshot, regime_source: str = "prediction_market",
+    ) -> None:
+        """Save regime snapshot to SQLite.
+
+        Args:
+            snapshot: The regime detection result.
+            regime_source: Which market produced this regime
+                           ("prediction_market" or "stock").
+        """
         try:
             with _db_connection(self.db_path, wal=True) as conn:
+                # Ensure source column exists (safe migration for existing DBs)
+                if not self._source_column_migrated:
+                    try:
+                        conn.execute(
+                            "ALTER TABLE regime_history ADD COLUMN source TEXT DEFAULT 'prediction_market'"
+                        )
+                    except sqlite3.OperationalError:
+                        pass  # Column already exists
+                    self._source_column_migrated = True
+
                 conn.execute(
                     """INSERT INTO regime_history
                        (regime, confidence, timestamp, volatility, trend_strength,
-                        mean_reversion_score, volume_ratio, num_markets_sampled)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        mean_reversion_score, volume_ratio, num_markets_sampled,
+                        source)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         snapshot.regime.value,
                         snapshot.confidence,
@@ -1188,6 +1321,7 @@ class GovernanceEngine:
                         snapshot.mean_reversion_score,
                         snapshot.volume_ratio,
                         snapshot.num_markets_sampled,
+                        regime_source,
                     ),
                 )
         except Exception as e:

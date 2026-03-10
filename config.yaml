@@ -248,6 +248,100 @@ strategies:
       min_volume: 100
       min_score: 40
 
+  # === Stock Trading Strategies (IBKR) ===
+
+  - name: stock_momentum
+    enabled: true               # ACTIVE: Paper trading via IB Gateway (port 4001)
+    markets:
+      - platform: ibkr
+        series: "*"             # Uses IBKR watchlist from ibkr.watchlist config
+    config:
+      paper_trade: true         # HARD DEFAULT: paper only until graduation gate passes
+      min_sharpe: 1.0           # Minimum Sharpe from TradingView backtests
+      min_win_rate: 60.0        # Minimum win rate % from backtests
+      min_trades: 5             # Minimum backtest trade count (filter noise)
+      min_strategies: 2         # Minimum strategy consensus per ticker
+      take_profit_pct: 0.03     # 3% take profit
+      stop_loss_pct: 0.015      # 1.5% stop loss
+      max_positions: 5          # Max concurrent stock positions
+      min_score: 40             # Minimum consensus score from TV validation
+
+  # === Futures Trading Strategies (IBKR) ===
+
+  - name: futures_trend
+    enabled: true               # ACTIVE: Paper trading micro futures via IB Gateway
+    markets:
+      - platform: ibkr
+        series: "futures"       # Uses IBKR futures_watchlist
+    config:
+      paper_trade: true         # HARD DEFAULT: paper only until graduation gate passes
+      min_regime_confidence: 0.5  # Minimum stock regime confidence to enter
+      take_profit_pct: 0.01     # 1% TP (leveraged — 1 /MES = 5x SPY)
+      stop_loss_pct: 0.005      # 0.5% SL (tight for leverage)
+      max_positions: 2          # Max concurrent futures positions
+      min_score: 40             # Minimum opportunity score
+      allowed_regimes:          # Only trade in these regimes
+        - trending_up
+        - trending_down
+
+  # === Options Trading Strategies (IBKR) ===
+
+  - name: options_income
+    enabled: true               # ACTIVE: Paper trading options via IB Gateway
+    markets:
+      - platform: ibkr
+        series: "options"       # Uses IBKR watchlist for option chain fetching
+    config:
+      paper_trade: true         # HARD DEFAULT: paper only until graduation gate passes
+      min_sharpe: 1.0           # Minimum Sharpe from TV backtests (for underlying)
+      min_win_rate: 60.0        # Minimum win rate from backtests
+      min_strategies: 2         # Minimum TV strategy consensus per ticker
+      target_dte_min: 20        # Minimum days to expiration
+      target_dte_max: 45        # Maximum days to expiration
+      otm_pct_min: 0.05         # Minimum 5% out of the money
+      otm_pct_max: 0.10         # Maximum 10% out of the money
+      min_premium_pct: 0.01     # Minimum 1% of strike in premium
+      max_positions: 3          # Max concurrent option positions
+      min_score: 40             # Minimum opportunity score
+
+  # === Crisis Alpha Strategy (IBKR) ===
+
+  - name: crisis_alpha
+    enabled: true               # ACTIVE: Paper trading inverse ETFs + safe havens
+    markets:
+      - platform: ibkr
+        series: "*"             # Uses IBKR watchlist (crisis tickers added)
+    config:
+      paper_trade: true         # Paper only until graduation gate passes
+      min_regime_confidence: 0.4  # Lower threshold — react faster to crisis signals
+      take_profit_pct: 0.05     # 5% take profit
+      stop_loss_pct: 0.03       # 3% stop loss
+      max_positions: 5          # Max concurrent crisis positions
+      min_score: 35             # Lower threshold — act faster in crisis
+      use_leveraged: true       # Allow 3x inverse ETFs (SQQQ, SDOW)
+      use_geopolitical: true    # Enable oil/defense plays
+
+  # === Options Directional Strategy (IBKR) ===
+
+  - name: options_directional
+    enabled: true               # ACTIVE: Paper trading bought puts/calls
+    markets:
+      - platform: ibkr
+        series: "options"       # Uses IBKR watchlist for option chains
+    config:
+      paper_trade: true         # Paper only until graduation gate passes
+      min_sharpe: 0.8           # Lower Sharpe threshold (directional bets are higher risk)
+      min_win_rate: 55.0        # Lower WR requirement
+      min_strategies: 2         # TV consensus minimum
+      min_regime_confidence: 0.45  # Regime confidence to enter
+      target_dte_min: 14        # Minimum 14 DTE (enough time for move)
+      target_dte_max: 45        # Maximum 45 DTE (avoid time decay)
+      otm_pct_max: 0.20         # Max 20% out of the money
+      take_profit_pct: 0.50     # 50% gain on premium = exit
+      stop_loss_pct: 0.40       # 40% loss on premium = cut
+      max_positions: 4          # Max concurrent option buys
+      min_score: 35             # Opportunity score threshold
+
 risk:
   max_position_size: 10       # Max dollars per trade (P0-4: was $50 = 33% of $152)
   daily_loss_limit: 5         # Stop trading after this daily loss (P0-3: was $100 = 66% of $152)
@@ -293,15 +387,54 @@ cryexc:
 ibkr:
   enabled: true               # Paper trading active (Phase 2)
   host: "127.0.0.1"
-  port: 7497                  # 7497 = paper trading, 7496 = live
+  port: 4002                  # 4002 = IB Gateway paper, 4001 = Gateway live, 7497 = TWS paper
   client_id: 1
   account: ""                 # Leave empty for default account
   watchlist:
-    - SPY
-    - QQQ
+    # Core stock tickers (tradeable)
+    - SPY       # S&P 500 ETF — broad market barometer
+    - QQQ       # Nasdaq 100 ETF — tech sector barometer
     - AAPL
     - MSFT
     - NVDA
+    - AMZN
+    - GOOGL
+    - META
+    - TSLA
+    # Crisis / Inverse ETFs (bought during downtrends)
+    - SQQQ      # -3x Nasdaq 100 — primary bear instrument
+    - SDOW      # -3x Dow Jones — bear instrument
+    - SH        # -1x S&P 500 — conservative bear
+    - UVXY      # 1.5x VIX Futures — volatility spike play
+    # Safe Haven (bought during uncertainty)
+    - GLD       # Gold ETF — safe haven / inflation hedge
+    - TLT       # 20+ Year Treasury Bond ETF — flight to safety
+    # Energy / Geopolitical (oil crisis, war)
+    - USO       # Crude Oil Fund — oil price exposure
+    - XLE       # Energy Sector ETF — broad energy
+    # Defense (war/geopolitical tension)
+    - LMT       # Lockheed Martin — defense contractor
+    - RTX       # RTX Corp (Raytheon) — defense/aerospace
+    - NOC       # Northrop Grumman — defense contractor
+  # Regime indicators — read for regime detection, not traded directly
+  regime_indicators:
+    - VIXY      # VIX short-term futures ETF — fear/volatility gauge
+    - IEF       # 7-10 Year Treasury Bond ETF — intermediate bonds
+    - HYG       # High Yield Corporate Bond ETF — credit risk barometer
+    - DIA       # Dow Jones ETF — broad market (diversifies from SPY/QQQ tech bias)
+  # Micro futures — traded by futures_trend strategy (paper trading)
+  # Micro contracts: 1/10th of standard contracts, lower margin requirements
+  futures_watchlist:
+    - symbol: MES             # Micro E-mini S&P 500 ($5/point, ~$1.5K margin)
+      exchange: CME
+    - symbol: MNQ             # Micro E-mini Nasdaq 100 ($2/point, ~$1.8K margin)
+      exchange: CME
+    - symbol: MYM             # Micro E-mini Dow ($0.50/point, ~$900 margin)
+      exchange: CME
+    - symbol: MGC             # Micro Gold ($10/point, ~$1K margin)
+      exchange: COMEX
+    - symbol: MCL             # Micro Crude Oil ($100/point, ~$800 margin)
+      exchange: NYMEX
 
 # Claude intelligence layer — qualitative analysis of trade journal data.
 # Sends closed trades to Claude for strategy assessment, pattern detection,
@@ -319,8 +452,8 @@ analysis:
 governance:
   enabled: true
   mode: autonomous              # Dae toggles strategies based on regime + fitness data
-  lookback_periods: 20          # Market snapshots for rolling window
-  min_confidence: 0.6           # Minimum regime confidence to act
+  lookback_periods: 10          # Reduced from 20 — faster regime detection for crisis response
+  min_confidence: 0.5           # Reduced from 0.6 — act faster on regime shifts
   fitness_min_trades: 5         # Trades per regime to trust fitness score
   enable_threshold: 0.5         # Fitness above this = enable strategy
   disable_threshold: 0.3        # Fitness below this = disable strategy
@@ -378,9 +511,43 @@ auto_research:
 # Advisory only: Dae tracks progress, Eddie flips the switch.
 graduation:
   enabled: true
-  min_paper_trades: 50               # Minimum closed paper trades
+  min_paper_trades: 50               # Minimum closed paper trades (Kalshi)
   min_win_rate: 0.45                 # Minimum win rate (45%)
   max_drawdown_pct: 15.0             # Max drawdown as % of paper balance ($300 on $2K)
   min_profitable_regimes: 2          # Must be profitable in 2+ distinct regimes
   paper_balance_cents: 200000        # Paper balance in cents ($2,000) for drawdown calc
   notify_telegram: true              # Send Telegram alert when all thresholds pass
+
+# Stock Trading Graduation Gate — separate from Kalshi, tracks stock_momentum paper trades.
+# Uses same trade_journal.db but filters by strategy='stock_momentum'.
+graduation_stocks:
+  enabled: true
+  min_paper_trades: 30               # Fewer needed — stock trades are higher-value
+  min_win_rate: 0.50                 # 50% win rate (stricter — real brokerage at stake)
+  max_drawdown_pct: 10.0             # 10% max drawdown ($23 on $230 account)
+  min_profitable_days: 5             # Must have 5+ profitable trading days
+  min_avg_pnl_per_trade_cents: 50    # Must average $0.50+ per trade (after commissions)
+  paper_balance_cents: 23000         # $230 (current IBKR net liquidation) in cents
+  notify_telegram: true              # Send Telegram alert when stock gate passes
+
+# Futures Trading Graduation Gate — tracks futures_trend paper trades.
+graduation_futures:
+  enabled: true
+  min_paper_trades: 20               # Fewer trades — futures are higher-value
+  min_win_rate: 0.45                 # 45% win rate (trend-following has lower WR, higher R:R)
+  max_drawdown_pct: 8.0              # 8% max drawdown (leveraged = tighter leash)
+  min_profitable_days: 3             # Must have 3+ profitable trading days
+  min_avg_pnl_per_trade_cents: 100   # Must average $1.00+ per trade
+  paper_balance_cents: 50000         # $500 notional paper allocation for futures
+  notify_telegram: true
+
+# Options Trading Graduation Gate — tracks options_income paper trades.
+graduation_options:
+  enabled: true
+  min_paper_trades: 15               # Options trades are less frequent (20-45 DTE holds)
+  min_win_rate: 0.60                 # 60% win rate (put selling should be high WR)
+  max_drawdown_pct: 12.0             # 12% max drawdown (options can have tail risk)
+  min_profitable_days: 3             # Must have 3+ profitable days
+  min_avg_pnl_per_trade_cents: 75    # Must average $0.75+ per trade
+  paper_balance_cents: 50000         # $500 notional paper allocation for options
+  notify_telegram: true

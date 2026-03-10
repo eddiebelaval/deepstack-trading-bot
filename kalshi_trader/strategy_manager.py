@@ -12,6 +12,7 @@ Design Decisions:
 """
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -35,6 +36,7 @@ class StrategyState:
     last_scan_time: Optional[datetime] = None
     scan_count: int = 0
     trade_count: int = 0
+    accepts_governance: bool = False  # Cached: does scan_opportunities accept governance_engine?
 
 
 class StrategyManager:
@@ -156,11 +158,15 @@ class StrategyManager:
                     logger.error(f"Strategy '{name}' config invalid: {error}")
                     continue
 
-                # Create state tracker
+                # Create state tracker (cache governance_engine support check)
+                accepts_gov = "governance_engine" in inspect.signature(
+                    strategy.scan_opportunities
+                ).parameters
                 self._strategies[name] = StrategyState(
                     strategy=strategy,
                     markets=markets,
                     enabled=enabled,
+                    accepts_governance=accepts_gov,
                 )
 
                 logger.info(
@@ -218,12 +224,14 @@ class StrategyManager:
     async def scan_all_opportunities(
         self,
         existing_positions: Optional[Dict[str, Any]] = None,
+        governance_engine: Optional[Any] = None,
     ) -> List[TradingOpportunity]:
         """
         Scan all enabled strategies across all markets.
 
         Args:
             existing_positions: Dict of ticker -> position data to skip
+            governance_engine: GovernanceEngine for regime-aware strategies
 
         Returns:
             List of TradingOpportunity from all strategies, sorted by score
@@ -263,20 +271,59 @@ class StrategyManager:
                         market = self.markets[platform]
 
                         # Fetch market data (with caching)
+                        # IBKR uses special series values for different asset classes
                         cache_key = f"markets:{platform}:{series or 'all'}"
-                        markets_data = await self._market_cache.get_or_fetch(
-                            cache_key,
-                            lambda: market.get_open_markets(series=series),
-                            ttl=30.0,  # 30 second TTL for market lists
-                        )
+                        ibkr_timeout = 15  # seconds — prevent IBKR hangs from blocking cycle
+                        if platform == "ibkr" and series == "futures":
+                            markets_data = await asyncio.wait_for(
+                                self._market_cache.get_or_fetch(
+                                    cache_key,
+                                    lambda: market.get_futures_markets(),
+                                    ttl=30.0,
+                                ),
+                                timeout=ibkr_timeout,
+                            )
+                        elif platform == "ibkr" and series == "options":
+                            markets_data = await asyncio.wait_for(
+                                self._market_cache.get_or_fetch(
+                                    cache_key,
+                                    lambda: market.get_open_markets(),
+                                    ttl=30.0,
+                                ),
+                                timeout=ibkr_timeout,
+                            )
+                        elif platform == "ibkr" and series == "*":
+                            markets_data = await asyncio.wait_for(
+                                self._market_cache.get_or_fetch(
+                                    cache_key,
+                                    lambda: market.get_open_markets(),
+                                    ttl=30.0,
+                                ),
+                                timeout=ibkr_timeout,
+                            )
+                        else:
+                            markets_data = await self._market_cache.get_or_fetch(
+                                cache_key,
+                                lambda: market.get_open_markets(series=series),
+                                ttl=30.0,
+                            )
 
-                        # Find opportunities
-                        opportunities = await state.strategy.scan_opportunities(
-                            markets=markets_data,
-                            existing_positions=existing_positions,
-                        )
+                        # Find opportunities — pass governance_engine to
+                        # strategies that accept it (e.g. stock_momentum)
+                        kwargs: Dict[str, Any] = {
+                            "markets": markets_data,
+                            "existing_positions": existing_positions,
+                        }
+                        if state.accepts_governance and governance_engine:
+                            kwargs["governance_engine"] = governance_engine
+
+                        opportunities = await state.strategy.scan_opportunities(**kwargs)
 
                         all_opportunities.extend(opportunities)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            f"Strategy '{name}' series '{series}' fetch timed out — skipping"
+                        )
                     except Exception as e:
                         logger.error(
                             f"Error scanning strategy '{name}' series '{series}': {e}"

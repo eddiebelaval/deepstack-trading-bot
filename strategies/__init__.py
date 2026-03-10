@@ -75,6 +75,10 @@ from .bear_macro import BearMacroStrategy
 from .market_making import MarketMakingStrategy
 from .tv_signals import TvSignalsStrategy
 from .stock_momentum import StockMomentumStrategy
+from .futures_trend import FuturesTrendStrategy
+from .options_income import OptionsIncomeStrategy
+from .crisis_alpha import CrisisAlphaStrategy
+from .options_directional import OptionsDirectionalStrategy
 
 # Strategy registry - maps name to class
 STRATEGY_REGISTRY = {
@@ -94,6 +98,10 @@ STRATEGY_REGISTRY = {
     "market_making": MarketMakingStrategy,  # Legacy alias for historical data
     "tv_signals": TvSignalsStrategy,
     "stock_momentum": StockMomentumStrategy,
+    "futures_trend": FuturesTrendStrategy,
+    "options_income": OptionsIncomeStrategy,
+    "crisis_alpha": CrisisAlphaStrategy,
+    "options_directional": OptionsDirectionalStrategy,
 }
 
 
@@ -163,6 +171,10 @@ __all__ = [
     "TvSignalsStrategy",
     # Multi-asset strategies
     "StockMomentumStrategy",
+    "FuturesTrendStrategy",
+    "OptionsIncomeStrategy",
+    "CrisisAlphaStrategy",
+    "OptionsDirectionalStrategy",
     # Combinatorial arbitrage components (for advanced usage)
     "MarketRelationshipGraph",
     "ArbitrageScanner",

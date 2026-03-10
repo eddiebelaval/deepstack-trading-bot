@@ -75,6 +75,8 @@ class TelegramBridge:
         self._session_id: str = uuid.uuid4().hex[:12]
         self._db_path: Optional[str] = None
         self._graduation_gate: Optional[GraduationGate] = None
+        self._last_dashboard_poll_iso: Optional[str] = None
+        self._dashboard_poll_counter: int = 0
 
     @property
     def is_available(self) -> bool:
@@ -165,19 +167,142 @@ class TelegramBridge:
             self._db_path = None
 
     def _save_message(self, role: str, content: str) -> None:
-        """Persist a single message to chat_history."""
-        if not self._db_path:
-            return
+        """Persist a single message to chat_history (SQLite) and Supabase chat hub."""
+        # SQLite (local resilience)
+        if self._db_path:
+            try:
+                conn = sqlite3.connect(self._db_path, timeout=5)
+                conn.execute(
+                    "INSERT INTO chat_history (timestamp, session_id, role, content) VALUES (?, ?, ?, ?)",
+                    (time.time(), self._session_id, role, content),
+                )
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logger.debug(f"Memory save failed: {e}")
+
+        # Supabase (unified chat hub — dashboard can see Telegram messages)
+        dashboard = getattr(self.bot, 'dashboard', None)
+        if dashboard:
+            asyncio.ensure_future(self._save_to_chat_hub(dashboard, role, content))
+
+    async def _save_to_chat_hub(self, dashboard: Any, role: str, content: str) -> None:
+        """Fire-and-forget write to Supabase deepstack_chat_messages."""
         try:
-            conn = sqlite3.connect(self._db_path, timeout=5)
-            conn.execute(
-                "INSERT INTO chat_history (timestamp, session_id, role, content) VALUES (?, ?, ?, ?)",
-                (time.time(), self._session_id, role, content),
-            )
-            conn.commit()
-            conn.close()
+            await dashboard._post("chat_messages", {
+                "source": "telegram",
+                "role": role,
+                "content": content,
+                "session_id": self._session_id,
+            })
         except Exception as e:
-            logger.debug(f"Memory save failed: {e}")
+            logger.debug(f"Chat hub sync failed: {e}")
+
+    async def _poll_dashboard_chat(self) -> None:
+        """Poll Supabase for new dashboard-sent chat messages and respond."""
+        dashboard = getattr(self.bot, 'dashboard', None)
+        if not dashboard or not dashboard._client or not dashboard._available:
+            return
+
+        try:
+            params = "source=eq.dashboard&role=eq.user&order=created_at.asc&limit=5"
+            if self._last_dashboard_poll_iso and re.match(
+                r'^\d{4}-\d{2}-\d{2}T[\d:.Z+-]+$', self._last_dashboard_poll_iso
+            ):
+                params += f"&created_at=gt.{self._last_dashboard_poll_iso}"
+
+            response = await dashboard._client.get(
+                dashboard._rest_url("chat_messages"),
+                params=self._parse_postgrest_params(params),
+            )
+
+            if response.status_code != 200:
+                return
+
+            messages = response.json()
+            if not messages:
+                return
+
+            # Update cursor
+            self._last_dashboard_poll_iso = messages[-1]["created_at"]
+
+            for msg in messages:
+                await self._process_dashboard_message(msg["content"])
+        except Exception as e:
+            logger.debug(f"Dashboard chat poll failed: {e}")
+
+    async def _process_dashboard_message(self, text: str) -> None:
+        """Process a message from the dashboard chat hub (same pipeline as Telegram)."""
+        if not text.strip():
+            return
+
+        logger.info(f"Dashboard Chat: received: {text[:80]}")
+
+        # Rate limit (shared with Telegram)
+        now = time.time()
+        if now - self._last_response_time < _MIN_RESPONSE_INTERVAL:
+            wait = _MIN_RESPONSE_INTERVAL - (now - self._last_response_time)
+            await asyncio.sleep(wait)
+
+        try:
+            # Add to conversation memory
+            self._chat_history.append({"role": "user", "content": text})
+
+            # Classify and route (same as Telegram)
+            classified = await self._classify_message(text)
+            intent = classified.get("type", "chat")
+
+            logger.info(f"Dashboard Chat: classified as '{intent}'")
+
+            if intent == "engineer":
+                response = await self._handle_engineer(classified)
+            elif intent == "command":
+                command_name = classified.get("command", "")
+                if command_name in ("signals", "ibkr", "arsenal", "diagnose", "graduation", "manage", "drop", "positions", "update_position", "ladder"):
+                    response = await self._handle_phase2_command(command_name, classified)
+                else:
+                    response = await self._handle_command(text, classified)
+            elif intent == "strategy_query":
+                response = await self._handle_query(text, classified=classified)
+            else:
+                response = await self._handle_query(text)
+
+            if response:
+                response = self._extract_and_save_memories(response)
+                self._chat_history.append({"role": "assistant", "content": response})
+                self._last_response_time = time.time()
+
+                # Write bot response back to chat hub (dashboard will see it)
+                dashboard = getattr(self.bot, 'dashboard', None)
+                if dashboard:
+                    await dashboard._post("chat_messages", {
+                        "source": "dashboard",
+                        "role": "bot",
+                        "content": response,
+                        "session_id": self._session_id,
+                    })
+
+        except Exception as e:
+            logger.error(f"Dashboard Chat: error handling message: {e}", exc_info=True)
+            # Write error response to chat hub
+            dashboard = getattr(self.bot, 'dashboard', None)
+            if dashboard:
+                await dashboard._post("chat_messages", {
+                    "source": "dashboard",
+                    "role": "bot",
+                    "content": f"Error: {str(e)[:200]}",
+                    "session_id": self._session_id,
+                })
+
+    @staticmethod
+    def _parse_postgrest_params(param_string: str) -> Dict[str, str]:
+        """Parse PostgREST query params from a string into a dict."""
+        params: Dict[str, str] = {}
+        for pair in param_string.split("&"):
+            if "=" in pair:
+                key, value = pair.split("=", 1)
+                params[key] = value
+        return params
 
     def _load_previous_session(self) -> None:
         """Load the last 10 messages from previous sessions into short-term memory."""
@@ -316,6 +441,15 @@ class TelegramBridge:
                 await asyncio.sleep(5)  # Back off on errors
                 continue
 
+            # Poll dashboard chat hub every ~3 cycles (~3s)
+            self._dashboard_poll_counter += 1
+            if self._dashboard_poll_counter >= 3:
+                self._dashboard_poll_counter = 0
+                try:
+                    await self._poll_dashboard_chat()
+                except Exception as e:
+                    logger.debug(f"Dashboard chat poll error: {e}")
+
             await asyncio.sleep(1)
 
         logger.info("Telegram Bridge: polling stopped")
@@ -392,8 +526,8 @@ class TelegramBridge:
             elif intent == "command":
                 # Check for Phase 2 read commands first
                 command_name = classified.get("command", "")
-                if command_name in ("signals", "ibkr", "arsenal", "diagnose", "graduation"):
-                    response = await self._handle_phase2_command(command_name)
+                if command_name in ("signals", "ibkr", "arsenal", "diagnose", "graduation", "manage", "drop", "positions", "update_position", "ladder"):
+                    response = await self._handle_phase2_command(command_name, classified)
                 else:
                     response = await self._handle_command(text, classified)
             elif intent == "strategy_query":
@@ -447,6 +581,12 @@ Parse the user's message into one of these categories:
   - "arsenal" / "arsenal status" / "show arsenal" / "top indicators" -> {"type": "command", "command": "arsenal", "args": {}}
   - "diagnose" / "run diagnostics" / "test api" / "check connectivity" -> {"type": "command", "command": "diagnose", "args": {}}
   - "graduation" / "graduation status" / "go-live status" / "ready for live?" -> {"type": "command", "command": "graduation", "args": {}}
+  - "manage GNS" / "adopt GNS" / "watch GNS" -> {"type": "command", "command": "manage", "args": {"symbol": "GNS"}}
+  - "manage TSLA sl 10 tp 30" -> {"type": "command", "command": "manage", "args": {"symbol": "TSLA", "stop_loss": 10, "take_profit": 30}}
+  - "drop GNS" / "release GNS" / "stop managing GNS" -> {"type": "command", "command": "drop", "args": {"symbol": "GNS"}}
+  - "positions" / "managed positions" / "what am I holding?" / "my positions" -> {"type": "command", "command": "positions", "args": {}}
+  - "set sl on GNS to 20" / "change take profit on GNS to 50" -> {"type": "command", "command": "update_position", "args": {"symbol": "GNS", "stop_loss": 20}}
+  - "ladder GNS" / "show ladder" / "sell plan" / "GNS ladder" -> {"type": "command", "command": "ladder", "args": {"symbol": "GNS"}}
 
 - engineer: Requests for Dae to modify his own code, fix bugs, improve strategies, or update config. Examples:
   - "fix the momentum strategy" -> {"type": "engineer", "task": "fix the momentum strategy"}
@@ -669,13 +809,15 @@ Only tag genuinely important facts. Don't tag routine questions or status checks
             logger.error(f"Telegram Bridge: engineer failed: {e}", exc_info=True)
             return f"Engineering failed: {str(e)[:200]}"
 
-    async def _handle_phase2_command(self, command_name: str) -> str:
+    async def _handle_phase2_command(self, command_name: str, classified: Optional[dict] = None) -> str:
         """
-        Handle Phase 2 read commands: /signals, /ibkr, /arsenal.
+        Handle Phase 2 read commands: /signals, /ibkr, /arsenal, /manage, etc.
 
         These read from GovernanceEngine and IBKR state rather than
         controlling bot behavior, so they bypass CommandProcessor.
         """
+        args = (classified or {}).get("args", {})
+
         if command_name == "signals":
             return await self._cmd_signals()
         elif command_name == "ibkr":
@@ -686,6 +828,14 @@ Only tag genuinely important facts. Don't tag routine questions or status checks
             return await self._cmd_diagnose()
         elif command_name == "graduation":
             return self._cmd_graduation()
+        elif command_name == "manage":
+            return await self._cmd_manage(args)
+        elif command_name == "drop":
+            return await self._cmd_drop(args)
+        elif command_name == "positions":
+            return await self._cmd_positions()
+        elif command_name == "update_position":
+            return await self._cmd_update_position(args)
         return f"Unknown Phase 2 command: {command_name}"
 
     async def _cmd_signals(self) -> str:
@@ -885,6 +1035,126 @@ Only tag genuinely important facts. Don't tag routine questions or status checks
         if not self._graduation_gate:
             return "Graduation gate not initialized. Set graduation.enabled=true in config.yaml."
         return self._graduation_gate.get_progress_summary()
+
+    async def _cmd_manage(self, args: dict) -> str:
+        """Adopt an IBKR position for Dae to manage."""
+        symbol = args.get("symbol", "").upper()
+        if not symbol:
+            return "Which symbol? Example: manage TSLA"
+
+        adoption = getattr(self.bot, "_position_adoption", None)
+        if not adoption:
+            return "Position adoption not initialized."
+
+        ibkr = getattr(self.bot, "_ibkr_market", None)
+        if not ibkr or not getattr(ibkr, "_connected", False):
+            return "IBKR not connected. Can't verify position."
+
+        try:
+            positions = await ibkr.get_positions()
+        except Exception as e:
+            return f"IBKR query failed: {str(e)[:200]}"
+
+        # Find the position in IBKR
+        ibkr_pos = None
+        for p in positions:
+            if p["ticker"].upper() == symbol:
+                ibkr_pos = p
+                break
+
+        if not ibkr_pos:
+            available = [p["ticker"] for p in positions]
+            return (
+                f"No position found for {symbol} in IBKR.\n"
+                f"Current holdings: {', '.join(available) if available else 'none'}"
+            )
+
+        sl = args.get("stop_loss", 15.0)
+        tp = args.get("take_profit", 25.0)
+
+        success = adoption.adopt(
+            symbol=symbol,
+            qty=ibkr_pos["contracts"],
+            avg_cost_cents=ibkr_pos["avg_cost_cents"],
+            stop_loss_pct=float(sl),
+            take_profit_pct=float(tp),
+        )
+
+        if success:
+            avg = ibkr_pos["avg_cost_cents"] / 100
+            return (
+                f"Adopted {symbol} x{ibkr_pos['contracts']} @ ${avg:.2f}\n"
+                f"Stop Loss: -{sl}% | Take Profit: +{tp}%\n"
+                f"I'll track this every cycle and alert you on triggers."
+            )
+        return f"Failed to adopt {symbol}."
+
+    async def _cmd_drop(self, args: dict) -> str:
+        """Release an adopted position from Dae's management."""
+        symbol = args.get("symbol", "").upper()
+        if not symbol:
+            return "Which symbol? Example: drop GNS"
+
+        adoption = getattr(self.bot, "_position_adoption", None)
+        if not adoption:
+            return "Position adoption not initialized."
+
+        if adoption.drop(symbol):
+            return f"Dropped {symbol}. No longer managing that position."
+        return f"{symbol} is not currently managed."
+
+    async def _cmd_positions(self) -> str:
+        """Show all managed positions with current P&L and trigger status."""
+        adoption = getattr(self.bot, "_position_adoption", None)
+        if not adoption:
+            return "Position adoption not initialized."
+
+        ibkr = getattr(self.bot, "_ibkr_market", None)
+        if not ibkr or not getattr(ibkr, "_connected", False):
+            # Show adopted list without live prices
+            active = adoption.get_active()
+            if not active:
+                return "No adopted positions. Use 'manage SYMBOL' to adopt one."
+            lines = [f"[Managed Positions ({len(active)})] (IBKR offline — no live prices)"]
+            for p in active:
+                lines.append(f"  {p['symbol']} x{p['qty']} | SL: -{p['stop_loss_pct']:.0f}% | TP: +{p['take_profit_pct']:.0f}%")
+            return "\n".join(lines)
+
+        try:
+            ibkr_positions = await ibkr.get_positions()
+        except Exception:
+            ibkr_positions = []
+
+        from .position_adoption import PositionAdoption
+        snapshots = adoption.check_triggers(ibkr_positions)
+        return PositionAdoption.format_status(snapshots)
+
+    async def _cmd_update_position(self, args: dict) -> str:
+        """Update TP/SL for an adopted position."""
+        symbol = args.get("symbol", "").upper()
+        if not symbol:
+            return "Which symbol? Example: set sl on TSLA to 20"
+
+        adoption = getattr(self.bot, "_position_adoption", None)
+        if not adoption:
+            return "Position adoption not initialized."
+
+        sl = args.get("stop_loss")
+        tp = args.get("take_profit")
+
+        if sl is not None:
+            sl = float(sl)
+        if tp is not None:
+            tp = float(tp)
+
+        if adoption.update_params(symbol, stop_loss_pct=sl, take_profit_pct=tp):
+            parts = []
+            if sl is not None:
+                parts.append(f"SL: -{sl:.0f}%")
+            if tp is not None:
+                parts.append(f"TP: +{tp:.0f}%")
+            return f"Updated {symbol}: {', '.join(parts)}"
+        return f"{symbol} is not currently managed."
 
     async def _handle_command(self, text: str, classified: dict) -> str:
         """

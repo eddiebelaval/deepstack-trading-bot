@@ -23,6 +23,7 @@ Usage:
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 import uuid
@@ -141,6 +142,13 @@ class KalshiTradingBot:
 
         # Market governance engine (optional, regime-aware strategy routing)
         self.market_governor: Optional[GovernanceEngine] = None
+        self.forward_signal_bridge = None
+
+        # News feed — lightweight headline sentiment (plugs into ForwardSignalBridge)
+        self.news_feed = None
+
+        # Position adoption — manage Eddie's pre-existing IBKR positions
+        self._position_adoption = None
 
         # Captain's Log narration engine (optional, enabled via config)
         self.captains_log: Optional[CaptainsLog] = None
@@ -426,6 +434,35 @@ class KalshiTradingBot:
             )
             logger.info("Market governor initialized (mode=%s)", gov_cfg.mode)
 
+            # Attach ForwardSignalBridge — cross-market intelligence layer
+            from .forward_signal_bridge import ForwardSignalBridge
+            self.forward_signal_bridge = ForwardSignalBridge(
+                lookback_cycles=gov_cfg.lookback_periods,
+                signal_decay_cycles=5,
+            )
+            if os.environ.get("DEEPSTACK_SIGNAL_TESTING") == "1":
+                self.forward_signal_bridge.set_testing_mode(True)
+            logger.info("Forward signal bridge attached to governance engine")
+
+            # Attach NewsFeed — lightweight headline sentiment signal source
+            try:
+                from .news_feed import NewsFeed
+                self.news_feed = NewsFeed(poll_interval_minutes=5)
+                logger.info("News feed attached to forward signal bridge")
+            except Exception as exc:
+                logger.warning("News feed init failed (non-fatal): %s", exc)
+                self.news_feed = None
+
+            # Attach PositionAdoption — manage Eddie's pre-existing IBKR positions
+            try:
+                from .position_adoption import PositionAdoption
+                self._position_adoption = PositionAdoption(
+                    journal_db_path=str(self.journal.db_path),
+                )
+                logger.info("Position adoption initialized")
+            except Exception as exc:
+                logger.warning("Position adoption init failed (non-fatal): %s", exc)
+
             # Attach LexiconSignalGenerator if enabled (Phase 2)
             if yaml_cfg.lexicon_signals.enabled:
                 from .strategies.lexicon_signal_generator import LexiconSignalGenerator
@@ -555,6 +592,9 @@ class KalshiTradingBot:
             self.graduation_gate = GraduationGate(
                 config=yaml_cfg.graduation,
                 journal_db_path=str(self.config.journal_db_path),
+                stocks_config=yaml_cfg.graduation_stocks if yaml_cfg.graduation_stocks.enabled else None,
+                futures_config=yaml_cfg.graduation_futures if yaml_cfg.graduation_futures.enabled else None,
+                options_config=yaml_cfg.graduation_options if yaml_cfg.graduation_options.enabled else None,
             )
             if self.heartbeat:
                 self.heartbeat.set_graduation_gate(self.graduation_gate)
@@ -655,7 +695,7 @@ class KalshiTradingBot:
                     )
 
                     # Attach LexiconOrderRouter for paper signal trading (Phase 2)
-                    if ibkr_config.get("port") == 7497:  # Paper port only
+                    if ibkr_config.get("port") in (7497, 4001):  # Paper port (TWS or Gateway)
                         from markets.ibkr import LexiconOrderRouter
                         self._lexicon_order_router = LexiconOrderRouter(
                             ibkr_market=ibkr_market,
@@ -1127,6 +1167,10 @@ class KalshiTradingBot:
             if self.heartbeat:
                 await self.heartbeat.close()
 
+            # Close news feed HTTP session
+            if self.news_feed:
+                await self.news_feed.close()
+
             # Disconnect CryExc bridge
             if self._cryexc_bridge:
                 await self._cryexc_bridge.disconnect()
@@ -1568,7 +1612,9 @@ class KalshiTradingBot:
             # Push IBKR holdings and balance snapshot (if IBKR is connected)
             if self._ibkr_market and self._ibkr_market._connected:
                 try:
-                    ibkr_positions = await self._ibkr_market.get_positions()
+                    ibkr_positions = await asyncio.wait_for(
+                        self._ibkr_market.get_positions(), timeout=10
+                    )
                     if ibkr_positions:
                         holdings = [
                             {
@@ -1584,12 +1630,64 @@ class KalshiTradingBot:
                         ]
                         await self.dashboard.push_holdings(holdings)
 
-                    ibkr_balance = await self._ibkr_market.get_balance()
+                    ibkr_balance = await asyncio.wait_for(
+                        self._ibkr_market.get_balance(), timeout=10
+                    )
                     await self.dashboard.push_balance_snapshot({
                         "platform": "ibkr",
                         "end_balance_cents": int(ibkr_balance.get("balance", 0) * 100),
                         "start_balance_cents": int(ibkr_balance.get("balance", 0) * 100),
                     })
+
+                    # Check adopted position triggers (TP/SL + ladder alerts)
+                    if self._position_adoption and ibkr_positions:
+                        try:
+                            snapshots = self._position_adoption.check_triggers(ibkr_positions)
+                            for snap in snapshots:
+                                if snap.sl_triggered:
+                                    alert = (
+                                        f"[STOP LOSS] {snap.symbol} x{snap.qty} "
+                                        f"at ${snap.current_price:.2f} "
+                                        f"(entry ${snap.avg_cost:.2f}, P&L {snap.pnl_pct:+.1f}%)"
+                                    )
+                                    logger.warning(alert)
+                                    if self.telegram_bridge and self.telegram_bridge.is_available:
+                                        await self.telegram_bridge._send_message(alert)
+                                elif snap.tp_triggered:
+                                    alert = (
+                                        f"[TAKE PROFIT] {snap.symbol} x{snap.qty} "
+                                        f"at ${snap.current_price:.2f} "
+                                        f"(entry ${snap.avg_cost:.2f}, P&L {snap.pnl_pct:+.1f}%)"
+                                    )
+                                    logger.info(alert)
+                                    if self.telegram_bridge and self.telegram_bridge.is_available:
+                                        await self.telegram_bridge._send_message(alert)
+
+                                # Check sell ladder triggers
+                                current_cents = int(snap.current_price * 100)
+                                triggered = self._position_adoption.check_ladder_triggers(
+                                    snap.symbol, current_cents
+                                )
+                                for tranche in triggered:
+                                    target = tranche["target_price_cents"] / 100
+                                    label = tranche.get("label", "")
+                                    alert = (
+                                        f"[LADDER T{tranche['tranche']}] {snap.symbol} "
+                                        f"hit ${target:.2f} — SELL {tranche['qty']} shares"
+                                    )
+                                    if label:
+                                        alert += f" ({label})"
+                                    logger.info(alert)
+                                    if self.telegram_bridge and self.telegram_bridge.is_available:
+                                        await self.telegram_bridge._send_message(alert)
+                                    self._position_adoption.mark_tranche_triggered(
+                                        snap.symbol, tranche["tranche"]
+                                    )
+                        except Exception as e:
+                            logger.debug(f"Position adoption check failed: {e}")
+
+                except asyncio.TimeoutError:
+                    logger.warning("IBKR holdings/balance fetch timed out — skipping dashboard push")
                 except Exception as e:
                     logger.debug(f"Failed to push IBKR data: {e}")
 
@@ -1927,6 +2025,43 @@ class KalshiTradingBot:
         if snapshots:
             self.market_governor.feed_market_data(snapshots)
 
+        # 3. Stock/ETF/Index snapshots from IBKR for equity regime detection
+        # Combines tradeable watchlist + regime-only indicators (VIX, bonds, gold)
+        # Note: ib_async uses a single connection — run fetches sequentially
+        # to avoid reqMktData interleaving issues.
+        stock_snapshots = []
+        if hasattr(self, '_ibkr_market') and self._ibkr_market:
+            now = datetime.now()
+            for fetch_name, fetch_coro in [
+                ("watchlist", self._ibkr_market.get_open_markets()),
+                ("indicators", self._ibkr_market.get_regime_indicators()),
+            ]:
+                try:
+                    results = await asyncio.wait_for(fetch_coro, timeout=15)
+                    for md in results:
+                        ticker = md.get("ticker", "")
+                        price = md.get("last_price", 0)
+                        if ticker and price > 0:
+                            stock_snapshots.append(MarketSnapshot(
+                                timestamp=now,
+                                ticker=ticker,
+                                yes_price=float(price),
+                                volume=int(md.get("volume", 0)),
+                                asset_class=md.get("asset_class", "stock"),
+                            ))
+                except asyncio.TimeoutError:
+                    logger.warning(f"IBKR {fetch_name} fetch timed out (15s) — skipping")
+                except Exception as e:
+                    logger.debug(f"IBKR {fetch_name} fetch for regime failed: {e}")
+
+            logger.info(
+                f"IBKR regime feed: {len(stock_snapshots)} snapshots "
+                f"from watchlist + indicators"
+            )
+
+        if stock_snapshots:
+            self.market_governor.feed_stock_data(stock_snapshots)
+
         # Gather strategy info for routing
         active_strategies = (
             list(self.strategy_manager._strategies.keys())
@@ -1934,8 +2069,14 @@ class KalshiTradingBot:
         )
         safety_disabled = self._auto_disabled_strategies if self.strategy_manager else set()
 
+        # Inject forward signal bias into governance before cycle runs
+        if self.forward_signal_bridge:
+            regime_bias = self.forward_signal_bridge.get_regime_bias()
+            self.market_governor._forward_signal_bias = regime_bias
+
         # Capture pre-cycle regime for change detection
         pre_regime = getattr(self.market_governor, 'current_regime', None)
+        pre_stock_regime = getattr(self.market_governor, 'current_stock_regime', None)
 
         await self.market_governor.run_cycle(
             active_strategies=active_strategies,
@@ -1953,9 +2094,23 @@ class KalshiTradingBot:
                     event_type="regime_shift",
                     priority=EventPriority.SIGNIFICANT,
                     timestamp=datetime.now(timezone.utc),
-                    summary=f"Regime shift: {pre_val.value} -> {post_val.value}.",
+                    summary=f"PM regime shift: {pre_val.value} -> {post_val.value}.",
                     strategy=None,
-                    metadata={"from": pre_val.value, "to": post_val.value},
+                    metadata={"from": pre_val.value, "to": post_val.value, "market": "prediction"},
+                ))
+
+            # Stock regime change detection
+            post_stock_regime = getattr(self.market_governor, 'current_stock_regime', None)
+            pre_stock_val = pre_stock_regime.regime if pre_stock_regime else None
+            post_stock_val = post_stock_regime.regime if post_stock_regime else None
+            if pre_stock_val and post_stock_val and pre_stock_val != post_stock_val:
+                self.captains_log.record_event(NarrationEvent(
+                    event_type="regime_shift",
+                    priority=EventPriority.SIGNIFICANT,
+                    timestamp=datetime.now(timezone.utc),
+                    summary=f"Stock regime shift: {pre_stock_val.value} -> {post_stock_val.value}.",
+                    strategy=None,
+                    metadata={"from": pre_stock_val.value, "to": post_stock_val.value, "market": "stock"},
                 ))
 
             # Check for bleed alerts from governance
@@ -2108,13 +2263,25 @@ class KalshiTradingBot:
                     ticker = trade.get("market_ticker")
                     if not ticker or ticker in self.open_positions:
                         continue  # Skip duplicates (keep first = oldest)
+                    # Infer asset class from strategy name for routing
+                    strategy = trade.get("strategy", "unknown")
+                    if strategy in ("stock_momentum", "crisis_alpha"):
+                        asset_class = "stock"
+                    elif strategy == "futures_trend":
+                        asset_class = "future"
+                    elif strategy in ("options_income", "options_directional"):
+                        asset_class = "option"
+                    else:
+                        asset_class = "prediction_market"
+
                     self.open_positions[ticker] = {
                         "trade_id": trade.get("id"),
                         "order_id": order_id,
                         "side": trade.get("side", "yes"),
                         "contracts": trade.get("contracts", 1),
                         "entry_price": trade.get("entry_price_cents", 0),
-                        "strategy": trade.get("strategy", "unknown"),
+                        "strategy": strategy,
+                        "asset_class": asset_class,
                     }
                 if self.open_positions:
                     logger.info(
@@ -2168,52 +2335,73 @@ class KalshiTradingBot:
 
         for ticker, position in list(self.open_positions.items()):
             try:
-                # Get current market price
-                market = await self.client.get_market(ticker)
+                # Route market data fetch by asset class
+                pos_asset_class = position.get("asset_class", "prediction_market")
+                is_ibkr = pos_asset_class in ("stock", "future", "option")
 
-                if market.get("status") not in ("open", "active"):
-                    # Paper trades: resolve settlement via market result
-                    if self.paper_trade and market.get("result"):
-                        result = market["result"]
-                        closed = self.journal.close_trades_by_settlement(ticker, result)
-
-                        # Calculate settlement P&L for risk management feedback
-                        side = position.get("side", "yes")
-                        entry = position.get("entry_price", 0)
-                        contracts = position.get("contracts", 1)
-                        if result == "yes":
-                            settle_price = 100 if side == "yes" else 0
-                        else:
-                            settle_price = 0 if side == "yes" else 100
-                        pnl = (settle_price - entry) * contracts
-
-                        logger.info(
-                            f"[PAPER] Settlement: {ticker} -> {result} | "
-                            f"side={side} entry={entry}c settle={settle_price}c "
-                            f"P&L={pnl:+d}c | closed {closed} journal entries"
+                if is_ibkr and hasattr(self, '_ibkr_market') and self._ibkr_market:
+                    try:
+                        market = await asyncio.wait_for(
+                            self._ibkr_market.get_market(ticker), timeout=10
                         )
-
-                        if closed > 0:
-                            # Feed P&L to risk management (resets consecutive loss counter on wins)
-                            strategy_name = position.get("strategy", "calibration_edge")
-                            self._update_circuit_breaker_state(strategy_name, pnl)
-                            self.risk.record_trade_result(ticker, pnl, contracts)
-                            if self.market_governor:
-                                self.market_governor.record_trade_outcome(strategy_name, pnl)
-                            self._apply_adaptive_thresholds()
-                            self._check_lab_milestones()
-                    else:
-                        logger.info(f"Market {ticker} no longer open, removing from tracking")
-                    del self.open_positions[ticker]
-                    if self.strategy_manager:
-                        self.strategy_manager.record_position_close(ticker)
-                    continue
-
-                # Determine current price for our side
-                if position["side"] == "yes":
-                    current_price = market.get("yes_bid", 50)
+                    except asyncio.TimeoutError:
+                        logger.debug(f"IBKR market fetch for {ticker} timed out — skipping")
+                        continue
+                    except (ValueError, Exception) as e:
+                        logger.debug(f"IBKR market fetch for {ticker}: {e}")
+                        continue
                 else:
-                    current_price = market.get("no_bid", 50)
+                    market = await self.client.get_market(ticker)
+
+                # IBKR positions: skip Kalshi-style settlement logic
+                if is_ibkr:
+                    # For IBKR, current price is last_price in cents
+                    current_price = market.get("last_price", 0)
+                    if current_price <= 0:
+                        logger.debug(f"IBKR position {ticker}: no price data, skipping exit check")
+                        continue
+                else:
+                    # Kalshi: check market status and settlement
+                    if market.get("status") not in ("open", "active"):
+                        if self.paper_trade and market.get("result"):
+                            result = market["result"]
+                            closed = self.journal.close_trades_by_settlement(ticker, result)
+
+                            side = position.get("side", "yes")
+                            entry = position.get("entry_price", 0)
+                            contracts = position.get("contracts", 1)
+                            if result == "yes":
+                                settle_price = 100 if side == "yes" else 0
+                            else:
+                                settle_price = 0 if side == "yes" else 100
+                            pnl = (settle_price - entry) * contracts
+
+                            logger.info(
+                                f"[PAPER] Settlement: {ticker} -> {result} | "
+                                f"side={side} entry={entry}c settle={settle_price}c "
+                                f"P&L={pnl:+d}c | closed {closed} journal entries"
+                            )
+
+                            if closed > 0:
+                                strategy_name = position.get("strategy", "calibration_edge")
+                                self._update_circuit_breaker_state(strategy_name, pnl)
+                                self.risk.record_trade_result(ticker, pnl, contracts)
+                                if self.market_governor:
+                                    self.market_governor.record_trade_outcome(strategy_name, pnl)
+                                self._apply_adaptive_thresholds()
+                                self._check_lab_milestones()
+                        else:
+                            logger.info(f"Market {ticker} no longer open, removing from tracking")
+                        del self.open_positions[ticker]
+                        if self.strategy_manager:
+                            self.strategy_manager.record_position_close(ticker)
+                        continue
+
+                    # Kalshi: determine current price for our side
+                    if position["side"] == "yes":
+                        current_price = market.get("yes_bid", 50)
+                    else:
+                        current_price = market.get("no_bid", 50)
 
                 # Check exit conditions
                 if self.use_strategy_manager:
@@ -2277,17 +2465,57 @@ class KalshiTradingBot:
                     f"{exit_signal.current_price_cents}c | reason: {exit_signal.exit_type}"
                 )
             else:
-                # Round 9 P0 (Tanaka): Closing orders bypass the API circuit breaker.
-                # Position-closing is more critical than circuit breaker protection —
-                # holding through a flash crash is worse than a failed sell attempt.
-                order = await self.client.create_limit_order(
-                    ticker=ticker,
-                    side=side,
-                    action="sell",
-                    count=contracts,
-                    price_cents=exit_signal.current_price_cents,
-                    bypass_circuit_breaker=True,
-                )
+                # Route exit to correct market based on position metadata
+                pos_asset_class = position.get("asset_class", "prediction_market")
+                is_ibkr_exit = pos_asset_class in ("stock", "future", "option")
+
+                if is_ibkr_exit and hasattr(self, '_ibkr_market') and self._ibkr_market:
+                    metadata = position.get("metadata", {})
+                    if pos_asset_class == "future":
+                        order = await self._ibkr_market.place_futures_order(
+                            symbol=metadata.get("symbol", ticker.split("-")[0]),
+                            exchange=metadata.get("exchange", "CME"),
+                            expiry=metadata.get("expiry", ""),
+                            action="sell" if side in ("yes", "buy") else "buy",
+                            count=contracts,
+                            price_cents=exit_signal.current_price_cents,
+                        )
+                    elif pos_asset_class == "option":
+                        # For sold puts: buying back = "buy" action
+                        exit_action = "buy" if position.get("side") == "sell" else "sell"
+                        order = await self._ibkr_market.place_options_order(
+                            underlying=metadata.get("underlying", ""),
+                            expiry=metadata.get("expiry", ""),
+                            strike=metadata.get("strike", 0),
+                            right=metadata.get("right", "P"),
+                            action=exit_action,
+                            count=contracts,
+                            price_cents=exit_signal.current_price_cents,
+                        )
+                    else:
+                        order = await self._ibkr_market.place_order(
+                            ticker=ticker,
+                            side=side,
+                            action="sell",
+                            count=contracts,
+                            price_cents=exit_signal.current_price_cents,
+                        )
+                    logger.info(
+                        f"IBKR {pos_asset_class} exit: {ticker} | {contracts} @ "
+                        f"{exit_signal.current_price_cents}c | reason: {exit_signal.exit_type}"
+                    )
+                else:
+                    # Round 9 P0 (Tanaka): Closing orders bypass the API circuit breaker.
+                    # Position-closing is more critical than circuit breaker protection —
+                    # holding through a flash crash is worse than a failed sell attempt.
+                    order = await self.client.create_limit_order(
+                        ticker=ticker,
+                        side=side,
+                        action="sell",
+                        count=contracts,
+                        price_cents=exit_signal.current_price_cents,
+                        bypass_circuit_breaker=True,
+                    )
 
             # Update journal
             if trade_id := position.get("trade_id"):
@@ -2414,10 +2642,59 @@ class KalshiTradingBot:
         # Scan all strategies
         opportunities = await self.strategy_manager.scan_all_opportunities(
             existing_positions=self.open_positions,
+            governance_engine=self.market_governor,
         )
 
         # Cache scanned market data for governance feed
         self._last_scanned_markets = self._collect_scanned_market_snapshots()
+
+        # Forward Signal Bridge: feed Kalshi market data and detect signals
+        if self.forward_signal_bridge and self.strategy_manager:
+            for key, entry in list(self.strategy_manager._market_cache._cache.items()):
+                if not key.startswith("markets:kalshi:") or entry.is_expired:
+                    continue
+                series = key.split(":")[-1]  # e.g., "KXBTC" from "markets:kalshi:KXBTC"
+                if isinstance(entry.value, list):
+                    self.forward_signal_bridge.ingest_kalshi_markets(entry.value, series)
+
+            forward_signals = self.forward_signal_bridge.detect_signals()
+            if forward_signals:
+                summary = self.forward_signal_bridge.get_status_summary()
+                logger.info("Forward signal bridge: %s", summary.replace("\n", " | "))
+
+                # Log significant signals to Captain's Log
+                if self.captains_log:
+                    self.captains_log.record_event(NarrationEvent(
+                        event_type="forward_signal",
+                        priority=EventPriority.SIGNIFICANT,
+                        timestamp=datetime.now(timezone.utc),
+                        summary=summary,
+                        strategy=None,
+                        metadata=self.forward_signal_bridge.get_composite_signal(),
+                    ))
+            else:
+                # Show accumulation status so we can validate the bridge is working
+                status_parts = []
+                for series, history in self.forward_signal_bridge._price_history.items():
+                    if history:
+                        delta = abs(history[-1].avg_price - history[0].avg_price) if len(history) > 1 else 0
+                        status_parts.append(f"{series}:{len(history)}pts/{delta:.1f}c")
+                if status_parts:
+                    logger.info("Forward signal bridge: no signals | %s", ", ".join(status_parts))
+
+        # News Feed: poll headlines and inject sentiment into forward signal bridge
+        if self.news_feed and self.forward_signal_bridge:
+            try:
+                news_signal = await self.news_feed.get_latest_signal()
+                if news_signal and news_signal.confidence >= 0.2:
+                    self.forward_signal_bridge.ingest_news_signal(news_signal.to_dict())
+
+                # Check geopolitical risk separately (higher weight for crisis strategies)
+                geo_signal = await self.news_feed.get_geopolitical_signal()
+                if geo_signal and geo_signal.confidence >= 0.15:
+                    self.forward_signal_bridge.ingest_news_signal(geo_signal.to_dict())
+            except Exception as exc:
+                logger.debug("News feed poll error (non-fatal): %s", exc)
 
         # Run governance AFTER scan — needs fresh market data for regime detection
         await self._run_governance()
@@ -2722,52 +2999,101 @@ class KalshiTradingBot:
                 # Fall through to position tracking below (same as live)
             else:
                 # --- LIVE trading path ---
-                # Check exchange status before placing order
-                exchange_status = await self.client.check_exchange_status()
-                if not exchange_status["trading_active"]:
+                # Route to correct market based on asset_class
+                asset_class = getattr(opp, 'asset_class', 'prediction_market')
+                is_ibkr = asset_class in ("stock", "future", "option")
+
+                if is_ibkr and hasattr(self, '_ibkr_market') and self._ibkr_market:
+                    # IBKR multi-asset trading path
+                    if asset_class == "future":
+                        metadata = opp.metadata or {}
+                        order = await self._ibkr_market.place_futures_order(
+                            symbol=metadata.get("symbol", ticker.split("-")[0]),
+                            exchange=metadata.get("exchange", "CME"),
+                            expiry=metadata.get("expiry", ""),
+                            action=opp.side,
+                            count=contracts,
+                            price_cents=opp.entry_price_cents,
+                        )
+                    elif asset_class == "option":
+                        metadata = opp.metadata or {}
+                        order = await self._ibkr_market.place_options_order(
+                            underlying=metadata.get("underlying", ""),
+                            expiry=metadata.get("expiry", ""),
+                            strike=metadata.get("strike", 0),
+                            right=metadata.get("right", "P"),
+                            action=opp.side,
+                            count=contracts,
+                            price_cents=opp.entry_price_cents,
+                        )
+                    else:
+                        # Stock order
+                        order = await self._ibkr_market.place_order(
+                            ticker=ticker,
+                            side=opp.side,
+                            action="buy",
+                            count=contracts,
+                            price_cents=opp.entry_price_cents,
+                        )
+
+                    order_id = order.get("order_id")
+                    if not order_id:
+                        logger.error(f"No order_id returned for {ticker} (IBKR {asset_class}) — cannot confirm fill")
+                        return False
+
+                    actual_contracts = contracts
                     logger.info(
-                        f"Skipping trade {ticker}: exchange not open "
-                        f"(status={exchange_status['exchange_status']})"
+                        f"IBKR {asset_class} order placed: {ticker} | {opp.side} {contracts} @ "
+                        f"{opp.entry_price_cents}c | status={order.get('status')}"
                     )
-                    return False
+                else:
+                    # Kalshi prediction market path
+                    # Check exchange status before placing order
+                    exchange_status = await self.client.check_exchange_status()
+                    if not exchange_status["trading_active"]:
+                        logger.info(
+                            f"Skipping trade {ticker}: exchange not open "
+                            f"(status={exchange_status['exchange_status']})"
+                        )
+                        return False
 
-                # Place limit order
-                order = await self.client.create_limit_order(
-                    ticker=ticker,
-                    side=opp.side,
-                    action="buy",
-                    count=contracts,
-                    price_cents=opp.entry_price_cents,
-                )
-
-                order_id = order.get("order_id")
-                if not order_id:
-                    logger.error(f"No order_id returned for {ticker} — cannot confirm fill")
-                    return False
-
-                # Round 10 P0 (Desai): Fill confirmation loop.
-                # Don't record position until order is confirmed filled.
-                # Without this, unfilled limit orders become phantom positions
-                # that block re-entry and corrupt risk calculations.
-                fill_ttl = getattr(self.config, 'order_fill_ttl_seconds', 90)
-                filled_contracts = await self._wait_for_fill(
-                    order_id, ticker, ttl_seconds=fill_ttl
-                )
-
-                if filled_contracts == 0:
-                    # TTL expired with no fill — cancel and move on
-                    cancelled = await self.client.cancel_order(order_id)
-                    logger.info(
-                        f"Order UNFILLED for {ticker} after {fill_ttl}s — "
-                        f"{'cancelled' if cancelled else 'cancel failed'} "
-                        f"(order_id={order_id})"
+                    # Place limit order
+                    order = await self.client.create_limit_order(
+                        ticker=ticker,
+                        side=opp.side,
+                        action="buy",
+                        count=contracts,
+                        price_cents=opp.entry_price_cents,
                     )
-                    return False
 
-                # Use actual filled count (may differ from requested on partial fills)
-                actual_contracts = filled_contracts
+                    order_id = order.get("order_id")
+                    if not order_id:
+                        logger.error(f"No order_id returned for {ticker} — cannot confirm fill")
+                        return False
 
-                # Log trade (confirmed fill)
+                    # Round 10 P0 (Desai): Fill confirmation loop.
+                    # Don't record position until order is confirmed filled.
+                    # Without this, unfilled limit orders become phantom positions
+                    # that block re-entry and corrupt risk calculations.
+                    fill_ttl = getattr(self.config, 'order_fill_ttl_seconds', 90)
+                    filled_contracts = await self._wait_for_fill(
+                        order_id, ticker, ttl_seconds=fill_ttl
+                    )
+
+                    if filled_contracts == 0:
+                        # TTL expired with no fill — cancel and move on
+                        cancelled = await self.client.cancel_order(order_id)
+                        logger.info(
+                            f"Order UNFILLED for {ticker} after {fill_ttl}s — "
+                            f"{'cancelled' if cancelled else 'cancel failed'} "
+                            f"(order_id={order_id})"
+                        )
+                        return False
+
+                    # Use actual filled count (may differ from requested on partial fills)
+                    actual_contracts = filled_contracts
+
+                # Log trade (confirmed fill — both IBKR and Kalshi)
                 trade_id = self.journal.log_trade(
                     market_ticker=ticker,
                     side=opp.side,
@@ -2787,6 +3113,7 @@ class KalshiTradingBot:
                 "contracts": actual_contracts,
                 "entry_price": opp.entry_price_cents,
                 "strategy": strategy_name,
+                "asset_class": getattr(opp, 'asset_class', 'prediction_market'),
             }
 
             # Record position open in risk management
