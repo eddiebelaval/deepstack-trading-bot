@@ -14,6 +14,7 @@ Design:
 
 import asyncio
 import logging
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -23,6 +24,27 @@ from .base import Market
 from .ibkr_types import StockPosition
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_price(val, price_to_cents_fn) -> int:
+    """Convert price to cents, handling NaN and None."""
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return 0
+    return price_to_cents_fn(val)
+
+
+def _safe_int(val) -> int:
+    """Convert to int, handling NaN and None."""
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return 0
+    return int(val)
+
+
+def _safe_float(val) -> float:
+    """Convert to float, handling NaN and None."""
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return 0.0
+    return float(val)
 
 
 class IBKRMarket(Market):
@@ -50,6 +72,10 @@ class IBKRMarket(Market):
         self._watchlist = config.get(
             "watchlist", ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
         )
+        self._regime_indicators = config.get(
+            "regime_indicators", ["VIXY", "TLT", "IEF", "HYG", "GLD", "DIA"]
+        )
+        self._futures_watchlist = config.get("futures_watchlist", [])
         self._circuit_breaker = None
 
     @property
@@ -64,13 +90,16 @@ class IBKRMarket(Market):
             True if connection succeeded, False otherwise.
         """
         try:
-            from ib_insync import IB
+            from ib_async import IB
             from kalshi_trader.api_circuit_breaker import CircuitBreaker
 
+            from kalshi_trader.api_circuit_breaker import CircuitBreakerConfig
             self._circuit_breaker = CircuitBreaker(
                 name="ibkr_connection",
-                failure_threshold=3,
-                timeout_seconds=60.0,
+                config=CircuitBreakerConfig(
+                    failure_threshold=3,
+                    timeout_seconds=60.0,
+                ),
             )
 
             self._ib = IB()
@@ -81,6 +110,9 @@ class IBKRMarket(Market):
                 timeout=15,
             )
             self._connected = True
+
+            # Request delayed market data (free) if real-time not subscribed
+            self._ib.reqMarketDataType(3)  # 3 = delayed, 1 = live, 4 = delayed-frozen
 
             if self._account:
                 self._ib.managedAccounts()
@@ -144,31 +176,43 @@ class IBKRMarket(Market):
             List of normalized market dicts compatible with the Market ABC.
         """
         self._ensure_connected()
-        from ib_insync import Stock
+        from ib_async import Stock
 
         symbols = self._watchlist if not series else [series]
         markets = []
 
+        # Batch: qualify and request all contracts first, then sleep once
+        tickers_map = {}  # symbol -> (contract, ticker)
         for symbol in symbols[:limit]:
             try:
                 contract = Stock(symbol, "SMART", "USD")
-                self._ib.qualifyContracts(contract)
+                await self._ib.qualifyContractsAsync(contract)
                 ticker = self._ib.reqMktData(contract, snapshot=True)
-                await asyncio.sleep(0.5)  # Allow data to arrive
+                tickers_map[symbol] = (contract, ticker)
+            except Exception as e:
+                logger.warning(f"Failed to qualify {symbol}: {e}")
+
+        # Single sleep for all data to arrive (vs 1s per ticker)
+        if tickers_map:
+            await asyncio.sleep(2.0)
+
+        # Collect results
+        for symbol, (contract, ticker) in tickers_map.items():
+            try:
+                sp = lambda v: _safe_price(v, self._price_to_cents)
+                last = sp(ticker.last) or sp(ticker.close) or sp(ticker.bid)
 
                 markets.append(
                     {
                         "ticker": symbol,
                         "title": f"{symbol} Stock",
-                        "yes_bid": self._price_to_cents(ticker.bid or 0),
-                        "yes_ask": self._price_to_cents(ticker.ask or 0),
+                        "yes_bid": sp(ticker.bid),
+                        "yes_ask": sp(ticker.ask),
                         "no_bid": 0,
                         "no_ask": 0,
-                        "last_price": self._price_to_cents(
-                            ticker.last or ticker.close or 0
-                        ),
-                        "volume": int(ticker.volume or 0),
-                        "volume_24h": int(ticker.volume or 0),
+                        "last_price": last,
+                        "volume": _safe_int(ticker.volume),
+                        "volume_24h": _safe_int(ticker.volume),
                         "open_interest": 0,
                         "close_time": None,
                         "expiration_time": None,
@@ -179,11 +223,384 @@ class IBKRMarket(Market):
                 )
 
                 self._ib.cancelMktData(contract)
-
             except Exception as e:
                 logger.warning(f"Failed to fetch quote for {symbol}: {e}")
 
         return markets
+
+    async def get_regime_indicators(self) -> List[Dict]:
+        """Fetch quotes for regime indicator ETFs (VIX proxy, bonds, gold, broad market).
+
+        These are read-only for regime detection — not traded by stock_momentum.
+        Returns the same normalized dict format as get_open_markets().
+        """
+        self._ensure_connected()
+        from ib_async import Stock
+
+        indicators = []
+
+        # Batch: qualify and request all indicators first, then sleep once
+        tickers_map = {}
+        for symbol in self._regime_indicators:
+            try:
+                contract = Stock(symbol, "SMART", "USD")
+                await self._ib.qualifyContractsAsync(contract)
+                ticker = self._ib.reqMktData(contract, snapshot=True)
+                tickers_map[symbol] = (contract, ticker)
+            except Exception as e:
+                logger.warning(f"Failed to qualify regime indicator {symbol}: {e}")
+
+        if tickers_map:
+            await asyncio.sleep(2.0)
+
+        for symbol, (contract, ticker) in tickers_map.items():
+            try:
+                sp = lambda v: _safe_price(v, self._price_to_cents)
+                last = sp(ticker.last) or sp(ticker.close) or sp(ticker.bid)
+
+                asset_class = "stock"
+                if symbol in ("TLT", "IEF", "HYG", "BND", "AGG"):
+                    asset_class = "bond"
+                elif symbol in ("VIXY", "VXX", "UVXY"):
+                    asset_class = "volatility"
+                elif symbol in ("GLD", "SLV", "IAU"):
+                    asset_class = "commodity"
+
+                indicators.append({
+                    "ticker": symbol,
+                    "title": f"{symbol} Regime Indicator",
+                    "last_price": last,
+                    "volume": _safe_int(ticker.volume),
+                    "asset_class": asset_class,
+                    "is_regime_indicator": True,
+                })
+
+                self._ib.cancelMktData(contract)
+            except Exception as e:
+                logger.warning(f"Failed to fetch regime indicator {symbol}: {e}")
+
+        return indicators
+
+    async def get_futures_markets(self) -> List[Dict]:
+        """Fetch quotes for micro futures contracts.
+
+        Uses the futures_watchlist from config. Each entry specifies:
+        - symbol: Root symbol (e.g., "MES" for Micro E-mini S&P)
+        - exchange: Exchange (e.g., "CME")
+
+        Automatically finds the front-month contract (nearest expiry).
+
+        Returns:
+            List of normalized market dicts with asset_class="future".
+        """
+        self._ensure_connected()
+        from ib_async import Future
+
+        if not self._futures_watchlist:
+            return []
+
+        markets = []
+        for fut_config in self._futures_watchlist:
+            symbol = fut_config.get("symbol", "")
+            exchange = fut_config.get("exchange", "CME")
+            if not symbol:
+                continue
+
+            try:
+                # Request front-month contract (empty lastTradeDateOrContractMonth
+                # + qualifyContracts finds the nearest expiry)
+                contract = Future(symbol, exchange=exchange)
+                qualified = await self._ib.qualifyContractsAsync(contract)
+                if not qualified:
+                    logger.debug(f"No futures contract found for {symbol}")
+                    continue
+
+                contract = qualified[0]
+                ticker_data = self._ib.reqMktData(contract, snapshot=True)
+                await asyncio.sleep(1.0)
+
+                sp = lambda v: _safe_price(v, self._price_to_cents)
+                last = sp(ticker_data.last) or sp(ticker_data.close)
+                # Futures ticker includes expiry: e.g., "MES-202606"
+                expiry = getattr(contract, 'lastTradeDateOrContractMonth', '')
+                display_ticker = f"{symbol}-{expiry}" if expiry else symbol
+
+                markets.append({
+                    "ticker": display_ticker,
+                    "symbol": symbol,
+                    "title": f"{symbol} Future ({expiry})",
+                    "last_price": last,
+                    "yes_bid": sp(ticker_data.bid),
+                    "yes_ask": sp(ticker_data.ask),
+                    "no_bid": 0,
+                    "no_ask": 0,
+                    "volume": _safe_int(ticker_data.volume),
+                    "volume_24h": _safe_int(ticker_data.volume),
+                    "open_interest": 0,
+                    "status": "open",
+                    "asset_class": "future",
+                    "exchange": exchange,
+                    "expiry": expiry,
+                    "contract_id": contract.conId,
+                    "multiplier": float(getattr(contract, 'multiplier', 1) or 1),
+                })
+
+                self._ib.cancelMktData(contract)
+
+            except Exception as e:
+                logger.warning(f"Failed to fetch futures quote for {symbol}: {e}")
+
+        return markets
+
+    async def get_options_chain(
+        self,
+        underlying: str,
+        right: str = "P",
+        max_dte: int = 45,
+        strike_range_pct: float = 0.10,
+    ) -> List[Dict]:
+        """Fetch option chain for an underlying stock.
+
+        Args:
+            underlying: Stock symbol (e.g., "SPY")
+            right: "C" for calls, "P" for puts
+            max_dte: Maximum days to expiration
+            strike_range_pct: Strike range as % of current price (e.g., 0.10 = +/-10%)
+
+        Returns:
+            List of option contract dicts with asset_class="option".
+        """
+        self._ensure_connected()
+        from ib_async import Stock, Option
+        from datetime import datetime as dt, timedelta
+
+        try:
+            # Get underlying price first
+            stock = Stock(underlying, "SMART", "USD")
+            await self._ib.qualifyContractsAsync(stock)
+            stock_ticker = self._ib.reqMktData(stock, snapshot=True)
+            await asyncio.sleep(1.0)
+
+            stock_price = stock_ticker.last
+            if stock_price is None or (isinstance(stock_price, float) and math.isnan(stock_price)):
+                stock_price = stock_ticker.close
+            if stock_price is None or (isinstance(stock_price, float) and math.isnan(stock_price)):
+                logger.warning(f"No price for {underlying}, can't fetch options")
+                self._ib.cancelMktData(stock)
+                return []
+
+            self._ib.cancelMktData(stock)
+
+            # Calculate strike range
+            low_strike = stock_price * (1 - strike_range_pct)
+            high_strike = stock_price * (1 + strike_range_pct)
+
+            # Get available option chains
+            chains = await self._ib.reqSecDefOptParamsAsync(
+                underlyingSymbol=underlying,
+                futFopExchange="",
+                underlyingSecType="STK",
+                underlyingConId=stock.conId,
+            )
+
+            if not chains:
+                return []
+
+            # Use SMART exchange chain
+            chain = None
+            for c in chains:
+                if c.exchange == "SMART":
+                    chain = c
+                    break
+            if not chain:
+                chain = chains[0]
+
+            # Filter expirations by max_dte
+            today = dt.now().date()
+            max_date = today + timedelta(days=max_dte)
+            valid_expiries = sorted([
+                exp for exp in chain.expirations
+                if today < dt.strptime(exp, "%Y%m%d").date() <= max_date
+            ])
+
+            if not valid_expiries:
+                return []
+
+            # Use nearest valid expiry
+            expiry = valid_expiries[0]
+
+            # Filter strikes within range
+            valid_strikes = sorted([
+                s for s in chain.strikes
+                if low_strike <= s <= high_strike
+            ])
+
+            if not valid_strikes:
+                return []
+
+            # Fetch quotes for filtered options (limit to 10 strikes)
+            options = []
+            for strike in valid_strikes[:10]:
+                try:
+                    opt = Option(underlying, expiry, strike, right, "SMART")
+                    qualified = await self._ib.qualifyContractsAsync(opt)
+                    if not qualified:
+                        continue
+
+                    opt = qualified[0]
+                    opt_ticker = self._ib.reqMktData(opt, snapshot=True)
+                    await asyncio.sleep(0.5)
+
+                    sp = lambda v: _safe_price(v, self._price_to_cents)
+                    bid = sp(opt_ticker.bid)
+                    ask = sp(opt_ticker.ask)
+                    last = sp(opt_ticker.last) or ((bid + ask) // 2 if bid and ask else 0)
+
+                    # DTE calculation
+                    exp_date = dt.strptime(expiry, "%Y%m%d").date()
+                    dte = (exp_date - today).days
+
+                    display_ticker = f"{underlying}-{expiry}-{strike}-{right}"
+
+                    options.append({
+                        "ticker": display_ticker,
+                        "underlying": underlying,
+                        "title": f"{underlying} {strike}{right} {expiry}",
+                        "strike": strike,
+                        "right": right,
+                        "expiry": expiry,
+                        "dte": dte,
+                        "last_price": last,
+                        "yes_bid": bid,
+                        "yes_ask": ask,
+                        "no_bid": 0,
+                        "no_ask": 0,
+                        "volume": 0,
+                        "volume_24h": 0,
+                        "open_interest": 0,
+                        "status": "open",
+                        "asset_class": "option",
+                        "exchange": "SMART",
+                        "underlying_price": self._price_to_cents(stock_price),
+                        "contract_id": opt.conId,
+                    })
+
+                    self._ib.cancelMktData(opt)
+
+                except Exception as e:
+                    logger.debug(f"Failed to fetch option {underlying} {strike}{right}: {e}")
+
+            return options
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch options chain for {underlying}: {e}")
+            return []
+
+    async def place_futures_order(
+        self,
+        symbol: str,
+        exchange: str,
+        expiry: str,
+        action: str,
+        count: int,
+        price_cents: int,
+        order_type: str = "limit",
+    ) -> Dict:
+        """Place a futures order via IB.
+
+        Args:
+            symbol: Futures root symbol (e.g., "MES")
+            exchange: Exchange (e.g., "CME")
+            expiry: Contract expiry (e.g., "202606")
+            action: "buy" or "sell"
+            count: Number of contracts
+            price_cents: Limit price in cents
+            order_type: "limit" or "market"
+        """
+        self._ensure_connected()
+        from ib_async import Future, LimitOrder, MarketOrder
+
+        contract = Future(symbol, expiry, exchange)
+        await self._ib.qualifyContractsAsync(contract)
+
+        price = self._cents_to_price(price_cents)
+        ib_action = action.upper()
+
+        if order_type == "market":
+            order = MarketOrder(ib_action, count)
+        else:
+            order = LimitOrder(ib_action, count, price)
+
+        trade = self._ib.placeOrder(contract, order)
+        await asyncio.sleep(0.1)
+
+        return {
+            "order_id": str(trade.order.orderId),
+            "ticker": f"{symbol}-{expiry}",
+            "side": action,
+            "action": action,
+            "count": count,
+            "price": price_cents,
+            "status": trade.orderStatus.status,
+            "asset_class": "future",
+            "created_time": datetime.now(timezone.utc).isoformat(),
+        }
+
+    async def place_options_order(
+        self,
+        underlying: str,
+        expiry: str,
+        strike: float,
+        right: str,
+        action: str,
+        count: int,
+        price_cents: int,
+        order_type: str = "limit",
+    ) -> Dict:
+        """Place an options order via IB.
+
+        Args:
+            underlying: Stock symbol (e.g., "SPY")
+            expiry: Expiration date (e.g., "20260320")
+            strike: Strike price (e.g., 550.0)
+            right: "C" for call, "P" for put
+            action: "buy" or "sell"
+            count: Number of contracts
+            price_cents: Limit price in cents (per share, not per contract)
+            order_type: "limit" or "market"
+        """
+        self._ensure_connected()
+        from ib_async import Option, LimitOrder, MarketOrder
+
+        contract = Option(underlying, expiry, strike, right, "SMART")
+        await self._ib.qualifyContractsAsync(contract)
+
+        price = self._cents_to_price(price_cents)
+        ib_action = action.upper()
+
+        if order_type == "market":
+            order = MarketOrder(ib_action, count)
+        else:
+            order = LimitOrder(ib_action, count, price)
+
+        trade = self._ib.placeOrder(contract, order)
+        await asyncio.sleep(0.1)
+
+        return {
+            "order_id": str(trade.order.orderId),
+            "ticker": f"{underlying}-{expiry}-{strike}-{right}",
+            "underlying": underlying,
+            "side": action,
+            "action": action,
+            "count": count,
+            "price": price_cents,
+            "strike": strike,
+            "right": right,
+            "expiry": expiry,
+            "status": trade.orderStatus.status,
+            "asset_class": "option",
+            "created_time": datetime.now(timezone.utc).isoformat(),
+        }
 
     async def get_market(self, ticker: str) -> Dict:
         """
@@ -231,7 +648,7 @@ class IBKRMarket(Market):
             Order details dict.
         """
         self._ensure_connected()
-        from ib_insync import LimitOrder, MarketOrder, Stock
+        from ib_async import LimitOrder, MarketOrder, Stock
 
         # Map side: stocks use buy/sell, prediction markets use yes/no
         # For stocks: action determines direction
@@ -241,7 +658,7 @@ class IBKRMarket(Market):
             ib_action = "BUY" if side == "yes" else "SELL"
 
         contract = Stock(ticker, "SMART", "USD")
-        self._ib.qualifyContracts(contract)
+        await self._ib.qualifyContractsAsync(contract)
 
         price = self._cents_to_price(price_cents)
 
@@ -286,6 +703,11 @@ class IBKRMarket(Market):
         """
         Get all stock positions with current market data.
 
+        Uses IB's cached portfolio data (populated on connect via
+        updatePortfolio callbacks) rather than making fresh snapshot
+        requests. This is both faster and more reliable for delayed
+        data subscriptions.
+
         Returns:
             List of position dicts in the normalized Market ABC format.
             Side is mapped: positive qty -> "yes", negative -> "no".
@@ -293,48 +715,75 @@ class IBKRMarket(Market):
         self._ensure_connected()
 
         positions = []
-        for pos in self._ib.positions():
-            contract = pos.contract
-            avg_cost = pos.avgCost  # IB returns per-share cost
-            qty = int(pos.position)
 
-            if qty == 0:
-                continue
+        # Prefer portfolio() which includes live market values from
+        # updatePortfolio callbacks (no extra market data requests needed).
+        portfolio_items = self._ib.portfolio()
 
-            # Request current price
-            current_price = avg_cost  # Fallback
-            try:
-                ticker = self._ib.reqMktData(contract, snapshot=True)
-                await asyncio.sleep(0.3)
-                if ticker.last and ticker.last > 0:
-                    current_price = ticker.last
-                elif ticker.close and ticker.close > 0:
-                    current_price = ticker.close
-                self._ib.cancelMktData(contract)
-            except Exception:
-                pass
+        if portfolio_items:
+            for item in portfolio_items:
+                contract = item.contract
+                qty = int(item.position)
+                if qty == 0:
+                    continue
 
-            market_value = qty * current_price
-            unrealized_pnl = (current_price - avg_cost) * qty
+                avg_cost = item.averageCost
+                market_price = _safe_float(item.marketPrice)
+                market_value = _safe_float(item.marketValue)
+                unrealized_pnl = _safe_float(item.unrealizedPNL)
 
-            positions.append(
-                {
-                    "ticker": contract.symbol,
-                    "position": qty,
-                    "contracts": abs(qty),
-                    "side": "yes" if qty > 0 else "no",
-                    "avg_cost_cents": self._price_to_cents(avg_cost),
-                    "current_price_cents": self._price_to_cents(current_price),
-                    "market_value_cents": self._price_to_cents(market_value),
-                    "unrealized_pnl_cents": self._price_to_cents(
-                        unrealized_pnl
-                    ),
-                    "realized_pnl": 0,
-                    "resting_orders_count": 0,
-                    "asset_class": "stock",
-                    "exchange": contract.exchange or "SMART",
-                }
-            )
+                # If market price is 0 or missing, fall back to avg cost
+                if market_price <= 0:
+                    market_price = avg_cost
+
+                positions.append(
+                    {
+                        "ticker": contract.symbol,
+                        "position": qty,
+                        "contracts": abs(qty),
+                        "side": "yes" if qty > 0 else "no",
+                        "avg_cost_cents": self._price_to_cents(avg_cost),
+                        "current_price_cents": self._price_to_cents(market_price),
+                        "market_value_cents": self._price_to_cents(market_value),
+                        "unrealized_pnl_cents": self._price_to_cents(unrealized_pnl),
+                        "realized_pnl": 0,
+                        "resting_orders_count": 0,
+                        "asset_class": "stock",
+                        "exchange": contract.exchange or "SMART",
+                    }
+                )
+        else:
+            # Fallback: positions() without market values
+            ib_positions = self._ib.positions()
+            if not ib_positions:
+                try:
+                    ib_positions = await self._ib.reqPositionsAsync()
+                except Exception:
+                    ib_positions = []
+
+            for pos in ib_positions:
+                contract = pos.contract
+                avg_cost = pos.avgCost
+                qty = int(pos.position)
+                if qty == 0:
+                    continue
+
+                positions.append(
+                    {
+                        "ticker": contract.symbol,
+                        "position": qty,
+                        "contracts": abs(qty),
+                        "side": "yes" if qty > 0 else "no",
+                        "avg_cost_cents": self._price_to_cents(avg_cost),
+                        "current_price_cents": self._price_to_cents(avg_cost),
+                        "market_value_cents": self._price_to_cents(avg_cost * qty),
+                        "unrealized_pnl_cents": 0,
+                        "realized_pnl": 0,
+                        "resting_orders_count": 0,
+                        "asset_class": "stock",
+                        "exchange": contract.exchange or "SMART",
+                    }
+                )
 
         return positions
 
@@ -347,7 +796,8 @@ class IBKRMarket(Market):
         """
         self._ensure_connected()
 
-        summary = self._ib.accountSummary()
+        # Use async accountSummary to avoid event loop collision
+        summary = await self._ib.accountSummaryAsync()
         result = {
             "balance": 0.0,
             "available": 0.0,

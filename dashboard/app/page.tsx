@@ -1,622 +1,469 @@
-'use client';
+"use client";
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import Sidebar from '@/components/Sidebar';
-import Header from '@/components/Header';
-import StrategyRow from '@/components/StrategyRow';
-import CaptainsLog from '@/components/CaptainsLog';
-import LiveFeed from '@/components/LiveFeed';
-import RiskMetricsCard from '@/components/RiskMetrics';
-import TradeJournal from '@/components/TradeJournal';
-import PnLChart from '@/components/PnLChart';
-import PerformanceHero from '@/components/PerformanceHero';
-import TradeActivity from '@/components/TradeActivity';
-import WinRateGauge from '@/components/WinRateGauge';
-import ConnectionStatus from '@/components/ConnectionStatus';
-import ToastContainer, { useToasts } from '@/components/Toast';
-import ShortcutsHelp from '@/components/ShortcutsHelp';
-import OpportunitiesModal from '@/components/OpportunitiesModal';
-import TradeDetailModal from '@/components/TradeDetailModal';
-import StrategyDetailModal from '@/components/StrategyDetailModal';
-import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
-import { useSoundEffects } from '@/hooks/useSoundEffects';
-import { useSessionTimeout } from '@/hooks/useSessionTimeout';
-import MarketStatus from '@/components/MarketStatus';
-import PositionsTable from '@/components/PositionsTable';
-import OrdersTable from '@/components/OrdersTable';
-import FillsHistory from '@/components/FillsHistory';
-import SettlementsHistory from '@/components/SettlementsHistory';
-import { DashboardState, Trade, Strategy, BotConfig, Position, Order, Fill, Settlement } from '@/lib/types';
+import { useEffect, useState, useCallback } from "react";
+import { centsToUSD, formatGateValue, formatStrategyName } from "@/lib/format";
 
-interface BalanceSnapshot {
-  timestamp: string;
-  balance_cents: number;
-  available_balance_cents: number;
+// ---------------------------------------------------------------------------
+// Types — match the /api/graduation response
+// ---------------------------------------------------------------------------
+
+interface DailyPnl {
+  day: string;
+  pnl: number;
+  trades: number;
 }
 
-export default function Dashboard() {
-  const [dashboardState, setDashboardState] = useState<DashboardState | null>(null);
-  const [botConfig, setBotConfig] = useState<BotConfig | null>(null);
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [fills, setFills] = useState<Fill[]>([]);
-  const [settlements, setSettlements] = useState<Settlement[]>([]);
-  const [portfolioTab, setPortfolioTab] = useState<'positions' | 'orders' | 'fills' | 'settlements' | 'journal'>('positions');
-  const [loading, setLoading] = useState(true);
-  const [showHelp, setShowHelp] = useState(false);
-  const [lastSeenTradeId, setLastSeenTradeId] = useState<string | null>(null);
-  const [lastSuccessfulFetch, setLastSuccessfulFetch] = useState<number>(Date.now());
-  const [fetchError, setFetchError] = useState<string | null>(null);
+interface GateCheck {
+  name: string;
+  passed: boolean;
+  current: number;
+  target: number;
+  format: "number" | "percent" | "cents" | "pct" | "days";
+  invert?: boolean;
+}
 
-  // Mobile sidebar state
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+interface GateMetrics {
+  total_trades: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  win_rate: number;
+  total_pnl_cents: number;
+  avg_pnl_cents: number;
+  best_trade_cents: number;
+  worst_trade_cents: number;
+  best_trade_ticker: string;
+  worst_trade_ticker: string;
+  max_drawdown_pct: number;
+  profitable_days: number;
+  total_days: number;
+  current_streak: number;
+  longest_win_streak: number;
+  longest_loss_streak: number;
+  daily_pnl: DailyPnl[];
+  strategies_active: number;
+  strategies_total: number;
+  regime_breakdown: { regime: string; trades: number; pnl: number }[];
+}
 
-  // Pending local overrides — prevents polling from reverting optimistic updates.
-  // Map of strategy name -> { enabled, timestamp }. Entries expire after 10 seconds
-  // (by then the Supabase write has persisted and server state is correct).
-  const [pendingToggles, setPendingToggles] = useState<Record<string, { enabled: boolean; at: number }>>({});
-
-  // Modal states
-  const [showOpportunities, setShowOpportunities] = useState(false);
-  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
-  const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
-
-  // Toast notifications
-  const { toasts, addToast, dismissToast } = useToasts();
-
-  // Sound effects
-  const sound = useSoundEffects();
-
-  // Session security: auto-logout after 30 minutes of inactivity
-  const { logout } = useSessionTimeout(30);
-
-  // Fetch dashboard state
-  const fetchStatus = async () => {
-    try {
-      const response = await fetch('/api/status');
-      if (response.ok) {
-        const data = await response.json();
-
-        // Merge server state with pending local overrides so polling
-        // doesn't revert optimistic updates (toggles, config changes).
-        const now = Date.now();
-        const OVERRIDE_TTL_MS = 10_000;
-        const stillPending: Record<string, { enabled: boolean; at: number }> = {};
-
-        if (data.strategies && Object.keys(pendingToggles).length > 0) {
-          data.strategies = data.strategies.map((s: Strategy) => {
-            const override = pendingToggles[s.name];
-            if (override && (now - override.at) < OVERRIDE_TTL_MS) {
-              stillPending[s.name] = override;
-              return { ...s, enabled: override.enabled };
-            }
-            return s;
-          });
-          setPendingToggles(stillPending);
-        }
-
-        setDashboardState(data);
-        setLastSuccessfulFetch(Date.now());
-        setFetchError(null);
-      } else if (response.status === 503) {
-        setFetchError('Database unavailable');
-      } else {
-        setFetchError(`API error (${response.status})`);
-      }
-    } catch (error) {
-      console.error('Failed to fetch status:', error);
-      setFetchError('Connection lost');
-    }
+interface GateResult {
+  label: string;
+  platform: string;
+  thresholds: {
+    min_trades: number;
+    min_win_rate: number;
+    max_drawdown_pct: number;
+    min_profitable_days?: number;
+    min_avg_pnl_cents?: number;
   };
+  metrics: GateMetrics;
+  gate_checks: GateCheck[];
+}
 
-  // Fetch trades
-  const fetchTrades = async () => {
-    try {
-      const response = await fetch('/api/trades');
-      if (response.ok) {
-        const data = await response.json();
-        setTrades(data.trades);
-      }
-    } catch (error) {
-      console.error('Failed to fetch trades:', error);
-    }
-  };
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-  // Fetch bot config (mode, risk params, heartbeat)
-  const fetchConfig = async () => {
-    try {
-      const response = await fetch('/api/config');
-      if (response.ok) {
-        const data = await response.json();
-        setBotConfig(data.config);
-      }
-    } catch (error) {
-      console.error('Failed to fetch bot config:', error);
-    }
-  };
 
-  // Fetch balance history for charts
-  const fetchPerformance = async () => {
-    try {
-      // Pull enough history to support "ALL" without truncating mid-session.
-      const response = await fetch('/api/performance?limit=5000');
-      if (response.ok) {
-        const data = await response.json();
-        setBalanceHistory(data.history || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch performance:', error);
-    }
-  };
+// ---------------------------------------------------------------------------
+// Sparkline — pure SVG mini chart of daily P&L
+// ---------------------------------------------------------------------------
 
-  // Fetch positions, orders, fills for portfolio tabs
-  const fetchPortfolio = async () => {
-    try {
-      const [posRes, ordRes, fillRes, settleRes] = await Promise.all([
-        fetch('/api/positions'),
-        fetch('/api/orders'),
-        fetch('/api/fills?limit=100'),
-        fetch('/api/settlements?limit=100'),
-      ]);
-      if (posRes.ok) {
-        const data = await posRes.json();
-        setPositions(data.positions || []);
-      }
-      if (ordRes.ok) {
-        const data = await ordRes.json();
-        setOrders(data.orders || []);
-      }
-      if (fillRes.ok) {
-        const data = await fillRes.json();
-        setFills(data.fills || []);
-      }
-      if (settleRes.ok) {
-        const data = await settleRes.json();
-        setSettlements(data.settlements || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch portfolio:', error);
-    }
-  };
+function Sparkline({ data, width = 120, height = 28 }: { data: DailyPnl[]; width?: number; height?: number }) {
+  if (data.length < 2) return null;
 
-  // Send a command to the bot via the command queue, then poll for acknowledgment
-  const sendCommand = useCallback(async (command: string, params?: Record<string, unknown>) => {
-    try {
-      const response = await fetch('/api/commands', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command, params }),
-      });
-      if (response.ok) {
-        const { command: cmd } = await response.json();
-        addToast('info', `Command queued: ${command}`);
+  const values = data.map((d) => d.pnl);
+  const maxAbs = Math.max(...values.map(Math.abs), 1);
+  const mid = height / 2;
 
-        // Poll for acknowledgment (3 checks, 2s apart)
-        if (cmd?.id) {
-          let acknowledged = false;
-          for (let i = 0; i < 3 && !acknowledged; i++) {
-            await new Promise(r => setTimeout(r, 2000));
-            try {
-              const statusRes = await fetch(`/api/commands?limit=5`);
-              if (statusRes.ok) {
-                const { commands } = await statusRes.json();
-                const match = commands?.find((c: { id: string; status: string }) => c.id === cmd.id);
-                if (match && match.status !== 'pending') {
-                  acknowledged = true;
-                  if (match.status === 'executed') {
-                    addToast('success', `Bot executed: ${command}`);
-                  } else if (match.status === 'failed') {
-                    addToast('warning', `Bot rejected: ${command}`);
-                  } else {
-                    addToast('info', `Bot acknowledged: ${command}`);
-                  }
-                }
-              }
-            } catch { /* polling failure is non-critical */ }
-          }
-          if (!acknowledged) {
-            addToast('warning', `Command pending — bot may be offline: ${command}`);
-          }
-        }
-
-        setTimeout(fetchConfig, 1000);
-      } else {
-        const data = await response.json();
-        addToast('warning', `Command failed: ${data.error || command}`);
-      }
-    } catch (error) {
-      console.error('Failed to send command:', error);
-      addToast('warning', `Failed to send command: ${command}`);
-    }
-  }, [addToast]);
-
-  // Initial load
-  useEffect(() => {
-    const loadData = async () => {
-      await Promise.all([fetchStatus(), fetchTrades(), fetchConfig(), fetchPerformance(), fetchPortfolio()]);
-      setLoading(false);
-    };
-    loadData();
-  }, []);
-
-  // Auto-refresh every 5 seconds (status/trades/config), 30s for balance history
-  useEffect(() => {
-    const fast = setInterval(() => {
-      fetchStatus();
-      fetchTrades();
-      fetchConfig();
-    }, 5000);
-
-    const slow = setInterval(fetchPerformance, 30000);
-    const portfolio = setInterval(fetchPortfolio, 10000);
-
-    return () => {
-      clearInterval(fast);
-      clearInterval(slow);
-      clearInterval(portfolio);
-    };
-  }, []);
-
-  // Detect new trades by comparing latest trade ID (not array length,
-  // which plateaus at the API limit of 20 and stops detecting new trades).
-  useEffect(() => {
-    if (trades.length === 0) return;
-
-    const latestTrade = trades[0]; // sorted desc by created_at
-    if (lastSeenTradeId && latestTrade.id !== lastSeenTradeId) {
-      const action = latestTrade?.action?.toLowerCase() ?? '';
-      const pnl = latestTrade?.pnl_cents ?? 0;
-      const ticker = latestTrade?.market_ticker ?? '';
-
-      if (action === 'buy') {
-        addToast('info', `BUY ${ticker} @ ${latestTrade.entry_price_cents}c`);
-        sound.playBuy();
-      } else if (action === 'sell') {
-        const label = pnl > 0
-          ? `SELL ${ticker}: +$${(pnl / 100).toFixed(2)}`
-          : pnl < 0
-            ? `SELL ${ticker}: -$${(Math.abs(pnl) / 100).toFixed(2)}`
-            : `SELL ${ticker}`;
-        addToast(pnl >= 0 ? 'success' : 'warning', label);
-        sound.playSell();
-      } else {
-        addToast('info', 'New trade executed');
-        sound.playTrade();
-      }
-    }
-    setLastSeenTradeId(latestTrade.id);
-  }, [trades]);
-
-  // Manual refresh handler
-  const handleRefresh = useCallback(() => {
-    fetchStatus();
-    fetchTrades();
-    fetchPerformance();
-    fetchPortfolio();
-    addToast('info', 'Data refreshed');
-    sound.playNotification();
-  }, [addToast, sound]);
-
-  // Keyboard shortcuts
-  useKeyboardShortcuts({
-    onRefresh: handleRefresh,
-    onToggleSound: () => {
-      sound.toggle();
-      addToast('info', `Sound ${sound.enabled ? 'disabled' : 'enabled'}`);
-    },
-    onHelp: () => setShowHelp(true),
+  const points = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * width;
+    const y = mid - (v / maxAbs) * (mid - 2);
+    return `${x},${y}`;
   });
 
-  // Compute daily P&L from balance history (replaces bot's always-$0 daily_pnl_cents)
-  const dailyChange = useMemo(() => {
-    if (balanceHistory.length < 2) return { cents: 0, pct: 0 };
-    const todayStr = new Date().toLocaleDateString('en-CA'); // "2026-02-09"
-    const todayEntries = balanceHistory.filter(e =>
-      new Date(e.timestamp).toLocaleDateString('en-CA') === todayStr
-    );
-    if (todayEntries.length < 2) return { cents: 0, pct: 0 };
-    // balanceHistory is desc order: [0] = newest, [last] = oldest
-    const earliest = todayEntries[todayEntries.length - 1].balance_cents;
-    const latest = todayEntries[0].balance_cents;
-    const changeCents = latest - earliest;
-    const changePct = earliest > 0 ? (changeCents / earliest) * 100 : 0;
-    return { cents: changeCents, pct: changePct };
-  }, [balanceHistory]);
+  return (
+    <svg width={width} height={height} className="overflow-visible">
+      {/* Zero line */}
+      <line x1={0} y1={mid} x2={width} y2={mid} stroke="rgba(0,255,65,0.1)" strokeWidth={0.5} />
+      {/* Bars for each day */}
+      {values.map((v, i) => {
+        const x = (i / (values.length - 1)) * width;
+        const barH = Math.abs(v / maxAbs) * (mid - 2);
+        return (
+          <rect
+            key={i}
+            x={x - 2}
+            y={v >= 0 ? mid - barH : mid}
+            width={4}
+            height={Math.max(barH, 1)}
+            fill={v >= 0 ? "var(--terminal-green)" : "var(--terminal-red)"}
+            opacity={0.6}
+            rx={1}
+          />
+        );
+      })}
+      {/* Line overlay */}
+      <polyline
+        points={points.join(" ")}
+        fill="none"
+        stroke="var(--terminal-green)"
+        strokeWidth={1}
+        strokeOpacity={0.4}
+      />
+    </svg>
+  );
+}
 
-  const pnlData = useMemo(() => {
-    if (balanceHistory.length < 2) return [];
-    const chrono = [...balanceHistory].reverse();
-    const startBalance = chrono[0].balance_cents;
-    return chrono.map((entry, i) => ({
-      time: new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      pnl: i > 0 ? entry.balance_cents - chrono[i - 1].balance_cents : 0,
-      cumulative: entry.balance_cents - startBalance,
-    }));
-  }, [balanceHistory]);
+// ---------------------------------------------------------------------------
+// MetricBar — progress bar for gate checks
+// ---------------------------------------------------------------------------
 
-  // Win rate from bot's Bayesian learning system (weighted average across strategies)
-  const learningStats = useMemo(() => {
-    if (!dashboardState?.strategies) return { winRate: 0, total: 0, wins: 0, losses: 0 };
-    const withData = dashboardState.strategies.filter(s => s.blended_win_rate !== null && s.blended_win_rate !== undefined);
-    if (withData.length === 0) return { winRate: 0, total: 0, wins: 0, losses: 0 };
+function computeRatio(current: number, target: number, invert?: boolean): number {
+  if (target <= 0) return invert ? 1 : 0;
+  if (invert) return Math.max(0, 1 - current / target);
+  return Math.min(current / target, 1);
+}
 
-    let weightedSum = 0;
-    let totalWeight = 0;
-    for (const s of withData) {
-      const weight = s.effective_trades ?? 1;
-      weightedSum += (s.blended_win_rate ?? 0) * weight;
-      totalWeight += weight;
-    }
-    const winRate = totalWeight > 0 ? (weightedSum / totalWeight) * 100 : 0;
-    const total = Math.round(totalWeight);
-    const wins = Math.round(total * (winRate / 100));
-    const losses = total - wins;
-    return { winRate, total, wins, losses };
-  }, [dashboardState?.strategies]);
+function thresholdColor(ratio: number, passed: boolean): string {
+  if (passed) return "var(--terminal-green)";
+  if (ratio >= 0.7) return "var(--terminal-amber)";
+  return "var(--terminal-red)";
+}
 
-  // Hourly activity aggregation from fills (for TradeActivity chart)
-  const activityData = useMemo(() => {
-    if (fills.length === 0) return [];
-    const hourMap: Record<string, { trades: number; volume: number }> = {};
-    for (const fill of fills) {
-      if (!fill.created_time) continue;
-      const hour = new Date(fill.created_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      if (!hourMap[hour]) hourMap[hour] = { trades: 0, volume: 0 };
-      hourMap[hour].trades++;
-      hourMap[hour].volume += fill.count;
-    }
-    return Object.entries(hourMap)
-      .map(([hour, stats]) => ({ hour, trades: stats.trades, volume: stats.volume, opportunities: 0 }))
-      .slice(-24);
-  }, [fills]);
+function MetricBar({ check }: { check: GateCheck }) {
+  const ratio = computeRatio(check.current, check.target, check.invert);
+  const barColor = thresholdColor(ratio, check.passed);
 
-  if (loading || !dashboardState) {
-    return (
-      <div className="min-h-screen terminal flex items-center justify-center">
-        <div className="text-2xl terminal-glow-bright">
-          INITIALIZING<span className="cursor">_</span>
+  return (
+    <div className="mb-2">
+      <div className="flex justify-between text-[10px] mb-0.5">
+        <span className="flex items-center gap-1.5">
+          <span
+            className="w-1.5 h-1.5 rounded-full shrink-0"
+            style={{ background: check.passed ? "var(--terminal-green)" : "var(--terminal-red)" }}
+            title={check.passed ? "PASSED" : "NOT MET"}
+          />
+          <span style={{ color: "var(--terminal-green-dim)" }}>{check.name}</span>
+        </span>
+        <span className="tabular-nums" style={{ color: barColor }}>
+          {formatGateValue(check.current, check.format)} / {formatGateValue(check.target, check.format)}
+        </span>
+      </div>
+      <div
+        className="w-full rounded-sm overflow-hidden"
+        style={{ height: 6, background: "rgba(0, 255, 65, 0.08)" }}
+      >
+        <div
+          className="h-full rounded-sm transition-all duration-700"
+          style={{
+            width: `${Math.max(ratio * 100, 1)}%`,
+            background: barColor,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GateCard — enriched with extra stats, sparkline, streaks
+// ---------------------------------------------------------------------------
+
+function GateCard({ gate }: { gate: GateResult }) {
+  const { metrics, gate_checks } = gate;
+
+  const allPassed = gate_checks.every((c) => c.passed);
+
+  let status: string;
+  let statusBadge: string;
+  if (metrics.total_trades === 0) {
+    status = "NOT STARTED";
+    statusBadge = "badge-red";
+  } else if (allPassed) {
+    status = "GATE PASSED";
+    statusBadge = "badge-green";
+  } else {
+    status = "IN PROGRESS";
+    statusBadge = "badge-amber";
+  }
+
+  let streakLabel: string;
+  let streakColor: string;
+  if (metrics.current_streak > 0) {
+    streakLabel = `${metrics.current_streak}W`;
+    streakColor = "var(--terminal-green)";
+  } else if (metrics.current_streak < 0) {
+    streakLabel = `${Math.abs(metrics.current_streak)}L`;
+    streakColor = "var(--terminal-red)";
+  } else {
+    streakLabel = "--";
+    streakColor = "var(--terminal-dim)";
+  }
+
+  return (
+    <div className="panel p-3 sm:p-4 relative">
+      <div className="relative z-10">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-bold tracking-wider" style={{ color: "var(--terminal-green-bright)" }}>
+              {gate.label}
+            </h3>
+            <p className="text-[10px] mt-0.5" style={{ color: "var(--terminal-green-dim)" }}>
+              {gate.platform}
+            </p>
+          </div>
+          <span className={`${statusBadge} text-[9px] font-semibold whitespace-nowrap`}>
+            {status}
+          </span>
         </div>
+
+        {/* Gate Checks — progress bars */}
+        {gate_checks.map((check) => (
+          <MetricBar key={check.name} check={check} />
+        ))}
+
+        {/* Stats grid — only show when we have trades */}
+        {metrics.total_trades > 0 && (
+          <>
+            {/* Sparkline + P&L row */}
+            <div className="mt-3 pt-2 flex items-center justify-between gap-3"
+              style={{ borderTop: "1px solid rgba(0, 255, 65, 0.08)" }}
+            >
+              <div className="flex-1 min-w-0">
+                <Sparkline data={metrics.daily_pnl} />
+              </div>
+              <div className="text-right shrink-0">
+                <div
+                  className="text-sm tabular-nums font-bold"
+                  style={{
+                    color: metrics.total_pnl_cents >= 0 ? "var(--terminal-green)" : "var(--terminal-red)",
+                    textShadow: metrics.total_pnl_cents >= 0
+                      ? "0 0 4px rgba(0,255,65,0.4)"
+                      : "0 0 4px rgba(255,0,0,0.4)",
+                  }}
+                >
+                  {metrics.total_pnl_cents >= 0 ? "+" : ""}
+                  {centsToUSD(metrics.total_pnl_cents)}
+                </div>
+                <div className="text-[8px] text-terminal-dim/40">TOTAL P&L</div>
+              </div>
+            </div>
+
+            {/* Stats row */}
+            <div className="mt-2 grid grid-cols-4 gap-1 text-center">
+              <div>
+                <div className="text-[10px] tabular-nums font-bold" style={{ color: "var(--terminal-green)" }}>
+                  {metrics.wins}W
+                </div>
+                <div className="text-[7px] text-terminal-dim/30">WINS</div>
+              </div>
+              <div>
+                <div className="text-[10px] tabular-nums font-bold" style={{ color: "var(--terminal-red)" }}>
+                  {metrics.losses}L
+                </div>
+                <div className="text-[7px] text-terminal-dim/30">LOSSES</div>
+              </div>
+              <div>
+                <div className="text-[10px] tabular-nums font-bold" style={{ color: streakColor }}>
+                  {streakLabel}
+                </div>
+                <div className="text-[7px] text-terminal-dim/30">STREAK</div>
+              </div>
+              <div>
+                <div className="text-[10px] tabular-nums font-bold" style={{ color: "var(--terminal-cyan)" }}>
+                  {metrics.profitable_days}/{metrics.total_days}
+                </div>
+                <div className="text-[7px] text-terminal-dim/30">DAYS +/-</div>
+              </div>
+            </div>
+
+            {/* Best / Worst trades */}
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[9px]">
+              <div className="bg-terminal-bg-panel rounded px-2 py-1.5">
+                <div className="text-[7px] text-terminal-dim/30 tracking-wider mb-0.5">BEST TRADE</div>
+                <div className="tabular-nums font-bold" style={{ color: "var(--terminal-green)" }}>
+                  +{centsToUSD(metrics.best_trade_cents)}
+                </div>
+                <div className="text-[8px] text-terminal-dim/30 truncate">
+                  {metrics.best_trade_ticker}
+                </div>
+              </div>
+              <div className="bg-terminal-bg-panel rounded px-2 py-1.5">
+                <div className="text-[7px] text-terminal-dim/30 tracking-wider mb-0.5">WORST TRADE</div>
+                <div className="tabular-nums font-bold" style={{ color: "var(--terminal-red)" }}>
+                  {centsToUSD(metrics.worst_trade_cents)}
+                </div>
+                <div className="text-[8px] text-terminal-dim/30 truncate">
+                  {metrics.worst_trade_ticker}
+                </div>
+              </div>
+            </div>
+
+            {/* Strategy coverage + regime */}
+            <div className="mt-2 flex items-center justify-between text-[9px]"
+              style={{ borderTop: "1px solid rgba(0, 255, 65, 0.06)", paddingTop: 6 }}
+            >
+              <span className="text-terminal-dim/40">
+                STRATS: <span className="text-terminal-green tabular-nums">{metrics.strategies_active}</span>
+                <span className="text-terminal-dim/20">/{metrics.strategies_total}</span>
+              </span>
+              <span className="text-terminal-dim/40">
+                LONGEST: <span className="text-terminal-green tabular-nums">{metrics.longest_win_streak}W</span>
+                {" / "}
+                <span className="text-terminal-red tabular-nums">{metrics.longest_loss_streak}L</span>
+              </span>
+            </div>
+
+            {/* Regime breakdown — compact */}
+            {metrics.regime_breakdown.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {metrics.regime_breakdown.slice(0, 4).map((r) => (
+                  <span
+                    key={r.regime}
+                    className="text-[8px] px-1.5 py-0.5 rounded border tabular-nums"
+                    style={{
+                      color: r.pnl >= 0 ? "var(--terminal-green-dim)" : "var(--terminal-red)",
+                      borderColor: r.pnl >= 0 ? "rgba(0,255,65,0.15)" : "rgba(255,0,0,0.15)",
+                      background: r.pnl >= 0 ? "rgba(0,255,65,0.03)" : "rgba(255,0,0,0.03)",
+                    }}
+                  >
+                    {formatStrategyName(r.regime ?? "unknown")} ({r.trades})
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Page
+// ---------------------------------------------------------------------------
+
+export default function GraduationPage() {
+  const [gates, setGates] = useState<GateResult[]>([]);
+  const [lastUpdated, setLastUpdated] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch("/api/graduation");
+      if (res.ok) {
+        const data = await res.json();
+        setGates(data.gates || []);
+      }
+      setLastUpdated(new Date().toLocaleTimeString());
+    } catch {
+      // Graceful degradation
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  // Overall readiness
+  const overallReadiness = gates.length > 0
+    ? gates.reduce((sum, g) => {
+        const passed = g.gate_checks.filter((c) => c.passed).length;
+        return sum + passed / g.gate_checks.length;
+      }, 0) / gates.length
+    : 0;
+
+  // Total stats across all gates
+  const totalTrades = gates.reduce((s, g) => s + g.metrics.total_trades, 0);
+  const totalPnl = gates.reduce((s, g) => s + g.metrics.total_pnl_cents, 0);
+  const gatesPassed = gates.filter((g) => g.gate_checks.every((c) => c.passed)).length;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <span className="terminal-glow text-sm animate-cursor-blink">
+          LOADING GRADUATION DATA...
+        </span>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen terminal md:flex">
-      {/* Control Sidebar */}
-      <Sidebar
-        dashboardState={dashboardState}
-        botConfig={botConfig}
-        onCommand={sendCommand}
-        sound={sound}
-        dailyChangeCents={dailyChange.cents}
-        dailyChangePct={dailyChange.pct}
-        onStrategyToggle={(name, enabled) => {
-          // 1. Optimistic update — reflect toggle instantly in UI
-          if (dashboardState) {
-            setDashboardState({
-              ...dashboardState,
-              strategies: dashboardState.strategies.map(s =>
-                s.name === name ? { ...s, enabled } : s
-              ),
-            });
-          }
-          // 2. Register pending override so polling preserves this value
-          setPendingToggles(prev => ({ ...prev, [name]: { enabled, at: Date.now() } }));
-          // 3. Persist to Supabase
-          fetch('/api/strategies/toggle', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ strategy: name, enabled }),
-          }).catch(() => {});
-        }}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
-
-      {/* Main Dashboard Content */}
-      <div className="md:flex-1 p-3 md:p-6 overflow-auto">
-        <div className="max-w-[1800px] mx-auto">
-          {/* Mobile Header Bar */}
-          <div className="flex items-center gap-3 md:hidden mb-3">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="p-2 border border-terminal-green/40 rounded text-terminal-green hover:bg-terminal-green/10 transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
-            <div className="flex-1 flex items-center justify-between">
-              <span className="text-sm font-bold terminal-glow tracking-wider">DEEPSTACK</span>
-              <div className="flex items-center gap-3">
-                <MarketStatus compact />
-                <span className={`inline-block w-2 h-2 rounded-full ${botConfig?.last_heartbeat && (Date.now() - new Date(botConfig.last_heartbeat).getTime()) < 120_000 ? 'bg-terminal-green animate-pulse' : 'bg-terminal-red'}`} />
-                <span className="text-[10px] text-terminal-dim uppercase">
-                  {(botConfig?.mode as string) || 'stopped'}
-                </span>
+    <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-4 sm:space-y-6">
+      {/* Hero */}
+      <div className="panel-hero panel p-4 sm:p-6">
+        <div className="relative z-10">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h1 className="text-lg sm:text-xl font-bold tracking-wider terminal-glow-bright"
+                style={{ color: "var(--terminal-green-bright)" }}>
+                GRADUATION PROTOCOL
+              </h1>
+              <p className="text-xs mt-1" style={{ color: "var(--terminal-green-dim)" }}>
+                Paper Trading — All Asset Classes
+              </p>
+            </div>
+            <div className="text-left sm:text-right">
+              <div className="text-2xl sm:text-3xl font-bold tabular-nums terminal-glow-bright"
+                style={{ color: "var(--terminal-green-bright)" }}>
+                {(overallReadiness * 100).toFixed(0)}%
+              </div>
+              <div className="text-[10px] tracking-wider" style={{ color: "var(--terminal-green-dim)" }}>
+                OVERALL READINESS
               </div>
             </div>
           </div>
 
-          {/* Header (hidden on mobile — replaced by compact bar above) */}
-          <div className="hidden md:block">
-            <Header onLogout={logout} lastHeartbeat={botConfig?.last_heartbeat} botMode={botConfig?.mode} />
+          {/* Progress bar */}
+          <div className="mt-4 w-full rounded-sm overflow-hidden"
+            style={{ height: 6, background: "rgba(0, 255, 65, 0.08)" }}>
+            <div className="h-full rounded-sm transition-all duration-1000"
+              style={{
+                width: `${overallReadiness * 100}%`,
+                background: thresholdColor(overallReadiness, overallReadiness >= 0.9),
+              }}
+            />
           </div>
 
-        {/* Staleness / Error Banner */}
-        {(fetchError || Date.now() - lastSuccessfulFetch > 30_000) && (
-          <div className="mb-3 px-3 py-2 border rounded text-xs font-mono border-terminal-amber/60 bg-terminal-amber/10 text-terminal-amber">
-            {fetchError
-              ? `DATA FEED ERROR: ${fetchError} — showing last known state`
-              : `DATA STALE — last update ${Math.round((Date.now() - lastSuccessfulFetch) / 1000)}s ago`}
-          </div>
-        )}
-
-        {/* Hero Performance Panel */}
-        <div className="mb-4 md:mb-6">
-          <PerformanceHero balanceHistory={balanceHistory} />
-        </div>
-
-        {/* Main Content: Left (60%) + DeepStack's Log (40%) */}
-        <div className="flex gap-4">
-          {/* Left Column — strategies, metrics, charts, portfolio */}
-          <div className="flex-1 min-w-0">
-            {/* Strategy Rows (compact list) */}
-            <div className="panel mb-4 md:mb-6">
-              <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-green/30">
-                <span className="text-xs font-bold tracking-wider terminal-glow">STRATEGIES</span>
-                <span className="text-[10px] text-terminal-dim">{dashboardState.strategies.length} LOADED</span>
-              </div>
-              <div className="divide-y divide-terminal-green/10">
-                {dashboardState.strategies.map((strategy) => (
-                  <StrategyRow
-                    key={strategy.name}
-                    strategy={strategy}
-                    onClick={() => setSelectedStrategy(strategy)}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* DeepStack's Log — mobile only (below strategies) */}
-            <div className="lg:hidden mb-4 md:mb-6">
-              <div className="h-[400px]">
-                <LiveFeed />
-              </div>
-            </div>
-
-            {/* Metrics Row */}
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">
-              <RiskMetricsCard metrics={dashboardState.risk} />
-              <WinRateGauge
-                winRate={learningStats.winRate}
-                totalTrades={learningStats.total}
-                wins={learningStats.wins}
-                losses={learningStats.losses}
-              />
-              <TradeActivity data={activityData} onOpportunitiesClick={() => setShowOpportunities(true)} />
-            </div>
-
-            {/* Charts + Comms */}
-            <div className="space-y-2 md:space-y-4 mb-4 md:mb-6">
-              <PnLChart data={pnlData} />
-              <div className="h-[300px]">
-                <CaptainsLog />
-              </div>
-            </div>
-
-            {/* Portfolio Tabs: Positions | Orders | Fills | Journal */}
-            <div className="mb-4 md:mb-6">
-              <div className="flex gap-1 mb-3 border-b border-terminal-green/30 pb-1">
-                {(['positions', 'orders', 'fills', 'settlements', 'journal'] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setPortfolioTab(tab)}
-                    className={`px-3 py-1.5 text-xs font-mono uppercase tracking-wider transition-colors ${
-                      portfolioTab === tab
-                        ? 'text-terminal-green border-b-2 border-terminal-green'
-                        : 'text-terminal-dim hover:text-terminal-green/70'
-                    }`}
-                  >
-                    {tab}
-                    {tab === 'positions' && positions.length > 0 && (
-                      <span className="ml-1 text-terminal-dim">({positions.length})</span>
-                    )}
-                    {tab === 'orders' && orders.filter(o => o.status === 'resting').length > 0 && (
-                      <span className="ml-1 text-terminal-cyan-bright">({orders.filter(o => o.status === 'resting').length})</span>
-                    )}
-                    {tab === 'settlements' && settlements.length > 0 && (
-                      <span className="ml-1 text-terminal-dim">({settlements.length})</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-
-              {portfolioTab === 'positions' && <PositionsTable positions={positions} />}
-              {portfolioTab === 'orders' && <OrdersTable orders={orders} />}
-              {portfolioTab === 'fills' && <FillsHistory fills={fills} />}
-              {portfolioTab === 'settlements' && <SettlementsHistory settlements={settlements} />}
-              {portfolioTab === 'journal' && <TradeJournal trades={trades} onTradeClick={(trade) => setSelectedTrade(trade)} />}
-            </div>
-          </div>
-
-          {/* Right Column — DeepStack's Log (desktop only, sticky) */}
-          <div className="hidden lg:block w-[400px] shrink-0">
-            <div className="sticky top-6" style={{ height: 'calc(100vh - 3rem)' }}>
-              <LiveFeed />
-            </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="mt-4 md:mt-6 border-t border-terminal-green pt-3 md:pt-4">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 text-[10px] md:text-xs text-terminal-dim">
-            <div className="flex items-center gap-4">
-              <span>DEEPSTACK TRADER v2.0</span>
-              <ConnectionStatus />
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-terminal-cyan-dim hidden md:inline">[?] for shortcuts</span>
-              <span>
-                LAST UPDATE: {new Date(dashboardState.timestamp).toLocaleString()}
+          {/* Summary stats */}
+          <div className="mt-3 flex flex-wrap gap-4 text-[10px]">
+            <span style={{ color: "var(--terminal-green-dim)" }}>
+              GATES: <span className="text-terminal-green font-bold">{gatesPassed}/{gates.length}</span> PASSED
+            </span>
+            <span style={{ color: "var(--terminal-green-dim)" }}>
+              TRADES: <span className="text-terminal-green font-bold tabular-nums">{totalTrades}</span>
+            </span>
+            <span style={{ color: "var(--terminal-green-dim)" }}>
+              P&L:{" "}
+              <span className="font-bold tabular-nums"
+                style={{ color: totalPnl >= 0 ? "var(--terminal-green)" : "var(--terminal-red)" }}>
+                {totalPnl >= 0 ? "+" : ""}{centsToUSD(totalPnl)}
               </span>
-            </div>
+            </span>
+            <span className="text-terminal-dim/30">
+              SOURCE: SQLite (trade_journal.db)
+            </span>
           </div>
-        </div>
         </div>
       </div>
 
-      {/* Toast notifications */}
-      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      {/* Gate Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+        {gates.map((gate) => (
+          <GateCard key={gate.label} gate={gate} />
+        ))}
+      </div>
 
-      {/* Shortcuts help modal */}
-      <ShortcutsHelp
-        isOpen={showHelp}
-        onClose={() => setShowHelp(false)}
-        soundEnabled={sound.enabled}
-      />
-
-      {/* Opportunities modal */}
-      <OpportunitiesModal
-        isOpen={showOpportunities}
-        onClose={() => setShowOpportunities(false)}
-      />
-
-      {/* Trade detail modal */}
-      <TradeDetailModal
-        isOpen={selectedTrade !== null}
-        onClose={() => setSelectedTrade(null)}
-        trade={selectedTrade}
-      />
-
-      {/* Strategy detail modal */}
-      <StrategyDetailModal
-        isOpen={selectedStrategy !== null}
-        onClose={() => setSelectedStrategy(null)}
-        strategy={selectedStrategy}
-        onToggle={(name, enabled) => {
-          sendCommand('toggle_strategy', { strategy: name, enabled });
-          // 1. Optimistic update — reflect toggle instantly in UI
-          if (dashboardState) {
-            setDashboardState({
-              ...dashboardState,
-              strategies: dashboardState.strategies.map(s =>
-                s.name === name ? { ...s, enabled } : s
-              ),
-            });
-          }
-          // 2. Register pending override so polling preserves this value
-          setPendingToggles(prev => ({ ...prev, [name]: { enabled, at: Date.now() } }));
-          // 3. Persist to Supabase
-          fetch('/api/strategies/toggle', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ strategy: name, enabled }),
-          }).catch(() => {});
-        }}
-      />
+      <div className="text-center text-[10px] pb-4"
+        style={{ color: "var(--terminal-green-dim)", opacity: 0.5 }}>
+        Last updated: {lastUpdated} — Refreshes every 30s
+      </div>
     </div>
   );
 }

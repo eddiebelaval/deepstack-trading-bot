@@ -53,7 +53,7 @@ class TradingOpportunity:
     expected_profit_cents: int
     max_loss_cents: int
     strategy_name: str = ""
-    asset_class: str = "prediction_market"  # "prediction_market" or "stock"
+    asset_class: str = "prediction_market"  # "prediction_market", "stock", "future", "option"
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):

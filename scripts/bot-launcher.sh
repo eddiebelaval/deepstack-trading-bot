@@ -25,5 +25,6 @@ if [ -f "${BOT_DIR}/.env" ]; then
     set +a
 fi
 
-# Start the bot in multi-strategy mode
-exec python3 "${BOT_DIR}/run_bot.py" --multi
+# Start the bot in multi-strategy mode with paper balance
+# Paper trading at $2,000 until graduation gates pass per asset class
+exec python3 "${BOT_DIR}/run_bot.py" --multi --paper-balance 2000

@@ -286,6 +286,46 @@ export interface CaptainsLogEntry {
   tokens_used: number | null;
 }
 
+// Chat Hub message (unified Telegram + Dashboard conversations with Dae)
+export interface ChatMessage {
+  id: string;
+  created_at: string;
+  source: 'telegram' | 'dashboard';
+  role: 'user' | 'bot';
+  content: string;
+  session_id: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+// AI Daily Review — computed from trades, summaries, and captain's log
+export interface DailyReview {
+  date: string;
+  // Performance
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  net_pnl_cents: number;
+  win_rate: number;
+  // Best/worst
+  best_trade: { ticker: string; pnl_cents: number; strategy: string } | null;
+  worst_trade: { ticker: string; pnl_cents: number; strategy: string } | null;
+  // Strategy breakdown
+  strategy_breakdown: {
+    name: string;
+    trades: number;
+    wins: number;
+    pnl_cents: number;
+  }[];
+  // Regime
+  regime: string | null;
+  regime_changes: number;
+  // Captain's log highlights (bot analysis entries for the day)
+  highlights: string[];
+  // Computed grade
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  grade_reasons: string[];
+}
+
 export type BotMode = 'running' | 'stopped' | 'paused' | 'dry_run';
 
 export interface BotConfig {

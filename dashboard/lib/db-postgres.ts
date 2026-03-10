@@ -20,6 +20,7 @@ import {
   Holding,
   BalanceSnapshot,
   StockTrade,
+  ChatMessage,
 } from './types';
 
 // PostgREST uses URL query params for filtering/sorting.
@@ -119,7 +120,7 @@ const DEFAULT_STATS: TradingStats = { total_trades: 0, winning_trades: 0, total_
 export async function getStrategyStats(strategy: string): Promise<TradingStats> {
   const trades = await restGet<Trade>(
     'deepstack_trades',
-    `strategy=eq.${strategy}&status=eq.closed&select=pnl_cents`
+    `strategy=eq.${encodeURIComponent(strategy)}&status=eq.closed&select=pnl_cents`
   );
   if (trades.length === 0) return DEFAULT_STATS;
 
@@ -425,7 +426,7 @@ export async function getPositions(): Promise<Position[]> {
 
 export async function getOrders(status?: string): Promise<Order[]> {
   let params = 'order=synced_at.desc';
-  if (status) params += `&status=eq.${status}`;
+  if (status) params += `&status=eq.${encodeURIComponent(status)}`;
   return restGet<Order>('deepstack_orders', params);
 }
 
@@ -454,7 +455,7 @@ export async function getCaptainsLogEntries(
   after?: string,
 ): Promise<CaptainsLogEntry[]> {
   let params = `order=created_at.desc&limit=${limit}`;
-  if (after) {
+  if (after && ISO_RE.test(after)) {
     params = `created_at=gt.${after}&${params}`;
   }
   const entries = await restGet<CaptainsLogEntry>('deepstack_captains_log', params);
@@ -484,7 +485,7 @@ export async function getSecurities(): Promise<Security[]> {
 
 export async function getHoldings(platform?: string): Promise<Holding[]> {
   let params = 'order=ticker';
-  if (platform) params = `platform=eq.${platform}&${params}`;
+  if (platform) params = `platform=eq.${encodeURIComponent(platform)}&${params}`;
   return restGet<Holding>('deepstack_holdings', params);
 }
 
@@ -497,7 +498,7 @@ export async function getBalanceSnapshots(
   limit: number = 365,
 ): Promise<BalanceSnapshot[]> {
   let params = `order=date.desc&limit=${limit}`;
-  if (platform) params = `platform=eq.${platform}&${params}`;
+  if (platform) params = `platform=eq.${encodeURIComponent(platform)}&${params}`;
   return restGet<BalanceSnapshot>('deepstack_balance_snapshots', params);
 }
 
@@ -507,4 +508,33 @@ export async function getBalanceSnapshots(
 
 export async function getStockTrades(limit: number = 50): Promise<StockTrade[]> {
   return restGet<StockTrade>('deepstack_stock_trades', `order=created_at.desc&limit=${limit}`);
+}
+
+// ============================================================================
+// CHAT HUB (Unified Telegram + Dashboard messages)
+// ============================================================================
+
+const ISO_RE = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+export async function getChatMessages(
+  limit: number = 100,
+  after?: string,
+): Promise<ChatMessage[]> {
+  let params = `order=created_at.asc&limit=${limit}`;
+  if (after && ISO_RE.test(after)) {
+    params = `created_at=gt.${after}&${params}`;
+  }
+  return restGet<ChatMessage>('deepstack_chat_messages', params);
+}
+
+export async function createChatMessage(
+  content: string,
+  source: 'telegram' | 'dashboard' = 'dashboard',
+  role: 'user' | 'bot' = 'user',
+): Promise<ChatMessage> {
+  return restInsert<ChatMessage>('deepstack_chat_messages', {
+    source,
+    role,
+    content,
+  });
 }

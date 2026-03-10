@@ -192,7 +192,8 @@ class PerformanceTracker:
                 trend_strength REAL,
                 mean_reversion_score REAL,
                 volume_ratio REAL,
-                num_markets_sampled INTEGER
+                num_markets_sampled INTEGER,
+                source TEXT DEFAULT 'prediction_market'
             )
         """)
         cursor.execute("""

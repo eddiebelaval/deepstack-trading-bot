@@ -1,8 +1,8 @@
 # BUILDING.md — DeepStack Trading Bot
 
-This document tells the build story of DeepStack, an autonomous trading bot for prediction markets (Kalshi, Polymarket). It evolved from a two-strategy weekend project into a self-governing multi-strategy system with regime-aware backtesting, a live dashboard, and a consciousness layer.
+This document tells the build story of DeepStack, an autonomous multi-asset trading bot. It evolved from a two-strategy prediction market weekend project into a wealth generation engine spanning Kalshi, IBKR stocks/ETFs/futures/options, with forward-looking intelligence from prediction markets, self-governing regime detection, and graceful degradation across exchanges.
 
-**100 commits. 12 active build days. Feb 7 — Mar 5, 2026.**
+**100+ commits. 13 active build days. Feb 7 — Mar 10, 2026.**
 
 ---
 
@@ -261,6 +261,67 @@ e5e1bf6 fix: API hardening, risk management, Supabase schema fixes
 
 ---
 
+## Phase 10: Wealth Generation Engine (Mar 10)
+
+**"A war is breaking out in Iran. This is how we make money."** Eddie's mandate: full-stack trading capability across all asset classes, forward-looking intelligence, and autonomous self-regulation. Close the loop.
+
+### What Was Built
+
+**Crisis Alpha Strategy** (`strategies/crisis_alpha.py`) -- NEW
+- Buys inverse ETFs (SQQQ, SDOW, SH), volatility (UVXY), safe havens (GLD, TLT), and geopolitical plays (USO, XLE, LMT, RTX, NOC) during market stress
+- Three tiers: conservative, aggressive, geopolitical. Regime-gated entry.
+- Tighter stops for leveraged products (divided by leverage factor)
+- `side="buy"` always -- inverse ETFs = short exposure via long position (no margin, no borrow, defined risk)
+
+**Options Directional Strategy** (`strategies/options_directional.py`) -- NEW
+- Buys puts when regime=trending_down, calls when trending_up
+- ATM to 20% OTM, 14-45 DTE. TP at 50% gain, SL at 40% loss.
+- Complements options_income (sold puts) -- now the bot can profit from moves in both directions
+
+**Forward Signal Bridge** (`kalshi_trader/forward_signal_bridge.py`) -- NEW
+- Prediction markets as leading indicators for stock regime detection
+- Signal taxonomy: RATE_SHIFT (KXFED), INFLATION (KXCPI), GROWTH (KXGDP), RISK_APPETITE (KXBTC/KXETH)
+- Price velocity detection over rolling window with short-term acceleration
+- Regime bias injection: confirming signals boost stock regime confidence +30%, conflicting signals dampen -15%
+- Wired into GovernanceEngine and Captain's Log
+
+**IBKR Position Management Fix**
+- Root cause: `_manage_positions()` routed ALL positions through Kalshi API. QQQ/SPY hit 404 errors.
+- Fix: Route by `asset_class` -- IBKR positions to `_ibkr_market.get_market()`, Kalshi to Kalshi API.
+- IBKR positions skip Kalshi-specific settlement logic (status checks, result handling)
+- Journal reload infers asset_class from strategy name for position continuity across restarts
+
+**IBKR Timeout Guards** -- the session's critical discovery
+- IBKR TWS lost connectivity (Error 1100). All `await` calls to IBKR hung indefinitely.
+- This blocked the ENTIRE trading cycle -- including Kalshi-only strategies. Bot appeared alive but never completed a cycle.
+- Fix: `asyncio.wait_for()` timeouts on all 7 IBKR call sites:
+  - Strategy manager scans (15s per strategy, 4 IBKR strategies)
+  - Regime feed watchlist + indicators (15s each)
+  - Dashboard holdings + balance push (10s)
+  - Position management market data fetch (10s)
+- Result: Cycles complete in ~2 minutes regardless of IBKR state. Kalshi strategies run unimpeded.
+
+**Configuration Changes**
+- IBKR watchlist expanded: 9 -> 20 tickers (added SQQQ, SDOW, SH, UVXY, GLD, TLT, USO, XLE, LMT, RTX, NOC)
+- Governance lookback: 20 -> 10 cycles (faster regime detection)
+- Governance min_confidence: 0.6 -> 0.5 (act faster on regime shifts)
+- crisis_alpha and options_directional added to strategy config
+
+**Triad Documents**
+- Created VISION.md (north star) and SPEC.md (living specification)
+- Updated BUILDING.md with Phase 10
+
+### Architecture Decision: Timeout-First IBKR Integration
+IBKR uses a single TCP connection (ib_async). When that connection drops, every `await` blocks forever because there's no built-in timeout. The fix -- wrapping every IBKR call in `asyncio.wait_for()` -- should have been there from day one. The principle: any external system call without a timeout is a potential cycle killer. Kalshi's httpx client has timeouts baked in; IBKR's ib_async does not. Trust no connection.
+
+### Lessons
+- **Inverse ETFs are the retail trader's short button.** Buying SQQQ = shorting Nasdaq without margin, borrow fees, or unlimited risk. The leverage is built into the product.
+- **Prediction markets move first.** KXFED prices shift when rate expectations change. This happens before stocks reprice. The forward signal bridge captures this timing advantage.
+- **Timeout starvation is silent death.** The bot looked healthy (httpx polling, Telegram responding) but hadn't completed a trading cycle in 15+ minutes. Without explicit timeout handling, one disconnected service can paralyze everything.
+- **Graceful degradation beats hard dependencies.** The bot now runs Kalshi strategies 24/7 and automatically resumes IBKR strategies the moment TWS reconnects. No restart needed.
+
+---
+
 ## Current Architecture
 
 ```
@@ -273,11 +334,16 @@ kalshi-trading/
 │   └── storage.py           # SQLite persistence
 ├── backtest/                 # Backtesting framework
 │   └── runner.py            # BacktestRunner + synthetic data
-├── strategies/               # 14 strategy plugins
+├── strategies/               # 19 strategy plugins
 │   ├── base.py              # Abstract Strategy + Kelly sizing
-│   ├── mean_reversion.py    # Buy near 50c (core)
-│   ├── momentum.py          # Trend-following (core)
-│   ├── calibration_edge.py  # Favorite-longshot bias
+│   ├── calibration_edge.py  # Favorite-longshot bias (BEST: 92% WR)
+│   ├── stock_momentum.py    # IBKR equity momentum
+│   ├── crisis_alpha.py      # Inverse ETFs, volatility, safe havens
+│   ├── options_income.py    # Sold puts
+│   ├── options_directional.py # Bought puts/calls
+│   ├── futures_trend.py     # Micro futures
+│   ├── mean_reversion.py    # Buy near 50c
+│   ├── momentum.py          # Trend-following
 │   ├── settlement_betting.py # Near-expiry settlement capture
 │   ├── high_probability_bonds.py
 │   ├── weather_aggregation.py
@@ -286,13 +352,14 @@ kalshi-trading/
 │   ├── cross_platform_arbitrage.py
 │   ├── correlated_event_arbitrage.py
 │   ├── domain_specialization.py
-│   ├── stock_momentum.py
-│   └── crypto_intraday.py
+│   ├── crypto_intraday.py
+│   └── bear_macro.py
 ├── kalshi_trader/            # Core trading engine
-│   ├── main.py              # Trading loop
+│   ├── main.py              # Trading loop (~2900 lines)
 │   ├── kalshi_client.py     # RSA-authenticated API
-│   ├── strategy_manager.py  # Multi-strategy orchestrator
-│   ├── market_governor.py   # Autonomous governance (regime detection + routing)
+│   ├── strategy_manager.py  # Multi-strategy orchestrator (with IBKR timeouts)
+│   ├── market_governor.py   # Autonomous governance (regime + forward signal bias)
+│   ├── forward_signal_bridge.py # Cross-market intelligence (PM -> stock regime)
 │   ├── captains_log.py      # AI narration
 │   ├── trade_analyzer.py    # Claude-powered analysis
 │   ├── health_monitor.py    # Zombie detection
@@ -301,8 +368,8 @@ kalshi-trading/
 │   └── journal.py           # Trade journal (SQLite)
 ├── markets/                  # Exchange adapters
 │   ├── kalshi.py            # Kalshi API
-│   ├── polymarket.py        # Polymarket API
-│   └── ibkr.py              # Interactive Brokers
+│   ├── polymarket.py        # Polymarket API (read-only)
+│   └── ibkr.py              # Interactive Brokers (with LexiconOrderRouter)
 ├── dashboard/                # Next.js 14 control plane
 ├── tests/                    # 38+ tests
 ├── config.yaml              # Runtime configuration
@@ -314,11 +381,15 @@ kalshi-trading/
 
 | Category | Count | Strategies |
 |----------|-------|-----------|
-| Core (active) | 2 | mean_reversion, momentum |
-| Prediction-native | 5 | calibration_edge, settlement_betting, high_probability_bonds, weather_aggregation, news_sentiment_fade |
+| Prediction-native (active) | 2 | calibration_edge (92% WR), high_probability_bonds |
+| Prediction-native (disabled) | 5 | mean_reversion, momentum, settlement_betting, weather_aggregation, news_sentiment_fade |
 | Arbitrage | 3 | combinatorial, cross_platform, correlated_event |
-| Multi-asset | 2 | stock_momentum, crypto_intraday |
+| Stock/ETF (IBKR) | 2 | stock_momentum, crisis_alpha |
+| Options (IBKR) | 2 | options_income, options_directional |
+| Futures (IBKR) | 1 | futures_trend |
+| Crypto | 1 | crypto_intraday |
 | Framework | 2 | domain_specialization, bear_macro |
+| Intelligence | 1 | tv_signals (TradingView) |
 
 ---
 
@@ -326,13 +397,17 @@ kalshi-trading/
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 100 |
-| Active build days | 12 (Feb 7 — Mar 5, 2026) |
-| PRs merged | 49 |
-| Strategies | 14 |
+| Total commits | 100+ |
+| Active build days | 13 (Feb 7 — Mar 10, 2026) |
+| PRs merged | 49+ |
+| Strategies | 19 (6 active, 13 disabled) |
 | Tests | 38+ |
-| Live balance | ~$152 (from $200 initial) |
-| Win rate (observed) | 17.4% (23 trades) |
+| Real balance | ~$159.64 (from $200 initial) |
+| Paper balance | $2,000 |
+| Best strategy | calibration_edge: 92% WR, 38 trades |
+| Asset classes | 4 (prediction markets, stocks/ETFs, futures, options) |
+| IBKR watchlist | 20 tickers |
+| IBKR timeout sites | 7 (all protected) |
 | Worst decision | Kelly = 0.5 at 15% win rate |
 | Best decision | Building the arena to replace guessed priors with data |
 
@@ -351,8 +426,11 @@ These are hard-won lessons from production bugs. Save yourself the debugging.
 | Kelly fraction | Never set above 0.02 without empirical win rate data. 0.5 default is ruin at <50% win rate. |
 | Exchange status | Check exchange open/closed before order placement. Orders fail silently on closed exchange. |
 | Supabase overrides | Config-enabled strategies must be protected from stale dashboard state on bot restart. |
+| IBKR timeouts | Every `await` on IBKR must use `asyncio.wait_for()`. ib_async has no built-in timeouts. One dropped connection kills the entire cycle. |
+| IBKR single connection | ib_async uses one TCP socket. Run fetches sequentially, not with `asyncio.gather`. |
+| Position routing | `asset_class` field determines API routing. IBKR positions must NOT go to Kalshi API. |
 
 ---
 
-*Last updated: 2026-03-05*
-*Private — id8Labs LLC*
+*Last updated: 2026-03-10*
+*Private -- id8Labs LLC*

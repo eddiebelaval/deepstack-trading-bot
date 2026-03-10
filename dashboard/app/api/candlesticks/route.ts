@@ -18,8 +18,10 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const ticker = searchParams.get('ticker');
     const series = searchParams.get('series');
-    const period = parseInt(searchParams.get('period') || '60', 10);
-    const hours = parseInt(searchParams.get('hours') || '24', 10);
+    const rawPeriod = parseInt(searchParams.get('period') || '60', 10);
+    const rawHours = parseInt(searchParams.get('hours') || '24', 10);
+    const period = [1, 60, 1440].includes(rawPeriod) ? rawPeriod : 60;
+    const hours = Math.min(isNaN(rawHours) ? 24 : Math.max(1, rawHours), 720);
 
     if (!ticker || !series) {
       return NextResponse.json(
@@ -47,15 +49,18 @@ export async function GET(request: Request) {
     const data = await resp.json();
     const raw = data.candlesticks || [];
 
-    const candlesticks: Candlestick[] = raw.map((c: Record<string, unknown>) => ({
-      end_period_ts: c.end_period_ts as number,
-      open: (c.price as Record<string, number>)?.open ?? 0,
-      high: (c.price as Record<string, number>)?.high ?? 0,
-      low: (c.price as Record<string, number>)?.low ?? 0,
-      close: (c.price as Record<string, number>)?.close ?? 0,
-      volume: (c.volume as number) ?? 0,
-      open_interest: (c.open_interest as number) ?? 0,
-    }));
+    const candlesticks: Candlestick[] = raw.map((c: Record<string, unknown>) => {
+      const price = (c.price && typeof c.price === 'object') ? c.price as Record<string, number> : {};
+      return {
+        end_period_ts: typeof c.end_period_ts === 'number' ? c.end_period_ts : 0,
+        open: typeof price.open === 'number' ? price.open : 0,
+        high: typeof price.high === 'number' ? price.high : 0,
+        low: typeof price.low === 'number' ? price.low : 0,
+        close: typeof price.close === 'number' ? price.close : 0,
+        volume: typeof c.volume === 'number' ? c.volume : 0,
+        open_interest: typeof c.open_interest === 'number' ? c.open_interest : 0,
+      };
+    });
 
     return NextResponse.json(
       { candlesticks },

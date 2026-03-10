@@ -447,6 +447,108 @@ class GraduationConfig(BaseModel):
     )
 
 
+class GraduationStocksConfig(BaseModel):
+    """Stock trading graduation gate — tracks stock_momentum + crisis_alpha paper trades."""
+
+    enabled: bool = Field(default=False, description="Enable stock graduation gate")
+    min_paper_trades: int = Field(
+        default=30, ge=5, le=1000,
+        description="Minimum closed paper stock trades required",
+    )
+    min_win_rate: float = Field(
+        default=0.50, ge=0.0, le=1.0,
+        description="Minimum win rate threshold (stricter for real brokerage)",
+    )
+    max_drawdown_pct: float = Field(
+        default=10.0, ge=1.0, le=100.0,
+        description="Maximum drawdown as percentage of paper balance",
+    )
+    min_profitable_days: int = Field(
+        default=5, ge=1, le=100,
+        description="Must have this many profitable trading days",
+    )
+    min_avg_pnl_per_trade_cents: int = Field(
+        default=50, ge=0,
+        description="Must average this many cents per trade (after commissions)",
+    )
+    paper_balance_cents: int = Field(
+        default=23000, ge=1000,
+        description="Paper balance in cents for drawdown calculation",
+    )
+    notify_telegram: bool = Field(
+        default=True,
+        description="Send Telegram alert when stock gate passes",
+    )
+
+
+class GraduationFuturesConfig(BaseModel):
+    """Futures trading graduation gate — tracks futures_trend paper trades."""
+
+    enabled: bool = Field(default=False, description="Enable futures graduation gate")
+    min_paper_trades: int = Field(
+        default=20, ge=5, le=1000,
+        description="Minimum closed paper futures trades required",
+    )
+    min_win_rate: float = Field(
+        default=0.45, ge=0.0, le=1.0,
+        description="Minimum win rate threshold",
+    )
+    max_drawdown_pct: float = Field(
+        default=8.0, ge=1.0, le=100.0,
+        description="Maximum drawdown as percentage of paper balance",
+    )
+    min_profitable_days: int = Field(
+        default=3, ge=1, le=100,
+        description="Must have this many profitable trading days",
+    )
+    min_avg_pnl_per_trade_cents: int = Field(
+        default=100, ge=0,
+        description="Must average this many cents per trade",
+    )
+    paper_balance_cents: int = Field(
+        default=50000, ge=1000,
+        description="Paper balance in cents for drawdown calculation",
+    )
+    notify_telegram: bool = Field(
+        default=True,
+        description="Send Telegram alert when futures gate passes",
+    )
+
+
+class GraduationOptionsConfig(BaseModel):
+    """Options trading graduation gate — tracks options_income + options_directional paper trades."""
+
+    enabled: bool = Field(default=False, description="Enable options graduation gate")
+    min_paper_trades: int = Field(
+        default=15, ge=5, le=1000,
+        description="Minimum closed paper options trades required",
+    )
+    min_win_rate: float = Field(
+        default=0.60, ge=0.0, le=1.0,
+        description="Minimum win rate threshold (put selling should be high WR)",
+    )
+    max_drawdown_pct: float = Field(
+        default=12.0, ge=1.0, le=100.0,
+        description="Maximum drawdown as percentage of paper balance",
+    )
+    min_profitable_days: int = Field(
+        default=3, ge=1, le=100,
+        description="Must have this many profitable trading days",
+    )
+    min_avg_pnl_per_trade_cents: int = Field(
+        default=75, ge=0,
+        description="Must average this many cents per trade",
+    )
+    paper_balance_cents: int = Field(
+        default=50000, ge=1000,
+        description="Paper balance in cents for drawdown calculation",
+    )
+    notify_telegram: bool = Field(
+        default=True,
+        description="Send Telegram alert when options gate passes",
+    )
+
+
 class AutoResearchConfig(BaseModel):
     """Auto-Research Pipeline configuration (Phase 2)."""
 
@@ -523,7 +625,19 @@ class YAMLConfig(BaseModel):
     )
     graduation: GraduationConfig = Field(
         default_factory=GraduationConfig,
-        description="Go-live graduation gate settings",
+        description="Go-live graduation gate settings (Kalshi)",
+    )
+    graduation_stocks: GraduationStocksConfig = Field(
+        default_factory=GraduationStocksConfig,
+        description="Stock trading graduation gate settings",
+    )
+    graduation_futures: GraduationFuturesConfig = Field(
+        default_factory=GraduationFuturesConfig,
+        description="Futures trading graduation gate settings",
+    )
+    graduation_options: GraduationOptionsConfig = Field(
+        default_factory=GraduationOptionsConfig,
+        description="Options trading graduation gate settings",
     )
 
 
