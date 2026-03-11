@@ -141,8 +141,10 @@ async def persist_arena_results(
     from arena.models import TournamentResult  # noqa: F811
 
     count = 0
+    valid_gates = set(GATE_STRATEGIES.keys())
     for score in tournament_result.rankings:
-        resolved_gate = gate or _gate_for_strategy(score.strategy_name)
+        # Only use explicit gate if it's a real gate name; otherwise auto-detect
+        resolved_gate = gate if gate in valid_gates else _gate_for_strategy(score.strategy_name)
 
         # Build a minimal BacktestResult-like payload
         pf = score.profit_factor
