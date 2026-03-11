@@ -2583,8 +2583,8 @@ class KalshiTradingBot:
                         position.get("strategy", "mean_reversion"), pnl
                     )
 
-                # Sync close to Supabase dashboard (skip for paper trades)
-                if self.dashboard and position.get("order_id") and not self.paper_trade:
+                # Sync close to Supabase dashboard
+                if self.dashboard and position.get("order_id"):
                     await self.dashboard.push_trade_close(
                         order_id=position["order_id"],
                         exit_price_cents=exit_signal.current_price_cents,
@@ -3172,8 +3172,8 @@ class KalshiTradingBot:
             if self.strategy_manager:
                 self.strategy_manager.record_position_open(ticker, strategy_name)
 
-            # Push trade to Supabase dashboard (skip for paper trades)
-            if self.dashboard and not self.paper_trade:
+            # Push trade to Supabase dashboard
+            if self.dashboard:
                 await self.dashboard.push_trade(
                     market_ticker=ticker,
                     side=opp.side,
