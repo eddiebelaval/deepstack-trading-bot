@@ -45,7 +45,7 @@ function SnapshotCard({
   if (!reading) {
     return (
       <div className="rounded border border-terminal-dim/10 bg-terminal-bg px-2 py-2">
-        <div className="text-[8px] tracking-[0.18em] text-terminal-dim/50">{label}</div>
+        <div className="text-[9px] tracking-[0.18em] text-terminal-dim/50">{label}</div>
         <div className="mt-1 text-[9px] text-terminal-dim/40">NO READING</div>
       </div>
     );
@@ -56,15 +56,15 @@ function SnapshotCard({
   return (
     <div className="rounded border bg-terminal-bg px-2 py-2" style={{ borderColor: `${color}25` }}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[8px] tracking-[0.18em] text-terminal-dim/50">{label}</span>
-        <span className="text-[8px] tabular-nums text-terminal-dim/40">
+        <span className="text-[9px] tracking-[0.18em] text-terminal-dim/50">{label}</span>
+        <span className="text-[9px] tabular-nums text-terminal-dim/40">
           {(reading.confidence * 100).toFixed(0)}% CONF
         </span>
       </div>
       <div className="mt-1 text-[10px] font-bold tracking-wide" style={{ color }}>
         {formatStrategyName(reading.regime)}
       </div>
-      <div className="mt-1 flex items-center gap-3 text-[8px] tabular-nums text-terminal-dim/45">
+      <div className="mt-1 flex items-center gap-3 text-[9px] tabular-nums text-terminal-dim/45">
         <span>VOL {reading.volatility != null ? `${(reading.volatility * 100).toFixed(0)}%` : '--'}</span>
         <span>{shortDate(reading.timestamp)}</span>
       </div>
@@ -173,7 +173,7 @@ export default function DecisionAuditPanel() {
               { label: 'TOTAL CYCLES', value: `${cycles.length}`, color: 'text-terminal-dim' },
             ].map((s) => (
               <div key={s.label} className="px-2 py-1.5 rounded border border-terminal-green/8 bg-terminal-bg-panel/40">
-                <div className="text-[8px] text-terminal-dim/50 tracking-[0.15em]">{s.label}</div>
+                <div className="text-[9px] text-terminal-dim/50 tracking-[0.15em]">{s.label}</div>
                 <div className={`text-sm font-bold tabular-nums ${s.color}`}>{s.value}</div>
               </div>
             ))}
@@ -195,7 +195,7 @@ export default function DecisionAuditPanel() {
               {regimePatterns.map((rp) => (
                 <div
                   key={rp.regime}
-                  className="px-2 py-1 rounded border text-[8px] tabular-nums"
+                  className="px-2 py-1 rounded border text-[9px] tabular-nums"
                   style={{
                     borderColor: `${regimeColor(rp.regime)}20`,
                     color: regimeColor(rp.regime),
@@ -248,11 +248,11 @@ export default function DecisionAuditPanel() {
                       {formatStrategyName(regime || 'unknown')}
                     </span>
                     <span
-                      className={`px-2 py-0.5 rounded border text-[8px] tracking-[0.16em] ${agreementStyle(cycle.translation.agreement)}`}
+                      className={`px-2 py-0.5 rounded border text-[9px] tracking-[0.16em] ${agreementStyle(cycle.translation.agreement)}`}
                     >
                       {cycle.translation.agreement.toUpperCase()}
                     </span>
-                    <span className="text-[8px] text-terminal-cyan border border-terminal-cyan/20 bg-terminal-cyan/5 rounded px-2 py-0.5 tracking-[0.16em]">
+                    <span className="text-[9px] text-terminal-cyan border border-terminal-cyan/20 bg-terminal-cyan/5 rounded px-2 py-0.5 tracking-[0.16em]">
                       {steeringLabel(cycle.translation.steering_source)}
                     </span>
                   </div>
@@ -270,7 +270,7 @@ export default function DecisionAuditPanel() {
 
                 <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_0.9fr_1fr_0.95fr] gap-3">
                   <div className="space-y-2">
-                    <div className="text-[8px] tracking-[0.18em] text-terminal-dim/45">SENSE</div>
+                    <div className="text-[9px] tracking-[0.18em] text-terminal-dim/45">SENSE</div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                       <SnapshotCard
                         label={SOURCE_LABELS.prediction_market}
@@ -284,7 +284,7 @@ export default function DecisionAuditPanel() {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="text-[8px] tracking-[0.18em] text-terminal-dim/45">TRANSLATE</div>
+                    <div className="text-[9px] tracking-[0.18em] text-terminal-dim/45">TRANSLATE</div>
                     <div className="rounded border border-terminal-green/10 bg-terminal-bg px-2 py-2 space-y-1.5 text-[9px]">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-terminal-dim/45">EFFECTIVE</span>
@@ -310,7 +310,7 @@ export default function DecisionAuditPanel() {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="text-[8px] tracking-[0.18em] text-terminal-dim/45">DECIDE</div>
+                    <div className="text-[9px] tracking-[0.18em] text-terminal-dim/45">DECIDE</div>
                     <div className="rounded border border-terminal-green/10 bg-terminal-bg px-2 py-2 space-y-2 text-[9px]">
                       <div>
                         <div className="text-terminal-green/80 tracking-[0.14em]">ENABLE</div>
@@ -340,7 +340,7 @@ export default function DecisionAuditPanel() {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="text-[8px] tracking-[0.18em] text-terminal-dim/45">OUTCOME</div>
+                    <div className="text-[9px] tracking-[0.18em] text-terminal-dim/45">OUTCOME</div>
                     <div className="rounded border border-terminal-green/10 bg-terminal-bg px-2 py-2 space-y-2 text-[9px]">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-terminal-dim/45">REALIZED</span>
@@ -360,7 +360,7 @@ export default function DecisionAuditPanel() {
                             fitness.map((row) => (
                               <span
                                 key={`${cycle.timestamp}-${row.strategy_name}`}
-                                className="text-[8px] rounded border border-terminal-cyan/15 bg-terminal-cyan/5 px-1.5 py-0.5 text-terminal-cyan"
+                                className="text-[9px] rounded border border-terminal-cyan/15 bg-terminal-cyan/5 px-1.5 py-0.5 text-terminal-cyan"
                               >
                                 {formatStrategyName(row.strategy_name)} {(row.fitness_score * 100).toFixed(0)}
                               </span>
