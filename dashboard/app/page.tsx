@@ -385,31 +385,31 @@ function GateCard({ gate }: { gate: GateResult }) {
                 <div className="text-[10px] tabular-nums font-bold" style={{ color: "var(--terminal-green)" }}>
                   {metrics.wins}W
                 </div>
-                <div className="text-[7px] text-terminal-dim/30">WINS</div>
+                <div className="text-[8px] text-terminal-dim/30">WINS</div>
               </div>
               <div>
                 <div className="text-[10px] tabular-nums font-bold" style={{ color: "var(--terminal-red)" }}>
                   {metrics.losses}L
                 </div>
-                <div className="text-[7px] text-terminal-dim/30">LOSSES</div>
+                <div className="text-[8px] text-terminal-dim/30">LOSSES</div>
               </div>
               <div>
                 <div className="text-[10px] tabular-nums font-bold" style={{ color: streakColor }}>
                   {streakLabel}
                 </div>
-                <div className="text-[7px] text-terminal-dim/30">STREAK</div>
+                <div className="text-[8px] text-terminal-dim/30">STREAK</div>
               </div>
               <div>
                 <div className="text-[10px] tabular-nums font-bold" style={{ color: "var(--terminal-cyan)" }}>
                   {metrics.profitable_days}/{metrics.total_days}
                 </div>
-                <div className="text-[7px] text-terminal-dim/30">DAYS +/-</div>
+                <div className="text-[8px] text-terminal-dim/30">DAYS +/-</div>
               </div>
             </div>
 
             <div className="mt-2 grid grid-cols-2 gap-2 text-[9px]">
               <div className="bg-terminal-bg-panel rounded px-2 py-1.5">
-                <div className="text-[7px] text-terminal-dim/30 tracking-wider mb-0.5">BEST TRADE</div>
+                <div className="text-[8px] text-terminal-dim/30 tracking-wider mb-0.5">BEST TRADE</div>
                 <div className="tabular-nums font-bold" style={{ color: "var(--terminal-green)" }}>
                   +{centsToUSD(metrics.best_trade_cents)}
                 </div>
@@ -418,7 +418,7 @@ function GateCard({ gate }: { gate: GateResult }) {
                 </div>
               </div>
               <div className="bg-terminal-bg-panel rounded px-2 py-1.5">
-                <div className="text-[7px] text-terminal-dim/30 tracking-wider mb-0.5">WORST TRADE</div>
+                <div className="text-[8px] text-terminal-dim/30 tracking-wider mb-0.5">WORST TRADE</div>
                 <div className="tabular-nums font-bold" style={{ color: "var(--terminal-red)" }}>
                   {centsToUSD(metrics.worst_trade_cents)}
                 </div>
