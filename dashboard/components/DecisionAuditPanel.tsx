@@ -1,58 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { centsToUSD, formatStrategyName, regimeColor, shortDate } from '@/lib/format';
-
-
-interface RegimeSnapshot {
-  regime: string;
-  confidence: number;
-  volatility: number | null;
-  timestamp: string;
-  source?: string;
-}
-
-interface FitnessRow {
-  strategy_name: string;
-  regime: string;
-  fitness_score: number;
-  trade_count: number;
-  total_pnl_cents: number;
-}
-
-interface DecisionAuditCycle {
-  timestamp: string;
-  observed: {
-    prediction_market: RegimeSnapshot | null;
-    stock: RegimeSnapshot | null;
-  };
-  translation: {
-    effective_regime: string | null;
-    agreement: 'agree' | 'diverge' | 'partial' | 'unknown';
-    steering_source: 'prediction_market' | 'stock' | 'both' | 'unknown';
-    confidence_gap: number | null;
-  };
-  decisions: {
-    regime: string;
-    confidence: number | null;
-    mode: string | null;
-    enable: string[];
-    disable: string[];
-    reasons: string[];
-  };
-  context: {
-    top_fitness: FitnessRow[];
-  };
-  outcome: {
-    trade_count: number;
-    net_pnl_cents: number;
-    window_hours: number;
-  };
-}
-
-function sourceLabel(source: 'prediction_market' | 'stock') {
-  return source === 'prediction_market' ? 'PREDICTION MKTS' : 'STOCKS';
-}
+import type { DecisionAuditCycle, RegimeSnapshot } from '@/lib/weather-types';
+import { SOURCE_LABELS } from '@/lib/weather-types';
 
 function agreementStyle(agreement: DecisionAuditCycle['translation']['agreement']) {
   switch (agreement) {
@@ -124,13 +75,18 @@ function SnapshotCard({
 export default function DecisionAuditPanel() {
   const [cycles, setCycles] = useState<DecisionAuditCycle[]>([]);
   const [loading, setLoading] = useState(true);
+  const prevCyclesRef = useRef('');
 
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch('/api/analytics?view=decision_audit&days=7');
       if (!res.ok) return;
       const json = await res.json();
-      setCycles(json.data || []);
+      const serialized = JSON.stringify(json.data || []);
+      if (serialized !== prevCyclesRef.current) {
+        prevCyclesRef.current = serialized;
+        setCycles(json.data || []);
+      }
     } catch {
       /* silent */
     } finally {
@@ -144,38 +100,47 @@ export default function DecisionAuditPanel() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  const summary = useMemo(() => {
-    const diverged = cycles.filter((c) => c.translation.agreement === 'diverge').length;
-    const positive = cycles.filter((c) => c.outcome.net_pnl_cents > 0).length;
-    const totalPnl = cycles.reduce((s, c) => s + c.outcome.net_pnl_cents, 0);
-    const avgPnl = cycles.length > 0 ? Math.round(totalPnl / cycles.length) : 0;
-    const positiveRate = cycles.length > 0 ? Math.round((positive / cycles.length) * 100) : 0;
-    return { diverged, positive, totalPnl, avgPnl, positiveRate };
-  }, [cycles]);
-
-  // Historical pattern: how do divergences perform?
-  const divergencePattern = useMemo(() => {
-    const diverged = cycles.filter((c) => c.translation.agreement === 'diverge');
-    if (diverged.length < 2) return null;
-    const avgPnl = Math.round(diverged.reduce((s, c) => s + c.outcome.net_pnl_cents, 0) / diverged.length);
-    const winRate = Math.round(diverged.filter((c) => c.outcome.net_pnl_cents > 0).length / diverged.length * 100);
-    return { count: diverged.length, avgPnlCents: avgPnl, winRate };
-  }, [cycles]);
-
-  // Regime performance breakdown
-  const regimePatterns = useMemo(() => {
+  // Single-pass analysis: summary stats, divergence pattern, regime breakdown
+  const { summary, divergencePattern, regimePatterns } = useMemo(() => {
+    let divergedCount = 0;
+    let positiveCount = 0;
+    let totalPnl = 0;
+    let divPnl = 0;
+    let divWins = 0;
     const byRegime = new Map<string, { count: number; totalPnl: number; wins: number }>();
-    for (const cycle of cycles) {
-      const regime = cycle.translation.effective_regime ?? cycle.decisions.regime ?? 'unknown';
+
+    for (const c of cycles) {
+      const pnl = c.outcome.net_pnl_cents;
+      totalPnl += pnl;
+      if (pnl > 0) positiveCount++;
+      if (c.translation.agreement === 'diverge') {
+        divergedCount++;
+        divPnl += pnl;
+        if (pnl > 0) divWins++;
+      }
+      const regime = c.translation.effective_regime ?? c.decisions.regime ?? 'unknown';
       const entry = byRegime.get(regime) ?? { count: 0, totalPnl: 0, wins: 0 };
       entry.count++;
-      entry.totalPnl += cycle.outcome.net_pnl_cents;
-      if (cycle.outcome.net_pnl_cents > 0) entry.wins++;
+      entry.totalPnl += pnl;
+      if (pnl > 0) entry.wins++;
       byRegime.set(regime, entry);
     }
-    return Array.from(byRegime.entries())
-      .map(([regime, d]) => ({ regime, ...d, winRate: d.count > 0 ? Math.round((d.wins / d.count) * 100) : 0 }))
-      .sort((a, b) => b.totalPnl - a.totalPnl);
+
+    return {
+      summary: {
+        diverged: divergedCount,
+        positive: positiveCount,
+        totalPnl,
+        avgPnl: cycles.length > 0 ? Math.round(totalPnl / cycles.length) : 0,
+        positiveRate: cycles.length > 0 ? Math.round((positiveCount / cycles.length) * 100) : 0,
+      },
+      divergencePattern: divergedCount >= 2
+        ? { count: divergedCount, avgPnlCents: Math.round(divPnl / divergedCount), winRate: Math.round((divWins / divergedCount) * 100) }
+        : null,
+      regimePatterns: Array.from(byRegime.entries())
+        .map(([regime, d]) => ({ regime, ...d, winRate: d.count > 0 ? Math.round((d.wins / d.count) * 100) : 0 }))
+        .sort((a, b) => b.totalPnl - a.totalPnl),
+    };
   }, [cycles]);
 
   return (
@@ -308,11 +273,11 @@ export default function DecisionAuditPanel() {
                     <div className="text-[8px] tracking-[0.18em] text-terminal-dim/45">SENSE</div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                       <SnapshotCard
-                        label={sourceLabel('prediction_market')}
+                        label={SOURCE_LABELS.prediction_market}
                         reading={cycle.observed.prediction_market}
                       />
                       <SnapshotCard
-                        label={sourceLabel('stock')}
+                        label={SOURCE_LABELS.stock}
                         reading={cycle.observed.stock}
                       />
                     </div>

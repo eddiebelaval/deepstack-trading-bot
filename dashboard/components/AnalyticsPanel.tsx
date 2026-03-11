@@ -19,6 +19,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { formatStrategyName, regimeColor } from '@/lib/format';
+import type { StrategyFitnessRow } from '@/lib/weather-types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -159,7 +160,7 @@ export default function AnalyticsPanel() {
       case 'trade_scatter':
         return <TradeScatterChart data={rawData as TradeScatterRow[]} />;
       case 'fitness_heatmap':
-        return <FitnessHeatmap data={rawData as FitnessRow[]} />;
+        return <FitnessHeatmap data={rawData as StrategyFitnessRow[]} />;
       default:
         return null;
     }
@@ -443,19 +444,11 @@ function TradeScatterChart({ data }: { data: TradeScatterRow[] }) {
 
 // -- Fitness Heatmap (CSS grid, not recharts) --
 
-interface FitnessRow {
-  strategy_name: string;
-  regime: string;
-  fitness_score: number;
-  trade_count: number;
-  total_pnl_cents: number;
-}
-
-function FitnessHeatmap({ data }: { data: FitnessRow[] }) {
+function FitnessHeatmap({ data }: { data: StrategyFitnessRow[] }) {
   const strategies = [...new Set(data.map((d) => d.strategy_name))];
   const regimes = [...new Set(data.map((d) => d.regime))];
 
-  const lookup = new Map<string, FitnessRow>();
+  const lookup = new Map<string, StrategyFitnessRow>();
   for (const d of data) {
     lookup.set(`${d.strategy_name}|${d.regime}`, d);
   }
