@@ -39,7 +39,7 @@ interface RegimeRow {
   volume_ratio: number;
   num_markets_sampled: number;
   timestamp: string;
-  source: string;
+  source?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,10 +169,12 @@ async function supabaseTradeScatter() {
 
 async function supabaseMarketState() {
   try {
-    return await restGet<RegimeRow>(
+    const rows = await restGet<RegimeRow>(
       'deepstack_regime_history',
-      `select=source,regime,confidence,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled,timestamp&order=id.desc&limit=5`,
+      `select=regime,confidence,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled,timestamp&order=id.desc&limit=5`,
     );
+    // Default source since column doesn't exist in Supabase yet
+    return rows.map((r) => ({ ...r, source: r.source ?? 'prediction_market' }));
   } catch {
     return [];
   }
@@ -182,10 +184,11 @@ async function supabaseRegimeTimeline(days: number) {
   try {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
-    return await restGet<RegimeRow>(
+    const rows = await restGet<RegimeRow>(
       'deepstack_regime_history',
-      `timestamp=gte.${cutoff.toISOString()}&select=id,regime,confidence,timestamp,volatility,trend_strength,source&order=timestamp.asc&limit=500`,
+      `timestamp=gte.${cutoff.toISOString()}&select=id,regime,confidence,timestamp,volatility,trend_strength&order=timestamp.asc&limit=500`,
     );
+    return rows.map((r) => ({ ...r, source: r.source ?? 'prediction_market' }));
   } catch {
     return [];
   }
