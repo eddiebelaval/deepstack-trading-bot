@@ -3,6 +3,18 @@ import { restGet } from '@/lib/postgres';
 
 export const dynamic = 'force-dynamic';
 
+// ---------------------------------------------------------------------------
+// Blending weights — backtest provides statistical confidence,
+// paper trading validates execution reality
+// ---------------------------------------------------------------------------
+
+const BACKTEST_WEIGHT = 0.65;
+const PAPER_WEIGHT = 0.35;
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 interface GateConfig {
   label: string;
   platform: string;
@@ -56,10 +68,46 @@ interface TradeRow {
   market_ticker: string;
 }
 
+interface BacktestRow {
+  strategy: string;
+  gate: string;
+  total_trades: number;
+  win_rate: number;
+  max_drawdown_pct: number;
+  sharpe_ratio: number;
+  profit_factor: number;
+  avg_pnl_cents: number;
+  total_pnl_cents: number;
+  composite_score: number;
+  data_source: string;
+  time_window: string | null;
+  created_at: string;
+}
+
 interface DailyPnl {
   day: string;
   pnl: number;
   trades: number;
+}
+
+interface BacktestConfidence {
+  score: number;           // 0-100 composite from arena
+  strategies_tested: number;
+  total_bt_trades: number;
+  avg_win_rate: number;
+  avg_sharpe: number;
+  avg_drawdown_pct: number;
+  data_source: string;
+  last_run: string;        // ISO timestamp
+}
+
+interface GateCheck {
+  name: string;
+  passed: boolean;
+  current: number;
+  target: number;
+  format: 'number' | 'percent' | 'cents' | 'pct' | 'days';
+  invert?: boolean;
 }
 
 interface GateResult {
@@ -89,17 +137,17 @@ interface GateResult {
     strategies_total: number;
     regime_breakdown: { regime: string; trades: number; pnl: number }[];
   };
-  gate_checks: {
-    name: string;
-    passed: boolean;
-    current: number;
-    target: number;
-    format: 'number' | 'percent' | 'cents' | 'pct' | 'days';
-    invert?: boolean;
-  }[];
+  gate_checks: GateCheck[];
+  // Hybrid graduation fields
+  paper_readiness: number;       // 0-1 (existing gate check pass ratio)
+  backtest_confidence: BacktestConfidence | null;
+  blended_readiness: number;     // 0-1 weighted blend
 }
 
-// Fetch all closed trades from Supabase once, then partition by gate
+// ---------------------------------------------------------------------------
+// Data fetching
+// ---------------------------------------------------------------------------
+
 async function fetchClosedTrades(): Promise<TradeRow[]> {
   return restGet<TradeRow>(
     'deepstack_trades',
@@ -107,7 +155,72 @@ async function fetchClosedTrades(): Promise<TradeRow[]> {
   );
 }
 
-function computeGate(gate: GateConfig, allTrades: TradeRow[]): GateResult {
+async function fetchBacktestResults(): Promise<BacktestRow[]> {
+  try {
+    return await restGet<BacktestRow>(
+      'deepstack_backtest_results',
+      'select=strategy,gate,total_trades,win_rate,max_drawdown_pct,sharpe_ratio,profit_factor,avg_pnl_cents,total_pnl_cents,composite_score,data_source,time_window,created_at&order=created_at.desc'
+    );
+  } catch {
+    // Table may not exist yet — graceful fallback
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Backtest confidence aggregation
+// ---------------------------------------------------------------------------
+
+function computeBacktestConfidence(
+  gate: GateConfig,
+  allBacktests: BacktestRow[],
+): BacktestConfidence | null {
+  // Get latest backtest result per strategy for this gate
+  const gateResults = allBacktests.filter((r) => r.gate === gate.label);
+  if (gateResults.length === 0) return null;
+
+  // Deduplicate: keep only the latest result per strategy
+  const latestByStrategy = new Map<string, BacktestRow>();
+  for (const r of gateResults) {
+    const existing = latestByStrategy.get(r.strategy);
+    if (!existing || r.created_at > existing.created_at) {
+      latestByStrategy.set(r.strategy, r);
+    }
+  }
+
+  const results = Array.from(latestByStrategy.values());
+  if (results.length === 0) return null;
+
+  const totalBtTrades = results.reduce((s, r) => s + r.total_trades, 0);
+  const avgWinRate = results.reduce((s, r) => s + r.win_rate, 0) / results.length;
+  const avgSharpe = results.reduce((s, r) => s + r.sharpe_ratio, 0) / results.length;
+  const avgDrawdown = results.reduce((s, r) => s + r.max_drawdown_pct, 0) / results.length;
+  const avgComposite = results.reduce((s, r) => s + r.composite_score, 0) / results.length;
+
+  // Find most recent run
+  const latest = results.reduce((a, b) => a.created_at > b.created_at ? a : b);
+
+  return {
+    score: avgComposite,
+    strategies_tested: results.length,
+    total_bt_trades: totalBtTrades,
+    avg_win_rate: avgWinRate,
+    avg_sharpe: avgSharpe,
+    avg_drawdown_pct: avgDrawdown,
+    data_source: latest.data_source,
+    last_run: latest.created_at,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Gate computation (paper trading metrics — unchanged logic)
+// ---------------------------------------------------------------------------
+
+function computeGate(
+  gate: GateConfig,
+  allTrades: TradeRow[],
+  allBacktests: BacktestRow[],
+): GateResult {
   const strategySet = new Set(gate.strategies);
   const trades = allTrades.filter((t) => strategySet.has(t.strategy));
 
@@ -123,13 +236,25 @@ function computeGate(gate: GateConfig, allTrades: TradeRow[]): GateResult {
     regime_breakdown: [],
   };
 
+  const gateChecks = trades.length === 0
+    ? buildGateChecks(gate, 0, 0, 0, 0, 0)
+    : null; // computed below if we have trades
+
   if (trades.length === 0) {
+    const btConf = computeBacktestConfidence(gate, allBacktests);
+    const paperReadiness = 0;
+    const btScore = btConf ? btConf.score / 100 : 0;
+    const blended = paperReadiness * PAPER_WEIGHT + btScore * BACKTEST_WEIGHT;
+
     return {
       label: gate.label,
       platform: gate.platform,
       thresholds: gate.thresholds,
       metrics: emptyMetrics,
       gate_checks: buildGateChecks(gate, 0, 0, 0, 0, 0),
+      paper_readiness: 0,
+      backtest_confidence: btConf,
+      blended_readiness: blended,
     };
   }
 
@@ -202,6 +327,19 @@ function computeGate(gate: GateConfig, allTrades: TradeRow[]): GateResult {
   }
 
   const activeStrategies = new Set(trades.map((t) => t.strategy));
+  const checks = buildGateChecks(gate, trades.length, winRate, ddPct, profitableDays, avgPnl);
+
+  // Paper readiness = ratio of passed gate checks
+  const paperReadiness = checks.filter((c) => c.passed).length / checks.length;
+
+  // Backtest confidence
+  const btConf = computeBacktestConfidence(gate, allBacktests);
+  const btScore = btConf ? btConf.score / 100 : 0;
+
+  // Blended readiness
+  const blended = btConf
+    ? paperReadiness * PAPER_WEIGHT + btScore * BACKTEST_WEIGHT
+    : paperReadiness; // No backtest data = paper only
 
   return {
     label: gate.label,
@@ -228,26 +366,44 @@ function computeGate(gate: GateConfig, allTrades: TradeRow[]): GateResult {
       daily_pnl: dailyPnl,
       strategies_active: activeStrategies.size,
       strategies_total: gate.strategies.length,
-      regime_breakdown: [], // regime_history not available in Supabase
+      regime_breakdown: [],
     },
-    gate_checks: buildGateChecks(gate, trades.length, winRate, ddPct, profitableDays, avgPnl),
+    gate_checks: checks,
+    paper_readiness: paperReadiness,
+    backtest_confidence: btConf,
+    blended_readiness: blended,
   };
 }
 
+// ---------------------------------------------------------------------------
+// API handler
+// ---------------------------------------------------------------------------
+
 export async function GET() {
   try {
-    const allTrades = await fetchClosedTrades();
-    const gates = GATES.map((gate) => computeGate(gate, allTrades));
+    const [allTrades, allBacktests] = await Promise.all([
+      fetchClosedTrades(),
+      fetchBacktestResults(),
+    ]);
+
+    const gates = GATES.map((gate) => computeGate(gate, allTrades, allBacktests));
 
     return NextResponse.json(
-      { gates },
+      {
+        gates,
+        weights: { backtest: BACKTEST_WEIGHT, paper: PAPER_WEIGHT },
+      },
       { headers: { 'Cache-Control': 'private, max-age=15' } },
     );
   } catch (error) {
     console.error('Graduation API error:', error);
-    return NextResponse.json({ gates: [] }, { status: 500 });
+    return NextResponse.json({ gates: [], weights: { backtest: BACKTEST_WEIGHT, paper: PAPER_WEIGHT } }, { status: 500 });
   }
 }
+
+// ---------------------------------------------------------------------------
+// Gate check builder
+// ---------------------------------------------------------------------------
 
 function buildGateChecks(
   gate: GateConfig,
@@ -257,7 +413,7 @@ function buildGateChecks(
   profitableDays: number,
   avgPnl: number,
 ) {
-  const checks: GateResult['gate_checks'] = [
+  const checks: GateCheck[] = [
     {
       name: 'TRADES',
       passed: trades >= gate.thresholds.min_trades,

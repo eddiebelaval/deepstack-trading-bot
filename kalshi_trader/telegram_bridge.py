@@ -587,6 +587,9 @@ Parse the user's message into one of these categories:
   - "positions" / "managed positions" / "what am I holding?" / "my positions" -> {"type": "command", "command": "positions", "args": {}}
   - "set sl on GNS to 20" / "change take profit on GNS to 50" -> {"type": "command", "command": "update_position", "args": {"symbol": "GNS", "stop_loss": 20}}
   - "ladder GNS" / "show ladder" / "sell plan" / "GNS ladder" -> {"type": "command", "command": "ladder", "args": {"symbol": "GNS"}}
+  - "run arena" / "run tournament" / "backtest all" / "arena tournament" -> {"type": "command", "command": "run_arena", "args": {}}
+  - "run arena seas" / "multi-regime backtest" -> {"type": "command", "command": "run_arena", "args": {"seas": true}}
+  - "run arena for stocks" -> {"type": "command", "command": "run_arena", "args": {"gate": "STOCKS"}}
 
 - engineer: Requests for Dae to modify his own code, fix bugs, improve strategies, or update config. Examples:
   - "fix the momentum strategy" -> {"type": "engineer", "task": "fix the momentum strategy"}
