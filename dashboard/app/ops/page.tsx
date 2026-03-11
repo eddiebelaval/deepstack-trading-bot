@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import AnalyticsPanel from '@/components/AnalyticsPanel';
+import DecisionAuditPanel from '@/components/DecisionAuditPanel';
 import StrategiesPanel from '@/components/StrategiesPanel';
 import WeatherMap from '@/components/WeatherMap';
 import type {
@@ -372,6 +373,9 @@ export default function CommandCenter() {
 
           {/* ------ Market Weather System ------ */}
           <WeatherMap />
+
+          {/* ------ Decision Audit ------ */}
+          <DecisionAuditPanel />
 
           {/* ------ Analytics Panel (multi-view charts) ------ */}
           <AnalyticsPanel />

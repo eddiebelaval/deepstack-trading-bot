@@ -119,11 +119,22 @@ function computeBeaufort(volatility: number, trendStrength: number, mrScore: num
   return idx >= 0 ? idx : 12;
 }
 
+function isBootstrapReading(reading: MarketReading): boolean {
+  return (
+    reading.num_markets_sampled === 0
+    && reading.confidence <= 0.1
+    && reading.volatility === 0
+    && reading.trend_strength === 0
+    && reading.mean_reversion_score === 0
+  );
+}
+
 function computeAdvisory(readings: MarketReading[]): AdvisoryLevel {
-  if (readings.length === 0) return 'ALL_CLEAR';
-  const maxVol = Math.max(...readings.map((r) => r.volatility));
-  const maxTrend = Math.max(...readings.map((r) => Math.abs(r.trend_strength)));
-  const avgConfidence = readings.reduce((s, r) => s + r.confidence, 0) / readings.length;
+  const activeReadings = readings.filter((r) => !isBootstrapReading(r));
+  if (activeReadings.length === 0) return 'ALL_CLEAR';
+  const maxVol = Math.max(...activeReadings.map((r) => r.volatility));
+  const maxTrend = Math.max(...activeReadings.map((r) => Math.abs(r.trend_strength)));
+  const avgConfidence = activeReadings.reduce((s, r) => s + r.confidence, 0) / activeReadings.length;
   if (maxVol > 0.85 || (maxVol > 0.7 && avgConfidence < 0.3)) return 'STORM_WARNING';
   if (maxVol > 0.65 || (maxTrend > 0.4 && maxVol > 0.4)) return 'GALE_WARNING';
   if (maxVol > 0.35 || maxTrend > 0.25) return 'SMALL_CRAFT';
@@ -347,6 +358,23 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
 // ---------------------------------------------------------------------------
 
 function StationReadout({ reading }: { reading: MarketReading }) {
+  if (isBootstrapReading(reading)) {
+    return (
+      <div className="rounded border border-terminal-amber/15 bg-terminal-amber/5 px-2.5 py-2.5 space-y-1.5">
+        <div className="text-[10px] font-bold tracking-[0.16em] text-terminal-amber">
+          WARMING UP
+        </div>
+        <div className="text-[9px] text-terminal-dim/65 leading-relaxed">
+          Awaiting enough fresh market snapshots to classify this source.
+        </div>
+        <div className="flex items-center justify-between text-[8px] tabular-nums text-terminal-dim/45">
+          <span>CONF {Math.round(reading.confidence * 100)}%</span>
+          <span>SNAPSHOTS PENDING</span>
+        </div>
+      </div>
+    );
+  }
+
   const beaufort = computeBeaufort(reading.volatility, reading.trend_strength, reading.mean_reversion_score);
   const beaufortInfo = BEAUFORT_SCALE[beaufort];
 
@@ -592,6 +620,10 @@ export default function WeatherMap() {
 
   const advisory = useMemo(() => computeAdvisory(readings), [readings]);
   const advisoryInfo = ADVISORIES[advisory];
+  const systemWarmingUp = useMemo(
+    () => readings.length > 0 && readings.every((reading) => isBootstrapReading(reading)),
+    [readings],
+  );
 
   // Regime transitions in last 24h
   const transitions = useMemo(() => {
@@ -639,18 +671,21 @@ export default function WeatherMap() {
       {/* Advisory Banner */}
       <div
         className={`px-3 py-1.5 border-b text-center ${
-          advisory !== 'ALL_CLEAR' ? 'animate-pulse' : ''
+          advisory !== 'ALL_CLEAR' && !systemWarmingUp ? 'animate-pulse' : ''
         }`}
         style={{
-          borderColor: advisoryInfo.borderColor,
-          background: advisoryInfo.bgColor,
+          borderColor: systemWarmingUp ? 'rgba(255,191,0,0.2)' : advisoryInfo.borderColor,
+          background: systemWarmingUp ? 'rgba(255,191,0,0.05)' : advisoryInfo.bgColor,
         }}
       >
         <span
           className="text-[10px] font-bold tracking-[0.25em]"
-          style={{ color: advisoryInfo.color, textShadow: advisoryInfo.glow }}
+          style={{
+            color: systemWarmingUp ? '#FFBF00' : advisoryInfo.color,
+            textShadow: systemWarmingUp ? '0 0 8px rgba(255,191,0,0.35)' : advisoryInfo.glow,
+          }}
         >
-          {advisoryInfo.label}
+          {systemWarmingUp ? 'SYSTEM WARMING UP' : advisoryInfo.label}
         </span>
       </div>
 
@@ -662,19 +697,21 @@ export default function WeatherMap() {
         <div className={`grid gap-3 ${readings.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
           {readings.map((r, idx) => {
             const front = FRONT_TYPES[r.regime] ?? FRONT_TYPES.low_vol_calm;
+            const bootstrap = isBootstrapReading(r);
+            const accentColor = bootstrap ? '#FFBF00' : front.color;
             return (
               <div
                 key={`${r.source}-${idx}`}
                 className="bg-terminal-bg rounded-lg p-2.5 border"
-                style={{ borderColor: `${front.color}18` }}
+                style={{ borderColor: `${accentColor}18` }}
               >
                 {/* Source header */}
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[9px] font-bold tracking-[0.15em]" style={{ color: front.color }}>
+                  <span className="text-[9px] font-bold tracking-[0.15em]" style={{ color: accentColor }}>
                     {SOURCE_LABELS[r.source] ?? r.source.toUpperCase()}
                   </span>
                   <span className="text-[9px] text-terminal-dim/30 tabular-nums">
-                    {r.num_markets_sampled.toLocaleString()} SRC
+                    {bootstrap ? 'WARMUP' : `${r.num_markets_sampled.toLocaleString()} SRC`}
                   </span>
                 </div>
 
@@ -687,29 +724,37 @@ export default function WeatherMap() {
                 </div>
 
                 {/* Raw indicator gauges */}
-                <div className="mt-2 pt-2 border-t space-y-1" style={{ borderColor: `${front.color}10` }}>
+                <div className="mt-2 pt-2 border-t space-y-1" style={{ borderColor: `${accentColor}10` }}>
                   <div className="text-[7px] text-terminal-dim/25 tracking-[0.15em] mb-0.5">
-                    RAW SIGNALS
+                    {bootstrap ? 'RAW SIGNALS PENDING' : 'RAW SIGNALS'}
                   </div>
-                  <PressureGauge value={r.volatility} label="VOL" title="Market volatility — drives pressure reading" />
-                  <PressureGauge value={Math.abs(r.trend_strength)} label="TREND" title="Directional trend strength — drives wind speed" />
-                  <PressureGauge value={Math.abs(r.mean_reversion_score)} label="MR" title="Mean reversion score — tendency to snap back" />
-                  <PressureGauge value={Math.abs(r.volume_ratio - 1)} label="DVOL" max={0.2} title="Volume deviation from normal — drives precipitation" />
+                  {bootstrap ? (
+                    <div className="rounded border border-terminal-amber/10 bg-terminal-amber/5 px-2 py-2 text-[9px] text-terminal-dim/60 leading-relaxed">
+                      Raw factors stay hidden until the governor has enough fresh post-restart snapshots.
+                    </div>
+                  ) : (
+                    <>
+                      <PressureGauge value={r.volatility} label="VOL" title="Market volatility — drives pressure reading" />
+                      <PressureGauge value={Math.abs(r.trend_strength)} label="TREND" title="Directional trend strength — drives wind speed" />
+                      <PressureGauge value={Math.abs(r.mean_reversion_score)} label="MR" title="Mean reversion score — tendency to snap back" />
+                      <PressureGauge value={Math.abs(r.volume_ratio - 1)} label="DVOL" max={0.2} title="Volume deviation from normal — drives precipitation" />
+                    </>
+                  )}
                 </div>
 
                 {/* Front type footer */}
-                <div className="flex items-center justify-between mt-2 pt-1.5 border-t" style={{ borderColor: `${front.color}10` }}>
+                <div className="flex items-center justify-between mt-2 pt-1.5 border-t" style={{ borderColor: `${accentColor}10` }}>
                   <div className="flex items-center gap-1.5">
                     <span
                       className="w-2 h-2 rounded-full"
-                      style={{ background: front.color, boxShadow: `0 0 4px ${front.color}60` }}
+                      style={{ background: accentColor, boxShadow: `0 0 4px ${accentColor}60` }}
                     />
-                    <span className="text-[9px] font-bold tracking-wider" style={{ color: front.color }}>
-                      {front.label}
+                    <span className="text-[9px] font-bold tracking-wider" style={{ color: accentColor }}>
+                      {bootstrap ? 'INSUFFICIENT DATA' : front.label}
                     </span>
                   </div>
                   <span className="text-[9px] text-terminal-dim/25">
-                    {formatStrategyName(r.regime)}
+                    {bootstrap ? 'BOOTSTRAP' : formatStrategyName(r.regime)}
                   </span>
                 </div>
               </div>

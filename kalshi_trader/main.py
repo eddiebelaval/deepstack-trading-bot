@@ -2115,6 +2115,7 @@ class KalshiTradingBot:
 
         # Push regime snapshot to Supabase for dashboard WeatherMap
         post_regime = getattr(self.market_governor, 'current_regime', None)
+        post_stock_regime = getattr(self.market_governor, 'current_stock_regime', None)
         if self.dashboard and post_regime:
             try:
                 await self.dashboard.push_regime(
@@ -2125,9 +2126,24 @@ class KalshiTradingBot:
                     mean_reversion_score=post_regime.mean_reversion_score,
                     volume_ratio=post_regime.volume_ratio,
                     num_markets=post_regime.num_markets_sampled,
+                    source='prediction_market',
                 )
             except Exception as e:
                 logger.debug(f"Failed to push regime to Supabase: {e}")
+        if self.dashboard and post_stock_regime:
+            try:
+                await self.dashboard.push_regime(
+                    regime=post_stock_regime.regime.value,
+                    confidence=post_stock_regime.confidence,
+                    volatility=post_stock_regime.volatility,
+                    trend_strength=post_stock_regime.trend_strength,
+                    mean_reversion_score=post_stock_regime.mean_reversion_score,
+                    volume_ratio=post_stock_regime.volume_ratio,
+                    num_markets=post_stock_regime.num_markets_sampled,
+                    source='stock',
+                )
+            except Exception as e:
+                logger.debug(f"Failed to push stock regime to Supabase: {e}")
 
         # Push governance decisions to Supabase for audit trail
         if self.dashboard and self.market_governor._decisions:
