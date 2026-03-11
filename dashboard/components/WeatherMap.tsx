@@ -659,12 +659,12 @@ export default function WeatherMap() {
 
       {/* Radar Stations */}
       <div className="p-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {readings.map((r) => {
+        <div className={`grid gap-3 ${readings.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'}`}>
+          {readings.map((r, idx) => {
             const front = FRONT_TYPES[r.regime] ?? FRONT_TYPES.low_vol_calm;
             return (
               <div
-                key={r.source}
+                key={`${r.source}-${idx}`}
                 className="bg-terminal-bg rounded-lg p-2.5 border"
                 style={{ borderColor: `${front.color}18` }}
               >
@@ -680,7 +680,7 @@ export default function WeatherMap() {
 
                 {/* Radar + Readout */}
                 <div className="flex items-start gap-3">
-                  <RadarCanvas reading={r} size={140} />
+                  <RadarCanvas reading={r} size={readings.length === 1 ? 180 : 140} />
                   <div className="flex-1 min-w-0 pt-2">
                     <StationReadout reading={r} />
                   </div>

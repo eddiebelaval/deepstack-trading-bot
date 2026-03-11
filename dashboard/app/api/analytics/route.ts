@@ -171,10 +171,17 @@ async function supabaseMarketState() {
   try {
     const rows = await restGet<RegimeRow>(
       'deepstack_regime_history',
-      `select=regime,confidence,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled,timestamp&order=id.desc&limit=5`,
+      `select=regime,confidence,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled,timestamp&order=id.desc&limit=20`,
     );
     // Default source since column doesn't exist in Supabase yet
-    return rows.map((r) => ({ ...r, source: r.source ?? 'prediction_market' }));
+    const withSource = rows.map((r) => ({ ...r, source: r.source ?? 'prediction_market' }));
+    // Deduplicate: keep only the latest row per source
+    const seen = new Set<string>();
+    return withSource.filter((r) => {
+      if (seen.has(r.source)) return false;
+      seen.add(r.source);
+      return true;
+    });
   } catch {
     return [];
   }
