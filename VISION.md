@@ -2,7 +2,7 @@
 ## DeepStack
 
 > Last evolved: 2026-03-10 | Confidence: MEDIUM
-> Distance from SPEC: 55% (6 of 11 pillars realized)
+> Distance from SPEC: 58% (6 of 11 pillars realized, graduation upgraded)
 
 ---
 
@@ -39,8 +39,8 @@ DeepStack exists because the market is a conversation between fear and greed, an
 9. **News Triangulation** -- UNREALIZED
    news_sentiment_fade strategy exists but disabled. Vision: synthesize prediction market signals + recent news + capital markets into forward-looking intelligence. News API integration not built.
 
-10. **Graduation Gates** -- PARTIAL (40%)
-    Config exists for per-asset-class graduation (Kalshi 50 trades/45% WR, stocks 30/50%, futures 20/45%, options 15/60%). graduation_gate.py only reads flat Kalshi config. Multi-asset gate code not implemented.
+10. **Graduation Gates** -- PARTIAL (65%)
+    Per-asset-class graduation fully implemented across all 4 sectors (Kalshi 50 trades/45% WR, stocks 30/50%, futures 20/45%, options 15/60%). Hybrid graduation blends backtest confidence (65%) with paper trading readiness (35%). Heartbeat evaluates all sectors independently each cycle. On graduation, generates terminal-themed HTML report (gate checks, equity curve, backtest confidence, regime performance) and sends Telegram notification. Backtest results persisted to Supabase from arena tournaments. Remaining: IBKR strategies need live market data to accumulate trades toward graduation.
 
 11. **Dashboard Intelligence** -- REALIZED
     v3 multi-page dashboard live at milo.deepstack.trade. 5 dedicated pages (Command Center, Operations, Intelligence, Graduation, Research). WeatherMap NOAA-style radar visualization. AnalyticsPanel with 6 chart views. Security-hardened API layer (PostgREST filter injection fixed, whitelist validation). 34 orphaned v2 components cleaned up. Terminal green-on-black aesthetic. Real-time Supabase sync. Telegram bridge for mobile alerts.

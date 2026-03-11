@@ -377,6 +377,54 @@ ca13a6d feat(engine): multi-asset graduation gates, IBKR bridge, new strategies
 
 ---
 
+## Phase 12: Graduation Reports + Notifications (Mar 10)
+
+**"When we graduate a sector we need to generate a full HTML report."** Closing the loop on sector graduation — from detection to artifact.
+
+### What Was Built
+
+**Bot Crash Fix (P0)**
+- `_notify()` method was accidentally placed inside `__init__`, splitting the constructor at line 186. Everything after — ~20 instance attributes including Kelly fractions, circuit breakers, inaction tracking — became part of `_notify()` body. Bot crashed immediately on startup with `AttributeError: '_config_disabled_strategies'`.
+- Fix: moved `_notify()` to its own method after `__init__`.
+
+**Graduation HTML Report Generator** (`kalshi_trader/graduation_report.py`) -- NEW
+- Generates terminal-themed (green-on-black) HTML reports when any sector passes all gate checks
+- Data from two sources: SQLite trade journal (paper metrics, daily P&L) + Supabase (backtest confidence from arena)
+- Report contents: gate checks table, summary metrics, SVG equity curve sparkline, backtest strategy breakdown, regime performance (Kalshi), daily P&L table (last 14 days), blended readiness score
+- Saved to `~/Development/artifacts/deepstack/graduation-{sector}-{timestamp}.html`
+
+**Per-Sector Graduation in Heartbeat** -- UPGRADED
+- Changed from Kalshi-only `evaluate()` to `evaluate_all()` — evaluates all 4 sectors (KALSHI, STOCKS, FUTURES, OPTIONS) independently
+- Each sector can graduate independently, generating its own HTML report and Telegram notification
+- `graduated_sectors` state list prevents duplicate notifications across bot restarts
+
+**Telegram Trade Notifications** -- NEW (7 hooks)
+- Trade opened: side, contracts, ticker, price, asset class, strategy
+- Trade closed: ticker, exit type, P&L
+- Market settlement: ticker, result, P&L
+- Strategy auto-disable: name, reason
+- Inaction critical: strategy, minutes idle
+- Daily summary: trade count, P&L, per-strategy breakdown
+- IBKR connection: success/failure with port
+
+**Arena Backtest Persistence Fix**
+- `gate='ALL'` was stored literally in Supabase instead of per-strategy gate resolution
+- Root cause: `gate or _gate_for_strategy()` treats any truthy string as valid
+- Fix: validate against `GATE_STRATEGIES.keys()` before using explicit gate
+- Patched existing 17 rows via direct Supabase PATCH
+
+### Key Commits
+```
+339ac99 feat(telegram): add trade notifications for all critical events
+0985c4f feat(graduation): HTML report generation on sector graduation
+```
+
+### Lessons
+- **Method placement in Python kills silently.** A `def` inside `__init__` doesn't raise a syntax error — it just ends `__init__` early and creates a new method. All subsequent attribute assignments become that method's body. The crash only surfaces when something tries to read the orphaned attributes.
+- **Per-sector vs monolithic graduation:** The original heartbeat only checked Kalshi. But with 4 asset classes on different timelines (Kalshi has 38+ trades, IBKR has 0), each sector needs independent tracking. STOCKS could graduate months before OPTIONS.
+
+---
+
 ## Current Architecture
 
 ```
@@ -418,6 +466,8 @@ kalshi-trading/
 │   ├── captains_log.py      # AI narration
 │   ├── trade_analyzer.py    # Claude-powered analysis
 │   ├── health_monitor.py    # Zombie detection
+│   ├── graduation_gate.py   # Per-asset-class graduation evaluation
+│   ├── graduation_report.py # HTML report generator on graduation
 │   ├── consciousness.py     # CaF self-awareness
 │   ├── telegram_bridge.py   # Two-way Telegram
 │   └── journal.py           # Trade journal (SQLite)
@@ -467,9 +517,9 @@ kalshi-trading/
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 110+ |
+| Total commits | 115+ |
 | Active build days | 14 (Feb 7 — Mar 10, 2026) |
-| PRs merged | 69 |
+| PRs merged | 75 |
 | Strategies | 19 (6 active, 13 disabled) |
 | Tests | 38+ |
 | Real balance | ~$159.64 (from $200 initial) |
