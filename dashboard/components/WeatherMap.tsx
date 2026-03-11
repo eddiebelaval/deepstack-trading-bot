@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useMemo, useRef, useEffect } from 'react';
 import * as d3Scale from 'd3-scale';
 import * as d3Interpolate from 'd3-interpolate';
 import { formatStrategyName } from '@/lib/format';
