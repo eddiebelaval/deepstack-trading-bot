@@ -79,7 +79,13 @@ interface GateResult {
 // ---------------------------------------------------------------------------
 
 function Sparkline({ data, width = 120, height = 28 }: { data: DailyPnl[]; width?: number; height?: number }) {
-  if (data.length < 2) return null;
+  if (data.length < 5) {
+    return (
+      <span className="text-[9px] text-terminal-dim/40 tabular-nums">
+        {data.length}/5 days
+      </span>
+    );
+  }
 
   const values = data.map((d) => d.pnl);
   const maxAbs = Math.max(...values.map(Math.abs), 1);
