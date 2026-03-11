@@ -132,6 +132,57 @@ export function computeAdvisory(readings: MarketReading[]): AdvisoryLevel {
 }
 
 // ---------------------------------------------------------------------------
+// Shared response types (used by API route + DecisionAuditPanel)
+// ---------------------------------------------------------------------------
+
+export interface RegimeSnapshot {
+  regime: string;
+  confidence: number;
+  volatility: number | null;
+  timestamp: string;
+  source?: string;
+}
+
+export interface StrategyFitnessRow {
+  strategy_name: string;
+  regime: string;
+  fitness_score: number;
+  trade_count: number;
+  total_pnl_cents: number;
+  last_updated?: string;
+}
+
+export interface DecisionAuditCycle {
+  timestamp: string;
+  observed: {
+    prediction_market: RegimeSnapshot | null;
+    stock: RegimeSnapshot | null;
+  };
+  translation: {
+    effective_regime: string | null;
+    agreement: 'agree' | 'diverge' | 'partial' | 'unknown';
+    steering_source: 'prediction_market' | 'stock' | 'both' | 'unknown';
+    confidence_gap: number | null;
+  };
+  decisions: {
+    regime: string;
+    confidence: number | null;
+    mode: string | null;
+    enable: string[];
+    disable: string[];
+    reasons: string[];
+  };
+  context: {
+    top_fitness: StrategyFitnessRow[];
+  };
+  outcome: {
+    trade_count: number;
+    net_pnl_cents: number;
+    window_hours: number;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Anomaly detection
 // ---------------------------------------------------------------------------
 

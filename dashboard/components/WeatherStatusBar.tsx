@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatStrategyName } from '@/lib/format';
 import type { MarketReading, RegimePoint, Anomaly } from '@/lib/weather-types';
 import {
@@ -79,6 +79,8 @@ export default function WeatherStatusBar() {
   const [readings, setReadings] = useState<MarketReading[]>([]);
   const [recentRegimes, setRecentRegimes] = useState<RegimePoint[]>([]);
   const [expanded, setExpanded] = useState(false);
+  const prevReadingsRef = useRef('');
+  const prevRegimesRef = useRef('');
 
   const fetchData = useCallback(async () => {
     try {
@@ -88,11 +90,19 @@ export default function WeatherStatusBar() {
       ]);
       if (stateRes.ok) {
         const d = await stateRes.json();
-        setReadings(d.data || []);
+        const json = JSON.stringify(d.data || []);
+        if (json !== prevReadingsRef.current) {
+          prevReadingsRef.current = json;
+          setReadings(d.data || []);
+        }
       }
       if (regimeRes.ok) {
         const d = await regimeRes.json();
-        setRecentRegimes(d.data || []);
+        const json = JSON.stringify(d.data || []);
+        if (json !== prevRegimesRef.current) {
+          prevRegimesRef.current = json;
+          setRecentRegimes(d.data || []);
+        }
       }
     } catch {
       /* silent */

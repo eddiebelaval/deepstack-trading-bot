@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { restGet } from '@/lib/postgres';
 import { withDb } from '@/lib/sqlite';
+import type { StrategyFitnessRow, DecisionAuditCycle } from '@/lib/weather-types';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,44 +56,6 @@ interface GovernanceDecisionRow {
   mode: string | null;
 }
 
-interface StrategyFitnessRow {
-  strategy_name: string;
-  regime: string;
-  fitness_score: number;
-  trade_count: number;
-  total_pnl_cents: number;
-  last_updated?: string;
-}
-
-interface DecisionAuditCycle {
-  timestamp: string;
-  observed: {
-    prediction_market: RegimeRow | null;
-    stock: RegimeRow | null;
-  };
-  translation: {
-    effective_regime: string | null;
-    agreement: 'agree' | 'diverge' | 'partial' | 'unknown';
-    steering_source: 'prediction_market' | 'stock' | 'both' | 'unknown';
-    confidence_gap: number | null;
-  };
-  decisions: {
-    regime: string;
-    confidence: number | null;
-    mode: string | null;
-    enable: string[];
-    disable: string[];
-    reasons: string[];
-  };
-  context: {
-    top_fitness: StrategyFitnessRow[];
-  };
-  outcome: {
-    trade_count: number;
-    net_pnl_cents: number;
-    window_hours: number;
-  };
-}
 
 const DECISION_AUDIT_LIMIT = 18;
 const DECISION_AUDIT_WINDOW_HOURS = 3;
