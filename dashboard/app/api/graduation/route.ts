@@ -236,10 +236,6 @@ function computeGate(
     regime_breakdown: [],
   };
 
-  const gateChecks = trades.length === 0
-    ? buildGateChecks(gate, 0, 0, 0, 0, 0)
-    : null; // computed below if we have trades
-
   if (trades.length === 0) {
     const btConf = computeBacktestConfidence(gate, allBacktests);
     const paperReadiness = 0;
