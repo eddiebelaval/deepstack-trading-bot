@@ -225,7 +225,7 @@ function ReadinessBar({
         )}
       </div>
 
-      <div className="flex items-center justify-between text-[8px] mt-1" style={{ color: "var(--terminal-dim)", opacity: 0.5 }}>
+      <div className="flex items-center justify-between text-[9px] mt-1" style={{ color: "var(--terminal-dim)", opacity: 0.5 }}>
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--terminal-cyan)", opacity: 0.8 }} />
@@ -266,7 +266,7 @@ function BacktestBadge({ bt }: { bt: BacktestConfidence }) {
           {bt.score.toFixed(0)}/100
         </span>
       </div>
-      <div className="grid grid-cols-3 gap-1 text-[8px]" style={{ color: "var(--terminal-dim)", opacity: 0.6 }}>
+      <div className="grid grid-cols-3 gap-1 text-[9px]" style={{ color: "var(--terminal-dim)", opacity: 0.6 }}>
         <span className="tabular-nums">{bt.strategies_tested} strats</span>
         <span className="tabular-nums">{bt.total_bt_trades.toLocaleString()} trades</span>
         <span className="tabular-nums">S={bt.avg_sharpe.toFixed(1)}</span>
@@ -370,7 +370,7 @@ function GateCard({ gate }: { gate: GateResult }) {
                   {metrics.total_pnl_cents >= 0 ? "+" : ""}
                   {centsToUSD(metrics.total_pnl_cents)}
                 </div>
-                <div className="text-[8px] text-terminal-dim/40">TOTAL P&L</div>
+                <div className="text-[9px] text-terminal-dim/40">TOTAL P&L</div>
               </div>
             </div>
 
@@ -407,7 +407,7 @@ function GateCard({ gate }: { gate: GateResult }) {
                 <div className="tabular-nums font-bold" style={{ color: "var(--terminal-green)" }}>
                   +{centsToUSD(metrics.best_trade_cents)}
                 </div>
-                <div className="text-[8px] text-terminal-dim/30 truncate">
+                <div className="text-[9px] text-terminal-dim/30 truncate">
                   {metrics.best_trade_ticker}
                 </div>
               </div>
@@ -416,7 +416,7 @@ function GateCard({ gate }: { gate: GateResult }) {
                 <div className="tabular-nums font-bold" style={{ color: "var(--terminal-red)" }}>
                   {centsToUSD(metrics.worst_trade_cents)}
                 </div>
-                <div className="text-[8px] text-terminal-dim/30 truncate">
+                <div className="text-[9px] text-terminal-dim/30 truncate">
                   {metrics.worst_trade_ticker}
                 </div>
               </div>
@@ -441,7 +441,7 @@ function GateCard({ gate }: { gate: GateResult }) {
                 {metrics.regime_breakdown.slice(0, 4).map((r) => (
                   <span
                     key={r.regime}
-                    className="text-[8px] px-1.5 py-0.5 rounded border tabular-nums"
+                    className="text-[9px] px-1.5 py-0.5 rounded border tabular-nums"
                     style={{
                       color: r.pnl >= 0 ? "var(--terminal-green-dim)" : "var(--terminal-red)",
                       borderColor: r.pnl >= 0 ? "rgba(0,255,65,0.15)" : "rgba(255,0,0,0.15)",
@@ -513,7 +513,7 @@ export default function GraduationPage() {
   }
 
   return (
-    <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-4 sm:space-y-6">
+    <div className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-4 sm:space-y-6 pb-12">
       {/* Hero */}
       <div className="panel-hero panel p-4 sm:p-6">
         <div className="relative z-10">

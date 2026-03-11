@@ -39,7 +39,7 @@ export default function Nav() {
       </div>
 
       {/* Center: Nav Links */}
-      <div className="flex items-center gap-1 sm:gap-2">
+      <div className="flex items-center gap-2 sm:gap-2">
         {NAV_ITEMS.map(({ href, label, shortLabel }) => {
           const isActive =
             href === "/"

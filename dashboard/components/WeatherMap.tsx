@@ -394,7 +394,7 @@ function StationReadout({ reading }: { reading: MarketReading }) {
       {metrics.map((m) => (
         <div key={m.label} className="flex items-center justify-between gap-2">
           <div className="w-16 shrink-0">
-            <div className="text-[8px] text-terminal-dim/50 tracking-wider leading-tight">
+            <div className="text-[9px] text-terminal-dim/50 tracking-wider leading-tight">
               {m.label}
             </div>
             <div className="text-[6px] text-terminal-dim/25 tracking-wider leading-tight">
@@ -409,7 +409,7 @@ function StationReadout({ reading }: { reading: MarketReading }) {
               <span className="text-[7px] text-terminal-dim/30">{m.unit}</span>
             )}
           </div>
-          <span className="text-[8px] text-terminal-dim/30 w-12 text-right truncate">
+          <span className="text-[9px] text-terminal-dim/30 w-12 text-right truncate">
             {m.tag}
           </span>
         </div>
@@ -446,7 +446,7 @@ function PressureGauge({ value, label, min = 0, max = 1, title }: {
           }}
         />
       </div>
-      <span className="text-[8px] tabular-nums w-10 text-right" style={{ color }}>
+      <span className="text-[9px] tabular-nums w-10 text-right" style={{ color }}>
         {value.toFixed(3)}
       </span>
     </div>
@@ -476,7 +476,7 @@ function WeatherLegend() {
         >
           &gt;
         </span>
-        <span className="text-[8px] tracking-[0.2em] text-terminal-dim/60">
+        <span className="text-[9px] tracking-[0.2em] text-terminal-dim/60">
           HOW TO READ THIS MAP
         </span>
       </button>
@@ -484,7 +484,7 @@ function WeatherLegend() {
         <div className="px-3 pb-3 space-y-3">
           {/* Translation table */}
           <div className="space-y-1">
-            <div className="text-[8px] font-bold tracking-[0.15em] text-terminal-green/60 mb-1.5">
+            <div className="text-[9px] font-bold tracking-[0.15em] text-terminal-green/60 mb-1.5">
               WEATHER &rarr; MARKET TRANSLATION
             </div>
             {[
@@ -493,7 +493,7 @@ function WeatherLegend() {
               { weather: 'SEA STATE', market: 'Beaufort Scale (0-12)', detail: 'Composite intensity score. F0 = glassy calm, F12 = hurricane-level chaos.' },
               { weather: 'VISIBILITY', market: 'Model Confidence', detail: 'How certain the regime classifier is. Fog = low confidence, Clear = high.' },
             ].map((row) => (
-              <div key={row.weather} className="flex gap-2 text-[8px]">
+              <div key={row.weather} className="flex gap-2 text-[9px]">
                 <span className="text-terminal-green w-16 shrink-0 font-bold">{row.weather}</span>
                 <span className="text-terminal-dim/40">=</span>
                 <div className="flex-1 min-w-0">
@@ -508,12 +508,12 @@ function WeatherLegend() {
 
           {/* Front types */}
           <div className="space-y-1">
-            <div className="text-[8px] font-bold tracking-[0.15em] text-terminal-green/60 mb-1.5">
+            <div className="text-[9px] font-bold tracking-[0.15em] text-terminal-green/60 mb-1.5">
               FRONT TYPES (RADAR CENTER SYMBOL)
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1">
               {Object.entries(FRONT_TYPES).map(([regime, info]) => (
-                <div key={regime} className="flex items-center gap-1.5 text-[8px]">
+                <div key={regime} className="flex items-center gap-1.5 text-[9px]">
                   <span
                     className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-bold shrink-0"
                     style={{ background: `${info.color}20`, color: info.color }}
@@ -528,7 +528,7 @@ function WeatherLegend() {
 
           {/* Advisory levels */}
           <div className="space-y-1">
-            <div className="text-[8px] font-bold tracking-[0.15em] text-terminal-green/60 mb-1.5">
+            <div className="text-[9px] font-bold tracking-[0.15em] text-terminal-green/60 mb-1.5">
               ADVISORY LEVELS
             </div>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1">
@@ -538,7 +538,7 @@ function WeatherLegend() {
                 { label: 'GALE WARNING', color: '#FF0000', meaning: 'High vol — defensive only' },
                 { label: 'STORM WARNING', color: '#FF3333', meaning: 'Extreme — halt trading' },
               ].map((adv) => (
-                <div key={adv.label} className="flex items-center gap-1.5 text-[8px]">
+                <div key={adv.label} className="flex items-center gap-1.5 text-[9px]">
                   <span
                     className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{ background: adv.color, boxShadow: `0 0 3px ${adv.color}60` }}
@@ -551,7 +551,7 @@ function WeatherLegend() {
           </div>
 
           {/* Radar reading guide */}
-          <div className="text-[8px] text-terminal-dim/30 border-t border-terminal-green/5 pt-2">
+          <div className="text-[9px] text-terminal-dim/30 border-t border-terminal-green/5 pt-2">
             <span className="text-terminal-dim/50 font-bold">READING THE RADAR:</span>{' '}
             Rings = pressure contours (tighter = more volatile). Cyan arrow = trend direction &amp; strength. Scatter dots = volume deviation. Center symbol = current regime classification.
           </div>
@@ -627,9 +627,9 @@ export default function WeatherMap() {
           <span className="text-[10px] font-bold tracking-[0.15em] terminal-glow">
             MARKET WEATHER SYSTEM
           </span>
-          <span className="text-[8px] text-terminal-dim/40">NWS / DAE</span>
+          <span className="text-[9px] text-terminal-dim/40">NWS / DAE</span>
         </div>
-        <span className="text-[8px] text-terminal-dim/40 tabular-nums">
+        <span className="text-[9px] text-terminal-dim/40 tabular-nums">
           UPD {new Date(readings[0]?.timestamp || '').toLocaleTimeString([], {
             hour: '2-digit', minute: '2-digit',
           })}
@@ -673,7 +673,7 @@ export default function WeatherMap() {
                   <span className="text-[9px] font-bold tracking-[0.15em]" style={{ color: front.color }}>
                     {SOURCE_LABELS[r.source] ?? r.source.toUpperCase()}
                   </span>
-                  <span className="text-[8px] text-terminal-dim/30 tabular-nums">
+                  <span className="text-[9px] text-terminal-dim/30 tabular-nums">
                     {r.num_markets_sampled.toLocaleString()} SRC
                   </span>
                 </div>
@@ -704,11 +704,11 @@ export default function WeatherMap() {
                       className="w-2 h-2 rounded-full"
                       style={{ background: front.color, boxShadow: `0 0 4px ${front.color}60` }}
                     />
-                    <span className="text-[8px] font-bold tracking-wider" style={{ color: front.color }}>
+                    <span className="text-[9px] font-bold tracking-wider" style={{ color: front.color }}>
                       {front.label}
                     </span>
                   </div>
-                  <span className="text-[8px] text-terminal-dim/25">
+                  <span className="text-[9px] text-terminal-dim/25">
                     {formatStrategyName(r.regime)}
                   </span>
                 </div>
@@ -722,7 +722,7 @@ export default function WeatherMap() {
       {transitions.length > 0 && (
         <div className="px-3 pb-2 border-t border-terminal-green/10">
           <div className="flex items-center gap-2 py-1.5">
-            <span className="text-[8px] font-bold tracking-[0.2em] text-terminal-dim">
+            <span className="text-[9px] font-bold tracking-[0.2em] text-terminal-dim">
               FRONT MOVEMENT (24H)
             </span>
           </div>
@@ -734,7 +734,7 @@ export default function WeatherMap() {
                 hour: '2-digit', minute: '2-digit',
               });
               return (
-                <div key={i} className="flex items-center gap-2 text-[8px]">
+                <div key={i} className="flex items-center gap-2 text-[9px]">
                   <span className="text-terminal-dim/40 tabular-nums w-10">{time}</span>
                   <span
                     className="w-3 h-3 rounded-full flex items-center justify-center text-[7px] font-bold"
@@ -762,7 +762,7 @@ export default function WeatherMap() {
       {/* Beaufort Scale Legend */}
       <div className="px-3 pb-2 border-t border-terminal-green/10">
         <div className="flex items-center gap-2 py-1.5">
-          <span className="text-[8px] font-bold tracking-[0.2em] text-terminal-dim">
+          <span className="text-[9px] font-bold tracking-[0.2em] text-terminal-dim">
             BEAUFORT SCALE
           </span>
         </div>

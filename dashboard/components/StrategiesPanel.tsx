@@ -190,7 +190,7 @@ export default function StrategiesPanel({ strategies, onToggle }: Props) {
                 }}
               />
             </div>
-            <span className="text-[8px] text-terminal-dim/50 tracking-wider">
+            <span className="text-[9px] text-terminal-dim/50 tracking-wider">
               {regime.source.toUpperCase()}
             </span>
           </div>
@@ -249,7 +249,7 @@ export default function StrategiesPanel({ strategies, onToggle }: Props) {
               {benched.length}
             </span>
             {!benchedExpanded && (
-              <span className="text-[8px] text-terminal-dim/30 truncate">
+              <span className="text-[9px] text-terminal-dim/30 truncate">
                 {benched.slice(0, 4).map((s) => formatStrategyName(s.name).slice(0, 8)).join(' / ')}
                 {benched.length > 4 ? ' ...' : ''}
               </span>
@@ -265,6 +265,7 @@ export default function StrategiesPanel({ strategies, onToggle }: Props) {
                   <div className="flex items-center gap-2">
                     <span
                       className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${healthDot(s.health_status)}`}
+                      title={s.health_status ?? 'unknown'}
                     />
                     <span className="text-terminal-dim">
                       {formatStrategyName(s.name)}
@@ -276,7 +277,9 @@ export default function StrategiesPanel({ strategies, onToggle }: Props) {
                     </span>
                     <button
                       onClick={() => onToggle(s.name, !s.enabled)}
-                      className={`px-1.5 py-0.5 text-[8px] rounded border transition-all ${
+                      role="switch"
+                      aria-checked={s.enabled}
+                      className={`px-2 py-1 text-[9px] rounded border transition-all ${
                         s.enabled
                           ? 'border-terminal-green/30 text-terminal-green'
                           : 'border-terminal-dim/20 text-terminal-dim/40'
@@ -312,7 +315,7 @@ export default function StrategiesPanel({ strategies, onToggle }: Props) {
               {ibkr.length}
             </span>
             {!ibkrExpanded && (
-              <span className="text-[8px] text-terminal-dim/30 truncate">
+              <span className="text-[9px] text-terminal-dim/30 truncate">
                 {ibkr.filter((s) => s.enabled).length} active
               </span>
             )}
@@ -327,6 +330,7 @@ export default function StrategiesPanel({ strategies, onToggle }: Props) {
                   <div className="flex items-center gap-2">
                     <span
                       className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${healthDot(s.health_status)}`}
+                      title={s.health_status ?? 'unknown'}
                     />
                     <span className={s.enabled ? 'text-terminal-cyan' : 'text-terminal-dim'}>
                       {formatStrategyName(s.name)}
@@ -340,7 +344,9 @@ export default function StrategiesPanel({ strategies, onToggle }: Props) {
                     )}
                     <button
                       onClick={() => onToggle(s.name, !s.enabled)}
-                      className={`px-1.5 py-0.5 text-[8px] rounded border transition-all ${
+                      role="switch"
+                      aria-checked={s.enabled}
+                      className={`px-2 py-1 text-[9px] rounded border transition-all ${
                         s.enabled
                           ? 'border-terminal-cyan/30 text-terminal-cyan'
                           : 'border-terminal-dim/20 text-terminal-dim/40'
@@ -389,7 +395,7 @@ function StrategyCard({
             {formatStrategyName(s.name)}
           </span>
           {s.auto_disabled && (
-            <span className="text-[8px] text-terminal-red/80 border border-terminal-red/20 rounded px-1">
+            <span className="text-[9px] text-terminal-red/80 border border-terminal-red/20 rounded px-1">
               AUTO-OFF
             </span>
           )}
@@ -441,14 +447,14 @@ function StrategyCard({
 
       {/* Row 3: Fitness bar */}
       <div className="flex items-center gap-2">
-        <span className="text-[8px] text-terminal-dim/50 w-6">FIT</span>
+        <span className="text-[9px] text-terminal-dim/50 w-6">FIT</span>
         <div className="flex-1 h-1 rounded-full bg-terminal-bg overflow-hidden">
           <div
             className={`h-full rounded-full transition-all duration-500 ${fitnessBar(fitness)}`}
             style={{ width: `${Math.min(fitness * 100, 100)}%` }}
           />
         </div>
-        <span className="text-[8px] text-terminal-dim tabular-nums w-6 text-right">
+        <span className="text-[9px] text-terminal-dim tabular-nums w-6 text-right">
           {(fitness * 100).toFixed(0)}
         </span>
       </div>
