@@ -4,6 +4,21 @@ import { verifyToken } from '@/lib/auth';
 // Exact public paths (no prefix matching to prevent bypass via /login/../admin)
 const PUBLIC_PATHS = new Set(['/login', '/api/auth', '/api/health']);
 
+// IP whitelist — bypass auth for Eddie's home network.
+// Env var overrides hardcoded list. Comma-separated IPs.
+// Password login still works as fallback for remote access.
+const WHITELISTED_IPS = new Set(
+  (process.env.WHITELISTED_IPS || '73.205.31.126').split(',').map((ip) => ip.trim()),
+);
+
+function getClientIp(request: NextRequest): string {
+  // Vercel sets x-forwarded-for; first entry is the real client IP
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) return forwarded.split(',')[0].trim();
+  // Fallback for local dev
+  return request.headers.get('x-real-ip') || '127.0.0.1';
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -15,6 +30,16 @@ export async function middleware(request: NextRequest) {
   // Allow exact public paths
   if (PUBLIC_PATHS.has(pathname)) {
     return NextResponse.next();
+  }
+
+  // IP whitelist — skip auth entirely for trusted IPs
+  const clientIp = getClientIp(request);
+  if (WHITELISTED_IPS.has(clientIp)) {
+    const response = NextResponse.next();
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+    response.headers.set('X-Frame-Options', 'DENY');
+    response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    return response;
   }
 
   // Check for auth cookie
