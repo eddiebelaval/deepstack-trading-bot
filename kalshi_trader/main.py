@@ -2632,7 +2632,25 @@ class KalshiTradingBot:
                     )
 
                 # Sync close to Supabase dashboard
-                if self.dashboard and position.get("order_id"):
+                pos_asset = position.get("asset_class", "prediction_market")
+                if self.dashboard and pos_asset in ("stock", "future", "option"):
+                    await self.dashboard.push_stock_trade({
+                        "ticker": ticker,
+                        "action": "sell",
+                        "qty": contracts,
+                        "price_cents": exit_signal.current_price_cents,
+                        "order_id": order.get("order_id"),
+                        "status": "filled",
+                        "strategy": position.get("strategy"),
+                        "reasoning": exit_signal.reason,
+                        "pnl_cents": pnl,
+                        "metadata": {
+                            "asset_class": pos_asset,
+                            "exit_type": exit_signal.exit_type,
+                            "paper_trade": self.paper_trade,
+                        },
+                    })
+                elif self.dashboard and position.get("order_id"):
                     await self.dashboard.push_trade_close(
                         order_id=position["order_id"],
                         exit_price_cents=exit_signal.current_price_cents,
@@ -3222,16 +3240,34 @@ class KalshiTradingBot:
 
             # Push trade to Supabase dashboard
             if self.dashboard:
-                await self.dashboard.push_trade(
-                    market_ticker=ticker,
-                    side=opp.side,
-                    action="buy",
-                    contracts=actual_contracts,
-                    entry_price_cents=opp.entry_price_cents,
-                    strategy=strategy_name,
-                    order_id=order_id,
-                    reasoning=opp.reasoning,
-                )
+                trade_asset_class = getattr(opp, 'asset_class', 'prediction_market')
+                if trade_asset_class in ("stock", "future", "option"):
+                    await self.dashboard.push_stock_trade({
+                        "ticker": ticker,
+                        "action": "buy",
+                        "qty": actual_contracts,
+                        "price_cents": opp.entry_price_cents,
+                        "order_id": order_id,
+                        "status": "filled",
+                        "strategy": strategy_name,
+                        "reasoning": opp.reasoning,
+                        "metadata": {
+                            "asset_class": trade_asset_class,
+                            "paper_trade": self.paper_trade,
+                            "score": opp.score,
+                        },
+                    })
+                else:
+                    await self.dashboard.push_trade(
+                        market_ticker=ticker,
+                        side=opp.side,
+                        action="buy",
+                        contracts=actual_contracts,
+                        entry_price_cents=opp.entry_price_cents,
+                        strategy=strategy_name,
+                        order_id=order_id,
+                        reasoning=opp.reasoning,
+                    )
 
             # Captain's Log: trade opened
             if self.captains_log:

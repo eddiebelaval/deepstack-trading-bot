@@ -68,6 +68,18 @@ interface TradeRow {
   market_ticker: string;
 }
 
+interface StockTradeRow {
+  id: string;
+  ticker: string;
+  action: string;
+  qty: number;
+  price_cents: number;
+  strategy: string;
+  pnl_cents: number | null;
+  session_date: string | null;
+  created_at: string;
+}
+
 interface BacktestRow {
   strategy: string;
   gate: string;
@@ -153,6 +165,26 @@ async function fetchClosedTrades(): Promise<TradeRow[]> {
     'deepstack_trades',
     'status=eq.closed&pnl_cents=not.is.null&select=id,strategy,pnl_cents,updated_at,market_ticker&order=updated_at.asc'
   );
+}
+
+async function fetchStockTrades(): Promise<TradeRow[]> {
+  try {
+    const rows = await restGet<StockTradeRow>(
+      'deepstack_stock_trades',
+      'pnl_cents=not.is.null&select=id,ticker,action,qty,price_cents,strategy,pnl_cents,session_date,created_at&order=created_at.asc'
+    );
+    // Normalize to TradeRow shape so computeGate works for both
+    return rows.map((r) => ({
+      id: r.id,
+      strategy: r.strategy,
+      pnl_cents: r.pnl_cents ?? 0,
+      updated_at: r.created_at,
+      market_ticker: r.ticker,
+    }));
+  } catch {
+    // Table may not exist yet
+    return [];
+  }
 }
 
 async function fetchBacktestResults(): Promise<BacktestRow[]> {
@@ -377,12 +409,20 @@ function computeGate(
 
 export async function GET() {
   try {
-    const [allTrades, allBacktests] = await Promise.all([
+    const [kalshiTrades, stockTrades, allBacktests] = await Promise.all([
       fetchClosedTrades(),
+      fetchStockTrades(),
       fetchBacktestResults(),
     ]);
 
-    const gates = GATES.map((gate) => computeGate(gate, allTrades, allBacktests));
+    // Route trades to the correct gates:
+    // - KALSHI gate uses Kalshi trades (deepstack_trades)
+    // - STOCKS/FUTURES/OPTIONS gates use stock trades (deepstack_stock_trades)
+    const IBKR_GATES = new Set(['STOCKS', 'FUTURES', 'OPTIONS']);
+    const gates = GATES.map((gate) => {
+      const trades = IBKR_GATES.has(gate.label) ? stockTrades : kalshiTrades;
+      return computeGate(gate, trades, allBacktests);
+    });
 
     return NextResponse.json(
       {

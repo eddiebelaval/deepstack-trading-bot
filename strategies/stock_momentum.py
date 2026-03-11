@@ -192,6 +192,7 @@ class StockMomentumStrategy(Strategy):
         # Regime-aware gating: check stock market conditions before scanning
         regime_penalty = 0
         max_positions = self.max_positions
+        stock_regime = None
         if governance_engine:
             stock_regime = governance_engine.get_regime_for_asset_class("stock")
             if stock_regime and stock_regime.confidence >= 0.4:
@@ -228,11 +229,20 @@ class StockMomentumStrategy(Strategy):
         signals = await self._fetch_tv_signals()
 
         if not signals:
+            logger.info("stock_momentum: no TV signals available — skipping scan")
             return []
+
+        available_tickers = [m.get("ticker") for m in markets]
+        logger.info(
+            "stock_momentum: %d TV signals, %d IBKR markets available (%s)",
+            len(signals), len(markets),
+            ", ".join(available_tickers[:8]) if available_tickers else "NONE",
+        )
 
         opportunities = []
         for ticker, signal in signals.items():
             if ticker in existing_positions:
+                logger.info("stock_momentum: %s — already in position, skipping", ticker)
                 continue
 
             # Find matching market data from IBKR
@@ -243,10 +253,12 @@ class StockMomentumStrategy(Strategy):
                     break
 
             if not market_data:
+                logger.info("stock_momentum: %s — no IBKR market data match, skipping", ticker)
                 continue
 
             current_price = market_data.get("last_price", 0)
             if current_price <= 0:
+                logger.info("stock_momentum: %s — price is %s, skipping", ticker, current_price)
                 continue
 
             # All backtested strategies with high Sharpe + win rate = BUY signal
@@ -259,8 +271,13 @@ class StockMomentumStrategy(Strategy):
             score = signal["consensus_score"]
             adjusted_min_score = self.min_score + regime_penalty
             if score < adjusted_min_score:
+                logger.info("stock_momentum: %s — score %.1f < min %.1f, skipping", ticker, score, adjusted_min_score)
                 continue
 
+            logger.info(
+                "stock_momentum: OPPORTUNITY %s — score=%.1f, price=$%.2f, %d strategies",
+                ticker, score, current_price / 100, signal["count"],
+            )
             opportunities.append(TradingOpportunity(
                 ticker=ticker,
                 title=f"{ticker} Momentum ({signal['count']} strategies)",
