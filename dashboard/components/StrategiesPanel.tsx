@@ -398,20 +398,24 @@ function StrategyCard({
           onClick={() => onToggle(s.name, !s.enabled)}
           role="switch"
           aria-checked={s.enabled}
-          className={`relative w-8 h-4 rounded-full transition-colors p-1 min-w-[44px] min-h-[44px] flex items-center ${
-            s.enabled
-              ? 'bg-terminal-green/30 border border-terminal-green/50'
-              : 'bg-terminal-bg border border-terminal-green-dim/30'
-          }`}
+          className="relative flex items-center justify-center p-2.5 -m-2.5 shrink-0"
           title={s.enabled ? 'Disable strategy' : 'Enable strategy'}
         >
           <span
-            className={`block w-3 h-3 rounded-full transition-all ${
+            className={`relative inline-flex items-center w-8 h-4 rounded-full transition-colors ${
               s.enabled
-                ? 'ml-auto bg-terminal-green shadow-[0_0_4px_rgba(0,255,65,0.6)]'
-                : 'mr-auto bg-terminal-green-dim/50'
+                ? 'bg-terminal-green/30 border border-terminal-green/50'
+                : 'bg-terminal-bg border border-terminal-green-dim/30'
             }`}
-          />
+          >
+            <span
+              className={`absolute w-2.5 h-2.5 rounded-full transition-all duration-200 ${
+                s.enabled
+                  ? 'left-[14px] bg-terminal-green shadow-[0_0_4px_rgba(0,255,65,0.6)]'
+                  : 'left-[3px] bg-terminal-green-dim/50'
+              }`}
+            />
+          </span>
         </button>
       </div>
 
