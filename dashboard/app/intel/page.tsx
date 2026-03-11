@@ -284,7 +284,7 @@ export default function IntelligencePage() {
 
   // ---- render ----
   return (
-    <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-6 pb-12">
       {/* Page header */}
       <div>
         <div className="flex items-center gap-3 mb-1">
@@ -359,6 +359,7 @@ export default function IntelligencePage() {
                             className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${healthDot(
                               s.health_status,
                             )}`}
+                            title={s.health_status ?? 'unknown'}
                           />
                           <span className="text-terminal-green font-semibold tracking-wide">
                             {formatStrategyName(s.name)}

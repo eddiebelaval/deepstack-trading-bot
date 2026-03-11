@@ -275,11 +275,11 @@ export default function CommandCenter() {
 
   // ---- render ----
   return (
-    <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-4">
+    <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-4 pb-12">
       {/* ================================================================
           TOP BAR — Key Metrics
          ================================================================ */}
-      <div className="grid grid-cols-3 lg:grid-cols-5 gap-1.5 sm:gap-2 md:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5 sm:gap-2 md:gap-3">
         {/* Balance */}
         <div className="panel p-2 sm:p-3">
           <div className="text-[9px] sm:text-[10px] hierarchy-label tracking-[0.15em] mb-1">
