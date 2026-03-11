@@ -295,7 +295,7 @@ class DashboardSync:
         order_id: Optional[str] = None,
         reasoning: Optional[str] = None,
     ) -> None:
-        """Push a trade execution to Supabase."""
+        """Push a trade execution to Supabase (upsert on order_id)."""
         trade = {
             "market_ticker": market_ticker,
             "side": side.upper(),
@@ -308,7 +308,7 @@ class DashboardSync:
             "reasoning": reasoning,
             "session_date": datetime.now().strftime("%Y-%m-%d"),
         }
-        await self._post("trades", trade)
+        await self._upsert("trades", trade, on_conflict="order_id")
 
     async def push_trade_close(
         self,
