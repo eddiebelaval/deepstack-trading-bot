@@ -1,9 +1,9 @@
 # SPEC.md -- Living Specification
 ## DeepStack
 
-> Last reconciled: 2026-03-10 | Build stage: Phase 12 (Graduation Reports + Notifications)
+> Last reconciled: 2026-03-11 | Build stage: Phase 13 (Kalshi Goes Live)
 > Drift status: CURRENT
-> VISION alignment: 58% (6 of 11 pillars realized, graduation upgraded)
+> VISION alignment: 65% (7 of 11 pillars realized, Kalshi graduated to live trading)
 
 ---
 
@@ -17,8 +17,8 @@ What this system can do TODAY.
 
 ### Trading Engine
 - **Core Loop:** 60-second polling cycle. Update state, manage positions, scan opportunities, execute trades.
-- **Paper Trading:** Full simulation with $2,000 balance. Simulated fills, position tracking, P&L computation. No real money at risk.
-- **Real Balance:** $159.64 on Kalshi (from $200 initial). Not actively trading real money -- paper mode only.
+- **LIVE Trading (Kalshi):** Real money trades on `api.elections.kalshi.com` since 2026-03-11. Balance: $159.64. Kelly max position: ~$10 (6.3%). Daily loss limit: $5.
+- **Paper Trading (IBKR):** Stocks, futures, options still in paper mode. Each sector graduates independently.
 - **Multi-Asset Routing:** Positions route to correct exchange by asset_class (prediction_market -> Kalshi, stock/future/option -> IBKR).
 - **Graceful Degradation:** asyncio.wait_for timeouts (10-15s) on all IBKR calls. When IBKR is disconnected, Kalshi strategies run unimpeded. Cycles complete in ~2 minutes regardless.
 
@@ -26,7 +26,7 @@ What this system can do TODAY.
 
 | Strategy | Platform | Status | Win Rate | Notes |
 |----------|----------|--------|----------|-------|
-| calibration_edge | Kalshi | ACTIVE | 92% (38 trades) | Favorite-longshot bias. Best performer. |
+| calibration_edge | Kalshi | **LIVE** | 87% (145 trades) | Favorite-longshot bias. Best performer. Graduated 2026-03-11. |
 | high_probability_bonds | Kalshi | ACTIVE | -- | Near-certainty contracts 93-98c. |
 | stock_momentum | IBKR | ACTIVE (blocked) | -- | TradingView-validated equity momentum. Needs IBKR. |
 | crisis_alpha | IBKR | ACTIVE (blocked) | -- | Inverse ETFs, volatility, safe havens, geopolitical. Needs IBKR. |
@@ -127,7 +127,7 @@ Hybrid graduation: 65% backtest confidence (arena scores) + 35% paper trading re
 
 | Asset Class | Required Trades | Required Win Rate | Hybrid Blend | Status |
 |-------------|----------------|-------------------|-------------|--------|
-| Kalshi (prediction_market) | 50 | 45% | Backtest: 17 strategies scored | calibration_edge: 38/50 trades, 92% WR. Approaching. |
+| Kalshi (prediction_market) | 50 | 45% | Backtest: 17 strategies scored | **GRADUATED 2026-03-11.** 145 trades, 87% WR, 17.5% DD. LIVE. |
 | Stocks | 30 | 50% | Backtest: scored | 0 paper trades. Needs IBKR market hours. |
 | Futures | 20 | 45% | Backtest: scored | 0 paper trades. Needs IBKR market hours. |
 | Options | 15 | 60% | Backtest: scored | 0 paper trades. Needs IBKR market hours. |
@@ -173,5 +173,5 @@ kalshi-trading/
 
 ---
 
-*Last reconciled: 2026-03-10*
+*Last reconciled: 2026-03-11*
 *Private -- id8Labs LLC*

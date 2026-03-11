@@ -1,8 +1,8 @@
 # VISION.md -- Living North Star
 ## DeepStack
 
-> Last evolved: 2026-03-10 | Confidence: MEDIUM
-> Distance from SPEC: 58% (6 of 11 pillars realized, graduation upgraded)
+> Last evolved: 2026-03-11 | Confidence: HIGH
+> Distance from SPEC: 65% (7 of 11 pillars realized, Kalshi LIVE)
 
 ---
 
@@ -12,8 +12,8 @@ DeepStack exists because the market is a conversation between fear and greed, an
 
 ## Pillars
 
-1. **Prediction Market Alpha** -- REALIZED
-   Calibration edge strategy exploits favorite-longshot bias on Kalshi. 92% win rate on 38+ trades. The only consistently profitable strategy. This is the foundational edge.
+1. **Prediction Market Alpha** -- REALIZED + LIVE
+   Calibration edge strategy exploits favorite-longshot bias on Kalshi. 87% win rate on 145 trades, $683.60 paper P&L. Graduated to live trading 2026-03-11. Real money at $159.64. This is the foundational edge — proven through data, now compounding.
 
 2. **Multi-Asset Coverage** -- PARTIAL (40%)
    IBKR adapter connects to stocks, futures, options. Five IBKR strategies built (stock_momentum, crisis_alpha, futures_trend, options_income, options_directional). Watchlist: 20 tickers including inverse ETFs, volatility products, safe havens, defense, oil. Blocked by IBKR connectivity -- strategies timeout-protected but untested with live market data.
@@ -39,19 +39,21 @@ DeepStack exists because the market is a conversation between fear and greed, an
 9. **News Triangulation** -- UNREALIZED
    news_sentiment_fade strategy exists but disabled. Vision: synthesize prediction market signals + recent news + capital markets into forward-looking intelligence. News API integration not built.
 
-10. **Graduation Gates** -- PARTIAL (65%)
-    Per-asset-class graduation fully implemented across all 4 sectors (Kalshi 50 trades/45% WR, stocks 30/50%, futures 20/45%, options 15/60%). Hybrid graduation blends backtest confidence (65%) with paper trading readiness (35%). Heartbeat evaluates all sectors independently each cycle. On graduation, generates terminal-themed HTML report (gate checks, equity curve, backtest confidence, regime performance) and sends Telegram notification. Backtest results persisted to Supabase from arena tournaments. Remaining: IBKR strategies need live market data to accumulate trades toward graduation.
+10. **Graduation Gates** -- PARTIAL (75%)
+    Per-asset-class graduation fully implemented across all 4 sectors. Kalshi GRADUATED 2026-03-11 (145 trades, 87% WR, 17.5% DD, $683.60 PnL). Bot now live-trading Kalshi with real money. IBKR sectors (stocks/futures/options) remain in paper mode — each graduates independently when gate checks pass. Hybrid graduation blends backtest confidence (65%) with paper trading readiness (35%). On graduation, generates terminal-themed HTML report and Telegram notification. Remaining: IBKR strategies need live market data to accumulate trades.
 
 11. **Dashboard Intelligence** -- REALIZED
     v3 multi-page dashboard live at milo.deepstack.trade. 5 dedicated pages (Command Center, Operations, Intelligence, Graduation, Research). WeatherMap NOAA-style radar visualization. AnalyticsPanel with 6 chart views. Security-hardened API layer (PostgREST filter injection fixed, whitelist validation). 34 orphaned v2 components cleaned up. Terminal green-on-black aesthetic. Real-time Supabase sync. Telegram bridge for mobile alerts.
 
 ## User Truth
 
-**Who:** Eddie Belaval, founder of id8Labs. One-person operation trading with $159.65 real capital and $2,000 paper balance.
+**Who:** Eddie Belaval, founder of id8Labs. One-person operation. $159.64 live capital on Kalshi, IBKR paper trading independently.
 
 **Before:** "Markets are moving because of Iran and I can't capitalize. I can only buy prediction market contracts. I can't short, I can't buy puts, I can't trade inverse ETFs. The bot finds zero opportunities for days. When it does trade, it loses."
 
-**After:** "The bot sees forward through prediction markets, trades across asset classes, governs itself through regime changes, and learns from every trade. When crisis hits, it's already positioned. When markets are calm, it collects prediction market alpha."
+**Now:** "145 trades, 87% win rate, $683.60 paper P&L. The system proved itself. We graduated. Real money on the line now."
+
+**After (vision):** "The bot sees forward through prediction markets, trades across asset classes, governs itself through regime changes, and learns from every trade. When crisis hits, it's already positioned. When markets are calm, it collects prediction market alpha. Each sector graduates on its own merit — Kalshi first, then stocks, futures, options. The $160 grows."
 
 ## Edges
 
