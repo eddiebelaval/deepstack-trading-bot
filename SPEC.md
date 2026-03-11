@@ -1,9 +1,9 @@
 # SPEC.md -- Living Specification
 ## DeepStack
 
-> Last reconciled: 2026-03-10 | Build stage: Phase 11 (Dashboard v3 + Security Audit)
+> Last reconciled: 2026-03-10 | Build stage: Phase 12 (Graduation Reports + Notifications)
 > Drift status: CURRENT
-> VISION alignment: 55% (6 of 11 pillars realized)
+> VISION alignment: 58% (6 of 11 pillars realized, graduation upgraded)
 
 ---
 
@@ -60,7 +60,8 @@ What this system can do TODAY.
 ### Intelligence Layer
 - **Trade Analyzer:** Claude Sonnet analysis of journal data every 30 minutes. Generates parameter_flags for strategy adaptation.
 - **Captain's Log:** AI narration of bot state. Streams to dashboard COMMS panel and Supabase.
-- **Heartbeat:** Deterministic health checks + periodic AI heartbeat. Arsenal refresh.
+- **Heartbeat:** Deterministic health checks + periodic AI heartbeat. Arsenal refresh. Per-sector graduation evaluation with HTML report generation on pass.
+- **Telegram Notifications:** 7 hooks — trade opened/closed, settlement, strategy auto-disable, inaction critical, daily summary, IBKR connection.
 
 ### Observability
 - **Dashboard v3:** Live at milo.deepstack.trade (Vercel, deepstack-control project). Multi-page architecture:
@@ -122,12 +123,14 @@ What this system can do TODAY.
 
 ## Graduation Gates
 
-| Asset Class | Required Trades | Required Win Rate | Status |
-|-------------|----------------|-------------------|--------|
-| Kalshi (prediction_market) | 50 | 45% | calibration_edge: 38/50 trades, 92% WR. Approaching. |
-| Stocks | 30 | 50% | 0 trades. Needs IBKR. |
-| Futures | 20 | 45% | 0 trades. Needs IBKR. |
-| Options | 15 | 60% | 0 trades. Needs IBKR. |
+Hybrid graduation: 65% backtest confidence (arena scores) + 35% paper trading readiness. Each sector evaluated independently per heartbeat cycle. On graduation, generates HTML report to `~/Development/artifacts/deepstack/` and sends Telegram notification.
+
+| Asset Class | Required Trades | Required Win Rate | Hybrid Blend | Status |
+|-------------|----------------|-------------------|-------------|--------|
+| Kalshi (prediction_market) | 50 | 45% | Backtest: 17 strategies scored | calibration_edge: 38/50 trades, 92% WR. Approaching. |
+| Stocks | 30 | 50% | Backtest: scored | 0 paper trades. Needs IBKR market hours. |
+| Futures | 20 | 45% | Backtest: scored | 0 paper trades. Needs IBKR market hours. |
+| Options | 15 | 60% | Backtest: scored | 0 paper trades. Needs IBKR market hours. |
 
 ## File Map
 
@@ -141,6 +144,8 @@ kalshi-trading/
 │   ├── captains_log.py          # AI narration
 │   ├── trade_analyzer.py        # Claude analysis
 │   ├── health_monitor.py        # Zombie detection
+│   ├── graduation_gate.py       # Per-asset-class graduation evaluation
+│   ├── graduation_report.py     # HTML report generator on graduation
 │   ├── consciousness.py         # CaF self-awareness
 │   ├── telegram_bridge.py       # Two-way Telegram
 │   ├── dashboard_sync.py        # Supabase real-time sync
