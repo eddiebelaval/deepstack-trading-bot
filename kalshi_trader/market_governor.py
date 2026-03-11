@@ -906,10 +906,12 @@ class GovernanceEngine:
         bleed_slope_threshold: float = -0.5,
         max_strategies_disabled_pct: float = 0.75,
         reenable_cooldown_hours: int = 6,
+        paper_trade: bool = False,
     ):
         self.db_path = Path(db_path).expanduser()
         self.enabled = enabled
         self.mode = mode
+        self.paper_trade = paper_trade
         self.min_confidence = min_confidence
         self.fitness_min_trades = fitness_min_trades
         self.enable_threshold = enable_threshold
@@ -963,6 +965,76 @@ class GovernanceEngine:
             "GovernanceEngine initialized | enabled=%s, mode=%s, lookback=%d",
             enabled, mode, lookback_periods,
         )
+
+        # Warm-start: restore last known regimes from SQLite so governance
+        # isn't blind during the first ~5 cycles while detectors accumulate.
+        self._restore_regime()
+
+    def _restore_regime(self) -> None:
+        """Restore last known regime from SQLite regime_history.
+
+        Reads the most recent row per source (prediction_market, stock) and
+        reconstructs RegimeSnapshot objects. This lets governance make informed
+        decisions immediately after restart, before the RegimeDetector has
+        accumulated enough live snapshots to classify on its own.
+        """
+        try:
+            with _db_connection(self.db_path, wal=False) as conn:
+                # Ensure source column exists before querying it
+                try:
+                    conn.execute(
+                        "ALTER TABLE regime_history ADD COLUMN source TEXT DEFAULT 'prediction_market'"
+                    )
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
+                self._source_column_migrated = True
+
+                for source, attr in [
+                    ("prediction_market", "current_regime"),
+                    ("stock", "current_stock_regime"),
+                ]:
+                    row = conn.execute(
+                        """SELECT regime, confidence, timestamp, volatility,
+                                  trend_strength, mean_reversion_score,
+                                  volume_ratio, num_markets_sampled
+                           FROM regime_history
+                           WHERE source = ?
+                           ORDER BY rowid DESC LIMIT 1""",
+                        (source,),
+                    ).fetchone()
+
+                    if row is None:
+                        continue
+
+                    regime_str, conf, ts_str, vol, trend, mr, vr, n_markets = row
+                    try:
+                        regime = MarketRegime(regime_str)
+                    except ValueError:
+                        logger.warning("Unknown regime '%s' in history, skipping", regime_str)
+                        continue
+
+                    try:
+                        ts = datetime.fromisoformat(ts_str)
+                    except (ValueError, TypeError):
+                        ts = datetime.now(timezone.utc)
+
+                    snapshot = RegimeSnapshot(
+                        regime=regime,
+                        confidence=conf or 0.0,
+                        timestamp=ts,
+                        volatility=vol or 0.0,
+                        trend_strength=trend or 0.0,
+                        mean_reversion_score=mr or 0.0,
+                        volume_ratio=vr or 1.0,
+                        num_markets_sampled=n_markets or 0,
+                    )
+                    setattr(self, attr, snapshot)
+                    logger.info(
+                        "Regime warm-start [%s]: %s (conf=%.2f, from %s)",
+                        source, regime.value, snapshot.confidence, ts_str,
+                    )
+        except Exception as e:
+            logger.warning("Regime warm-start failed (non-fatal): %s", e)
 
     def set_lexicon_signal_generator(self, generator: Any) -> None:
         """Attach a LexiconSignalGenerator for knowledge-based strategy overlay."""
@@ -1185,9 +1257,15 @@ class GovernanceEngine:
                     threshold=self.disable_threshold, direction="below",
                 )
                 if self.mode == "autonomous" and strategy_manager:
-                    self._governance_disabled[name] = snapshot.timestamp
-                    strategy_manager.disable_strategy(name)
-                    logger.info("Governance DISABLED strategy '%s' (regime=%s)", name, snapshot.regime.value)
+                    if self.paper_trade:
+                        logger.info(
+                            "Governance WOULD DISABLE '%s' (regime=%s) — skipped in paper mode",
+                            name, snapshot.regime.value,
+                        )
+                    else:
+                        self._governance_disabled[name] = snapshot.timestamp
+                        strategy_manager.disable_strategy(name)
+                        logger.info("Governance DISABLED strategy '%s' (regime=%s)", name, snapshot.regime.value)
 
             for name in to_enable:
                 # Check cooldown before re-enabling
