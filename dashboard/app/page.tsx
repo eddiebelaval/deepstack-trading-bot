@@ -22,6 +22,17 @@ interface GateCheck {
   invert?: boolean;
 }
 
+interface BacktestConfidence {
+  score: number;
+  strategies_tested: number;
+  total_bt_trades: number;
+  avg_win_rate: number;
+  avg_sharpe: number;
+  avg_drawdown_pct: number;
+  data_source: string;
+  last_run: string;
+}
+
 interface GateMetrics {
   total_trades: number;
   wins: number;
@@ -58,12 +69,10 @@ interface GateResult {
   };
   metrics: GateMetrics;
   gate_checks: GateCheck[];
+  paper_readiness: number;
+  backtest_confidence: BacktestConfidence | null;
+  blended_readiness: number;
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 
 // ---------------------------------------------------------------------------
 // Sparkline — pure SVG mini chart of daily P&L
@@ -84,9 +93,7 @@ function Sparkline({ data, width = 120, height = 28 }: { data: DailyPnl[]; width
 
   return (
     <svg width={width} height={height} className="overflow-visible">
-      {/* Zero line */}
       <line x1={0} y1={mid} x2={width} y2={mid} stroke="rgba(0,255,65,0.1)" strokeWidth={0.5} />
-      {/* Bars for each day */}
       {values.map((v, i) => {
         const x = (i / (values.length - 1)) * width;
         const barH = Math.abs(v / maxAbs) * (mid - 2);
@@ -103,7 +110,6 @@ function Sparkline({ data, width = 120, height = 28 }: { data: DailyPnl[]; width
           />
         );
       })}
-      {/* Line overlay */}
       <polyline
         points={points.join(" ")}
         fill="none"
@@ -167,7 +173,110 @@ function MetricBar({ check }: { check: GateCheck }) {
 }
 
 // ---------------------------------------------------------------------------
-// GateCard — enriched with extra stats, sparkline, streaks
+// ReadinessBar — blended paper + backtest readiness
+// ---------------------------------------------------------------------------
+
+function ReadinessBar({
+  paper,
+  backtest,
+  blended,
+}: {
+  paper: number;
+  backtest: BacktestConfidence | null;
+  blended: number;
+}) {
+  const hasBt = backtest !== null;
+  const btPct = hasBt ? backtest.score : 0;
+
+  return (
+    <div className="mt-3 pt-2" style={{ borderTop: "1px solid rgba(0, 255, 65, 0.08)" }}>
+      <div className="flex items-center justify-between text-[10px] mb-1">
+        <span style={{ color: "var(--terminal-green-dim)" }}>
+          {hasBt ? "BLENDED READINESS" : "PAPER READINESS"}
+        </span>
+        <span
+          className="tabular-nums font-bold"
+          style={{ color: blended >= 0.65 ? "var(--terminal-green)" : blended >= 0.4 ? "var(--terminal-amber)" : "var(--terminal-red)" }}
+        >
+          {(blended * 100).toFixed(0)}%
+        </span>
+      </div>
+
+      <div className="w-full rounded-sm overflow-hidden flex" style={{ height: 6, background: "rgba(0, 255, 65, 0.06)" }}>
+        <div
+          className="h-full transition-all duration-700"
+          style={{
+            width: `${paper * 35}%`,
+            background: "var(--terminal-cyan)",
+            opacity: 0.8,
+          }}
+          title={`Paper: ${(paper * 100).toFixed(0)}%`}
+        />
+        {hasBt && (
+          <div
+            className="h-full transition-all duration-700"
+            style={{
+              width: `${(btPct / 100) * 65}%`,
+              background: "var(--terminal-green)",
+              opacity: 0.6,
+            }}
+            title={`Backtest: ${btPct.toFixed(0)}/100`}
+          />
+        )}
+      </div>
+
+      <div className="flex items-center justify-between text-[8px] mt-1" style={{ color: "var(--terminal-dim)", opacity: 0.5 }}>
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--terminal-cyan)", opacity: 0.8 }} />
+            PAPER {(paper * 100).toFixed(0)}%
+          </span>
+          {hasBt && (
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-sm" style={{ background: "var(--terminal-green)", opacity: 0.6 }} />
+              BACKTEST {btPct.toFixed(0)}/100
+            </span>
+          )}
+        </div>
+        {hasBt && (
+          <span>35/65 WEIGHT</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// BacktestBadge — compact backtest confidence indicator
+// ---------------------------------------------------------------------------
+
+function BacktestBadge({ bt }: { bt: BacktestConfidence }) {
+  const color = bt.score >= 65 ? "var(--terminal-green)" : bt.score >= 40 ? "var(--terminal-amber)" : "var(--terminal-red)";
+
+  return (
+    <div
+      className="mt-2 px-2 py-1.5 rounded text-[9px]"
+      style={{ background: "rgba(0, 255, 65, 0.04)", border: "1px solid rgba(0, 255, 65, 0.1)" }}
+    >
+      <div className="flex items-center justify-between mb-1">
+        <span className="tracking-wider font-semibold" style={{ color: "var(--terminal-green-dim)" }}>
+          BACKTEST
+        </span>
+        <span className="tabular-nums font-bold" style={{ color }}>
+          {bt.score.toFixed(0)}/100
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-1 text-[8px]" style={{ color: "var(--terminal-dim)", opacity: 0.6 }}>
+        <span className="tabular-nums">{bt.strategies_tested} strats</span>
+        <span className="tabular-nums">{bt.total_bt_trades.toLocaleString()} trades</span>
+        <span className="tabular-nums">S={bt.avg_sharpe.toFixed(1)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GateCard — enriched with backtest confidence + blended readiness
 // ---------------------------------------------------------------------------
 
 function GateCard({ gate }: { gate: GateResult }) {
@@ -177,12 +286,15 @@ function GateCard({ gate }: { gate: GateResult }) {
 
   let status: string;
   let statusBadge: string;
-  if (metrics.total_trades === 0) {
+  if (metrics.total_trades === 0 && !gate.backtest_confidence) {
     status = "NOT STARTED";
     statusBadge = "badge-red";
-  } else if (allPassed) {
+  } else if (allPassed && gate.blended_readiness >= 0.65) {
     status = "GATE PASSED";
     statusBadge = "badge-green";
+  } else if (metrics.total_trades === 0 && gate.backtest_confidence) {
+    status = "BACKTEST ONLY";
+    statusBadge = "badge-amber";
   } else {
     status = "IN PROGRESS";
     statusBadge = "badge-amber";
@@ -224,10 +336,21 @@ function GateCard({ gate }: { gate: GateResult }) {
           <MetricBar key={check.name} check={check} />
         ))}
 
+        {/* Backtest confidence badge */}
+        {gate.backtest_confidence && (
+          <BacktestBadge bt={gate.backtest_confidence} />
+        )}
+
+        {/* Blended readiness bar */}
+        <ReadinessBar
+          paper={gate.paper_readiness}
+          backtest={gate.backtest_confidence}
+          blended={gate.blended_readiness}
+        />
+
         {/* Stats grid — only show when we have trades */}
         {metrics.total_trades > 0 && (
           <>
-            {/* Sparkline + P&L row */}
             <div className="mt-3 pt-2 flex items-center justify-between gap-3"
               style={{ borderTop: "1px solid rgba(0, 255, 65, 0.08)" }}
             >
@@ -251,7 +374,6 @@ function GateCard({ gate }: { gate: GateResult }) {
               </div>
             </div>
 
-            {/* Stats row */}
             <div className="mt-2 grid grid-cols-4 gap-1 text-center">
               <div>
                 <div className="text-[10px] tabular-nums font-bold" style={{ color: "var(--terminal-green)" }}>
@@ -279,7 +401,6 @@ function GateCard({ gate }: { gate: GateResult }) {
               </div>
             </div>
 
-            {/* Best / Worst trades */}
             <div className="mt-2 grid grid-cols-2 gap-2 text-[9px]">
               <div className="bg-terminal-bg-panel rounded px-2 py-1.5">
                 <div className="text-[7px] text-terminal-dim/30 tracking-wider mb-0.5">BEST TRADE</div>
@@ -301,7 +422,6 @@ function GateCard({ gate }: { gate: GateResult }) {
               </div>
             </div>
 
-            {/* Strategy coverage + regime */}
             <div className="mt-2 flex items-center justify-between text-[9px]"
               style={{ borderTop: "1px solid rgba(0, 255, 65, 0.06)", paddingTop: 6 }}
             >
@@ -316,7 +436,6 @@ function GateCard({ gate }: { gate: GateResult }) {
               </span>
             </div>
 
-            {/* Regime breakdown — compact */}
             {metrics.regime_breakdown.length > 0 && (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {metrics.regime_breakdown.slice(0, 4).map((r) => (
@@ -371,18 +490,17 @@ export default function GraduationPage() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Overall readiness
+  // Overall blended readiness
   const overallReadiness = gates.length > 0
-    ? gates.reduce((sum, g) => {
-        const passed = g.gate_checks.filter((c) => c.passed).length;
-        return sum + passed / g.gate_checks.length;
-      }, 0) / gates.length
+    ? gates.reduce((sum, g) => sum + g.blended_readiness, 0) / gates.length
     : 0;
 
-  // Total stats across all gates
   const totalTrades = gates.reduce((s, g) => s + g.metrics.total_trades, 0);
   const totalPnl = gates.reduce((s, g) => s + g.metrics.total_pnl_cents, 0);
-  const gatesPassed = gates.filter((g) => g.gate_checks.every((c) => c.passed)).length;
+  const gatesPassed = gates.filter((g) =>
+    g.gate_checks.every((c) => c.passed) && g.blended_readiness >= 0.65
+  ).length;
+  const hasBacktest = gates.some((g) => g.backtest_confidence !== null);
 
   if (loading) {
     return (
@@ -406,7 +524,7 @@ export default function GraduationPage() {
                 GRADUATION PROTOCOL
               </h1>
               <p className="text-xs mt-1" style={{ color: "var(--terminal-green-dim)" }}>
-                Paper Trading — All Asset Classes
+                {hasBacktest ? "Hybrid Mode — Backtest + Paper Trading" : "Paper Trading — All Asset Classes"}
               </p>
             </div>
             <div className="text-left sm:text-right">
@@ -415,12 +533,11 @@ export default function GraduationPage() {
                 {(overallReadiness * 100).toFixed(0)}%
               </div>
               <div className="text-[10px] tracking-wider" style={{ color: "var(--terminal-green-dim)" }}>
-                OVERALL READINESS
+                {hasBacktest ? "BLENDED READINESS" : "OVERALL READINESS"}
               </div>
             </div>
           </div>
 
-          {/* Progress bar */}
           <div className="mt-4 w-full rounded-sm overflow-hidden"
             style={{ height: 6, background: "rgba(0, 255, 65, 0.08)" }}>
             <div className="h-full rounded-sm transition-all duration-1000"
@@ -431,7 +548,6 @@ export default function GraduationPage() {
             />
           </div>
 
-          {/* Summary stats */}
           <div className="mt-3 flex flex-wrap gap-4 text-[10px]">
             <span style={{ color: "var(--terminal-green-dim)" }}>
               GATES: <span className="text-terminal-green font-bold">{gatesPassed}/{gates.length}</span> PASSED
@@ -447,7 +563,7 @@ export default function GraduationPage() {
               </span>
             </span>
             <span className="text-terminal-dim/30">
-              SOURCE: Supabase (deepstack_trades)
+              SOURCE: {hasBacktest ? "Supabase + Backtest" : "Supabase (deepstack_trades)"}
             </span>
           </div>
         </div>
