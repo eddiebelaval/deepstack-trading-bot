@@ -9,6 +9,7 @@ import type {
   DashboardState,
   Position,
   Order,
+  Holding,
   BotConfig,
   CaptainsLogEntry,
 } from '@/lib/types';
@@ -69,6 +70,7 @@ export default function CommandCenter() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
   const [config, setConfig] = useState<BotConfig | null>(null);
+  const [holdings, setHoldings] = useState<Holding[]>([]);
   const [logEntries, setLogEntries] = useState<CaptainsLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -141,6 +143,18 @@ export default function CommandCenter() {
     }
   }, []);
 
+  const fetchHoldings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/holdings');
+      if (res.ok) {
+        const d = await res.json();
+        setHoldings(d.holdings || []);
+      }
+    } catch {
+      /* silent */
+    }
+  }, []);
+
   const fetchConfig = useCallback(async () => {
     try {
       const res = await fetch('/api/config');
@@ -171,6 +185,7 @@ export default function CommandCenter() {
       await Promise.all([
         fetchStatus(),
         fetchPositions(),
+        fetchHoldings(),
         fetchOrders(),
         fetchPerformance(),
         fetchConfig(),
@@ -186,6 +201,7 @@ export default function CommandCenter() {
     const fast = setInterval(() => {
       fetchStatus();
       fetchPositions();
+      fetchHoldings();
       fetchOrders();
       fetchConfig();
       fetchLog();
@@ -425,11 +441,79 @@ export default function CommandCenter() {
             </div>
           </div>
 
-          {/* ------ Positions Table ------ */}
+          {/* ------ IBKR Holdings ------ */}
+          {holdings.length > 0 && (
+            <div className="panel">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-green/20">
+                <span className="text-[10px] font-bold tracking-[0.15em] terminal-glow">
+                  IBKR HOLDINGS
+                </span>
+                <span className="text-[10px] text-terminal-dim">
+                  {holdings.length} OPEN
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[10px]">
+                  <thead>
+                    <tr className="text-terminal-dim border-b border-terminal-green/10">
+                      <th className="text-left px-3 py-1.5 font-normal tracking-wider">TICKER</th>
+                      <th className="text-left px-2 py-1.5 font-normal tracking-wider">CLASS</th>
+                      <th className="text-right px-2 py-1.5 font-normal tracking-wider">QTY</th>
+                      <th className="text-right px-2 py-1.5 font-normal tracking-wider">AVG COST</th>
+                      <th className="text-right px-2 py-1.5 font-normal tracking-wider">CURRENT</th>
+                      <th className="text-right px-2 py-1.5 font-normal tracking-wider">UNRL P&amp;L</th>
+                      <th className="text-right px-3 py-1.5 font-normal tracking-wider">DAY CHG</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-terminal-green/5">
+                    {holdings.map((h) => {
+                      const unrealPnl = h.unrealized_pnl_cents ?? 0;
+                      const dayChg = h.day_change_cents ?? 0;
+                      return (
+                        <tr key={h.id} className="hover:bg-terminal-bg-elevated/50 transition-colors">
+                          <td className="px-3 py-1.5 text-terminal-green font-semibold">
+                            {h.ticker}
+                          </td>
+                          <td className="px-2 py-1.5 uppercase text-terminal-cyan-dim text-[9px]">
+                            {h.asset_class}
+                          </td>
+                          <td className="px-2 py-1.5 text-right tabular-nums">
+                            {h.qty}
+                          </td>
+                          <td className="px-2 py-1.5 text-right tabular-nums text-terminal-dim">
+                            {centsToUSD(h.avg_cost_cents)}
+                          </td>
+                          <td className="px-2 py-1.5 text-right tabular-nums text-terminal-dim">
+                            {h.current_price_cents != null ? centsToUSD(h.current_price_cents) : '--'}
+                          </td>
+                          <td
+                            className={`px-2 py-1.5 text-right tabular-nums font-semibold ${
+                              unrealPnl >= 0 ? 'text-terminal-green' : 'text-terminal-red'
+                            }`}
+                          >
+                            {unrealPnl >= 0 ? '+' : ''}{centsToUSD(unrealPnl)}
+                          </td>
+                          <td
+                            className={`px-3 py-1.5 text-right tabular-nums ${
+                              dayChg >= 0 ? 'text-terminal-green-dim' : 'text-terminal-red'
+                            }`}
+                          >
+                            {dayChg >= 0 ? '+' : ''}{centsToUSD(dayChg)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ------ Kalshi Positions ------ */}
           <div className="panel">
             <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-green/20">
               <span className="text-[10px] font-bold tracking-[0.15em] terminal-glow">
-                POSITIONS
+                KALSHI POSITIONS
               </span>
               <span className="text-[10px] text-terminal-dim">
                 {positions.length} OPEN
