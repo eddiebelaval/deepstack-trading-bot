@@ -27,6 +27,7 @@ import httpx
 
 from . import consciousness
 from .graduation_gate import GraduationGate
+from .graduation_report import generate_graduation_report
 
 logger = logging.getLogger(__name__)
 
@@ -165,25 +166,50 @@ class HeartbeatEngine:
             await self._send_telegram_alert(alerts)
 
         # Graduation gate check (Tier 1 — free, deterministic)
-        # Caches report for reuse in AI heartbeat context (avoids double evaluation)
+        # Evaluates ALL sectors and generates HTML report on graduation.
         self._last_graduation_report = None
         if self._graduation_gate:
             try:
-                report = self._graduation_gate.evaluate()
-                self._last_graduation_report = report
-                if report.ready and not self._state.get("graduation_notified", False):
-                    await self._send_telegram_alert(
-                        [
-                            "GRADUATION READY — All thresholds passed.",
-                            f"Trades: {report.paper_trades_closed}/{report.min_trades}",
+                all_reports = self._graduation_gate.evaluate_all()
+                # Cache Kalshi report for AI heartbeat context
+                self._last_graduation_report = all_reports.get("kalshi")
+
+                # Track per-sector graduation notifications
+                graduated_sectors = self._state.get("graduated_sectors", [])
+
+                for sector_key, report in all_reports.items():
+                    sector_label = sector_key.upper()
+                    if report.ready and sector_label not in graduated_sectors:
+                        # Generate HTML report
+                        report_path = generate_graduation_report(
+                            sector=sector_label,
+                            report=report,
+                            db_path=self._graduation_gate._db_path,
+                        )
+
+                        alert_lines = [
+                            f"GRADUATION: {sector_label} — All thresholds passed.",
+                            f"Trades: {report.paper_trades_closed}",
                             f"Win Rate: {report.win_rate:.0%}",
                             f"Max Drawdown: {report.max_drawdown_pct:.1f}%",
-                            f"Profitable Regimes: {', '.join(report.profitable_regimes)}",
-                            "Paper trading goals met. Ready for go-live review.",
-                        ],
-                        header="[Graduation Gate]",
-                    )
+                        ]
+                        if report_path:
+                            alert_lines.append(f"Report: {report_path}")
+                        alert_lines.append("Ready for go-live review.")
+
+                        await self._send_telegram_alert(
+                            alert_lines,
+                            header=f"[Graduation — {sector_label}]",
+                        )
+
+                        graduated_sectors.append(sector_label)
+                        self._state["graduated_sectors"] = graduated_sectors
+
+                # Backward compat: set graduation_notified if kalshi is ready
+                kalshi = all_reports.get("kalshi")
+                if kalshi and kalshi.ready:
                     self._state["graduation_notified"] = True
+
             except Exception as e:
                 logger.info(f"Heartbeat: graduation check failed: {e}")
 
