@@ -284,13 +284,28 @@ class StrategyManager:
                                 timeout=ibkr_timeout,
                             )
                         elif platform == "ibkr" and series == "options":
+                            # Fetch option chains for each underlying in the watchlist
+                            async def _fetch_all_options():
+                                stocks = await market.get_open_markets()
+                                all_options = []
+                                for stock in stocks[:10]:  # Cap at 10 underlyings
+                                    sym = stock.get("ticker", "")
+                                    if not sym:
+                                        continue
+                                    try:
+                                        chain = await market.get_options_chain(sym)
+                                        all_options.extend(chain)
+                                    except Exception as e:
+                                        logger.debug(f"Options chain fetch failed for {sym}: {e}")
+                                return all_options
+
                             markets_data = await asyncio.wait_for(
                                 self._market_cache.get_or_fetch(
                                     cache_key,
-                                    lambda: market.get_open_markets(),
-                                    ttl=30.0,
+                                    _fetch_all_options,
+                                    ttl=60.0,  # Longer TTL — option chains are expensive
                                 ),
-                                timeout=ibkr_timeout,
+                                timeout=60,  # Longer timeout — fetching multiple chains
                             )
                         elif platform == "ibkr" and series == "*":
                             markets_data = await asyncio.wait_for(

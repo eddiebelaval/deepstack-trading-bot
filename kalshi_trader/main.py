@@ -439,8 +439,9 @@ class KalshiTradingBot:
                 bleed_slope_threshold=gov_cfg.bleed_slope_threshold,
                 max_strategies_disabled_pct=gov_cfg.max_strategies_disabled_pct,
                 reenable_cooldown_hours=gov_cfg.reenable_cooldown_hours,
+                paper_trade=self.paper_trade,
             )
-            logger.info("Market governor initialized (mode=%s)", gov_cfg.mode)
+            logger.info("Market governor initialized (mode=%s, paper=%s)", gov_cfg.mode, self.paper_trade)
 
             # Attach ForwardSignalBridge — cross-market intelligence layer
             from .forward_signal_bridge import ForwardSignalBridge
