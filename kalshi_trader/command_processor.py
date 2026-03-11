@@ -108,6 +108,7 @@ class CommandProcessor:
             "scan_now": self._handle_scan_now,
             "place_trade": self._handle_place_trade,
             "set_poll_interval": self._handle_set_poll_interval,
+            "run_arena": self._handle_run_arena,
         }
 
     async def poll_and_execute(self) -> None:
@@ -427,3 +428,101 @@ class CommandProcessor:
         interval = max(15, min(300, interval))  # Clamp to 15s-300s
         self.bot.config.poll_interval_seconds = interval
         return {"poll_interval_seconds": interval}
+
+    async def _handle_run_arena(self, params: dict) -> dict:
+        """Run arena tournament in background and persist results to Supabase.
+
+        Acknowledges immediately, then runs the tournament asynchronously.
+        Sends results back via Telegram when done.
+
+        Params:
+            gate: Gate to tag results with (default: KALSHI)
+            data_source: synthetic, csv, kalshi_api (default: synthetic)
+            timesteps: Synthetic timesteps (default: 10000)
+            seas: If true, run multi-regime SEAS tournament (default: false)
+        """
+        gate = params.get("gate", "KALSHI")
+        data_source = params.get("data_source", "synthetic")
+        timesteps = int(params.get("timesteps", 10000))
+        seas_mode = bool(params.get("seas", False))
+
+        # Launch the tournament in a background task
+        asyncio.create_task(
+            self._run_arena_background(gate, data_source, timesteps, seas_mode)
+        )
+
+        mode_label = "SEAS multi-regime" if seas_mode else f"{data_source} ({timesteps} steps)"
+        return {
+            "status": "started",
+            "message": f"Arena tournament launched ({mode_label}). Results will be sent when complete.",
+        }
+
+    async def _run_arena_background(
+        self,
+        gate: str,
+        data_source: str,
+        timesteps: int,
+        seas_mode: bool,
+    ) -> None:
+        """Background task: run arena tournament and persist + notify."""
+        try:
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+            from arena.config import ArenaConfig
+            from arena.engine import TournamentEngine
+            from backtest.persist import persist_arena_results
+
+            config = ArenaConfig(
+                data_source=data_source,
+                synthetic_timesteps=timesteps,
+                seas_mode=seas_mode,
+            )
+            engine = TournamentEngine(config)
+
+            result = await engine.run_tournament()
+
+            # Persist to Supabase
+            persisted = await persist_arena_results(result, gate=gate)
+
+            # Build summary message
+            duration = 0.0
+            if result.started_at and result.finished_at:
+                duration = (result.finished_at - result.started_at).total_seconds()
+
+            lines = [
+                f"ARENA COMPLETE ({duration:.0f}s)",
+                f"Strategies: {result.total_strategies} | Windows: {result.total_windows}",
+                f"Persisted: {persisted} results to Supabase",
+                "",
+            ]
+
+            # Top 5 rankings
+            for score in result.rankings[:5]:
+                wr = f"{score.win_rate:.0%}"
+                sh = f"S={score.sharpe_ratio:.1f}"
+                pf = f"PF={score.profit_factor:.1f}"
+                lines.append(
+                    f"  #{score.rank} {score.strategy_name}: "
+                    f"{score.composite_score:.0f}/100 ({wr}, {sh}, {pf})"
+                )
+
+            if result.rankings:
+                top = result.rankings[0]
+                lines.append(f"\nTop strategy: {top.strategy_name} ({top.composite_score:.0f}/100)")
+
+            # Notify via Telegram
+            telegram = getattr(self.bot, "telegram", None)
+            if telegram and telegram.is_available:
+                await telegram._send_message("\n".join(lines))
+            else:
+                logger.info("Arena results (no Telegram):\n" + "\n".join(lines))
+
+        except Exception as e:
+            error_msg = f"Arena tournament failed: {str(e)[:200]}"
+            logger.error(error_msg, exc_info=True)
+
+            telegram = getattr(self.bot, "telegram", None)
+            if telegram and telegram.is_available:
+                await telegram._send_message(error_msg)
