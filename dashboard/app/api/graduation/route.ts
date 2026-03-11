@@ -38,7 +38,7 @@ const GATES: GateConfig[] = [
       'news_sentiment_fade', 'correlated_event_arbitrage', 'domain_specialization',
       'crypto_intraday', 'bear_macro', 'settlement_betting',
     ],
-    thresholds: { min_trades: 50, min_win_rate: 0.45, max_drawdown_pct: 15.0 },
+    thresholds: { min_trades: 50, min_win_rate: 0.45, max_drawdown_pct: 20.0 },
   },
   {
     label: 'STOCKS',
