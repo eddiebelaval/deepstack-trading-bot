@@ -2113,6 +2113,38 @@ class KalshiTradingBot:
             strategy_manager=self.strategy_manager,
         )
 
+        # Push regime snapshot to Supabase for dashboard WeatherMap
+        post_regime = getattr(self.market_governor, 'current_regime', None)
+        if self.dashboard and post_regime:
+            try:
+                await self.dashboard.push_regime(
+                    regime=post_regime.regime.value,
+                    confidence=post_regime.confidence,
+                    volatility=post_regime.volatility,
+                    trend_strength=post_regime.trend_strength,
+                    mean_reversion_score=post_regime.mean_reversion_score,
+                    volume_ratio=post_regime.volume_ratio,
+                    num_markets=post_regime.num_markets_sampled,
+                )
+            except Exception as e:
+                logger.debug(f"Failed to push regime to Supabase: {e}")
+
+        # Push governance decisions to Supabase for audit trail
+        if self.dashboard and self.market_governor._decisions:
+            for decision in self.market_governor._decisions:
+                try:
+                    await self.dashboard.push_governance_decision(
+                        regime=decision.regime.value,
+                        confidence=decision.regime_confidence,
+                        action=decision.action,
+                        strategy_name=decision.strategy_name,
+                        reason=decision.reason,
+                        mode=decision.mode,
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to push governance decision: {e}")
+            self.market_governor._decisions.clear()
+
         # Captain's Log: detect regime changes and bleed alerts
         if self.captains_log:
             post_regime = getattr(self.market_governor, 'current_regime', None)
