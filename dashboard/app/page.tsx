@@ -447,7 +447,7 @@ export default function GraduationPage() {
               </span>
             </span>
             <span className="text-terminal-dim/30">
-              SOURCE: SQLite (trade_journal.db)
+              SOURCE: Supabase (deepstack_trades)
             </span>
           </div>
         </div>
