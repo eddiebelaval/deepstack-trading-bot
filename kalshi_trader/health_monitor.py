@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
+from .sensory_check import SensoryMonitor
+
 if TYPE_CHECKING:
     from .dashboard_sync import DashboardSync
     from .captains_log import CaptainsLog
@@ -45,6 +47,7 @@ STALE_REGIME_ROWS_MAX = 1000
 STALE_REGIME_ROWS_KEEP = 500
 STALE_CAPTAINS_LOG_MAX = 100
 STALE_CAPTAINS_LOG_KEEP = 50
+SENSORY_CHECK_INTERVAL = 900  # 15 minutes — full 7-sense diagnostic
 CYCLE_STALL_SECONDS = 300  # 5 minutes without a cycle = stalled
 ZERO_MARKETS_WARN_CYCLES = 10   # WARNING after 10 cycles (~10 min) of zero markets
 ZERO_MARKETS_CRITICAL_CYCLES = 60  # CRITICAL after 60 cycles (~1 hour) — Telegram alert
@@ -136,6 +139,11 @@ class HealthMonitor:
         self._api_consecutive_failures = 0
         self._supabase_consecutive_failures = 0
 
+        # Sensory monitor (7-sense preflight checks on interval)
+        self._sensory_monitor = SensoryMonitor(
+            bot=bot, interval_seconds=SENSORY_CHECK_INTERVAL
+        )
+
     @property
     def uptime_seconds(self) -> float:
         return time.time() - self._start_time
@@ -178,6 +186,9 @@ class HealthMonitor:
                 if now - self._last_full_diagnostic >= FULL_DIAGNOSTIC_INTERVAL:
                     await self._run_full_diagnostic()
                     self._last_full_diagnostic = now
+
+                # Sensory check (7-sense preflight, every 15 min)
+                await self._sensory_monitor.maybe_run()
 
                 # Self-clean every 30 min
                 if now - self._last_self_clean >= SELF_CLEAN_INTERVAL:
