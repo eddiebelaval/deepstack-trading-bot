@@ -184,14 +184,6 @@ class KalshiTradingBot:
         # Cache of last scanned market data for governance feed (cold-start fix)
         self._last_scanned_markets: List[Dict[str, Any]] = []
 
-    async def _notify(self, message: str) -> None:
-        """Send a Telegram notification if bridge is available."""
-        if self.telegram_bridge and self.telegram_bridge.is_available:
-            try:
-                await self.telegram_bridge._send_message(message)
-            except Exception:
-                pass  # Never block trading on notification failure
-
         # Per-strategy dynamic Kelly fractions (prevents last-strategy-wins bug)
         self._dynamic_kelly_fractions: Dict[str, float] = {}
 
@@ -266,6 +258,14 @@ class KalshiTradingBot:
             f"Multi-strategy: {use_strategy_manager} | "
             f"Dry-run: {dry_run} | Paper-trade: {paper_trade}"
         )
+
+    async def _notify(self, message: str) -> None:
+        """Send a Telegram notification if bridge is available."""
+        if self.telegram_bridge and self.telegram_bridge.is_available:
+            try:
+                await self.telegram_bridge._send_message(message)
+            except Exception:
+                pass  # Never block trading on notification failure
 
     async def start(self) -> None:
         """
