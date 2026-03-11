@@ -15,7 +15,7 @@ export default function Nav() {
 
   return (
     <nav
-      className="flex items-center justify-between px-4 shrink-0 select-none"
+      className="flex items-center justify-between px-2 sm:px-4 shrink-0 select-none overflow-hidden"
       style={{
         height: 48,
         background: "var(--terminal-bg-elevated)",
@@ -23,7 +23,7 @@ export default function Nav() {
       }}
     >
       {/* Left: Brand */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 shrink-0">
         <span
           className="text-base font-bold tracking-wider terminal-glow-bright"
           style={{ color: "var(--terminal-green-bright)" }}
@@ -31,7 +31,7 @@ export default function Nav() {
           DAE
         </span>
         <span
-          className="text-[10px] tracking-wide"
+          className="text-[10px] tracking-wide hidden sm:inline"
           style={{ color: "var(--terminal-green-dim)", opacity: 0.7 }}
         >
           v3.0
@@ -39,7 +39,7 @@ export default function Nav() {
       </div>
 
       {/* Center: Nav Links */}
-      <div className="flex items-center gap-1.5 sm:gap-2">
+      <div className="flex items-center gap-1 sm:gap-2">
         {NAV_ITEMS.map(({ href, label, shortLabel }) => {
           const isActive =
             href === "/"
@@ -50,7 +50,7 @@ export default function Nav() {
             <Link
               key={href}
               href={href}
-              className="px-3 py-1 text-xs tracking-wider transition-all duration-200"
+              className="px-1.5 sm:px-3 py-1 text-[10px] sm:text-xs tracking-wider transition-all duration-200 whitespace-nowrap"
               style={{
                 color: isActive
                   ? "var(--terminal-green-bright)"
@@ -68,34 +68,26 @@ export default function Nav() {
               }}
             >
               <span className="hidden sm:inline">[ {label} ]</span>
-              <span className="sm:hidden">[ {shortLabel} ]</span>
+              <span className="sm:hidden">{shortLabel}</span>
             </Link>
           );
         })}
       </div>
 
       {/* Right: Heartbeat + Mode Badge */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         {/* Heartbeat Pulse */}
-        <div className="flex items-center gap-1.5">
-          <span
-            className="inline-block w-2 h-2 rounded-full animate-live-pulse"
-            style={{
-              background: "var(--terminal-green)",
-              boxShadow:
-                "0 0 4px var(--terminal-green), 0 0 8px var(--terminal-green), 0 0 12px rgba(0, 255, 65, 0.4)",
-            }}
-          />
-          <span
-            className="text-[10px] tracking-wide hidden sm:inline"
-            style={{ color: "var(--terminal-green-dim)" }}
-          >
-            LIVE
-          </span>
-        </div>
+        <span
+          className="inline-block w-2 h-2 rounded-full animate-live-pulse shrink-0"
+          style={{
+            background: "var(--terminal-green)",
+            boxShadow:
+              "0 0 4px var(--terminal-green), 0 0 8px var(--terminal-green), 0 0 12px rgba(0, 255, 65, 0.4)",
+          }}
+        />
 
         {/* Mode Badge */}
-        <span className="badge-green text-[10px] font-semibold tracking-widest">
+        <span className="badge-green text-[9px] sm:text-[10px] font-semibold tracking-wider sm:tracking-widest">
           PAPER
         </span>
       </div>

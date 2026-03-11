@@ -279,24 +279,24 @@ export default function CommandCenter() {
       {/* ================================================================
           TOP BAR — Key Metrics
          ================================================================ */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3">
+      <div className="grid grid-cols-3 lg:grid-cols-5 gap-1.5 sm:gap-2 md:gap-3">
         {/* Balance */}
-        <div className="panel p-3">
-          <div className="text-[10px] hierarchy-label tracking-[0.15em] mb-1">
+        <div className="panel p-2 sm:p-3">
+          <div className="text-[9px] sm:text-[10px] hierarchy-label tracking-[0.15em] mb-1">
             BALANCE
           </div>
-          <div className="text-lg md:text-xl hierarchy-primary tabular-nums leading-tight">
+          <div className="text-sm sm:text-lg md:text-xl hierarchy-primary tabular-nums leading-tight">
             {centsToUSD(status?.account.balance_cents ?? 0)}
           </div>
         </div>
 
         {/* Daily P&L */}
-        <div className="panel p-3">
-          <div className="text-[10px] hierarchy-label tracking-[0.15em] mb-1">
+        <div className="panel p-2 sm:p-3">
+          <div className="text-[9px] sm:text-[10px] hierarchy-label tracking-[0.15em] mb-1">
             DAILY P&amp;L
           </div>
           <div
-            className={`text-lg md:text-xl tabular-nums leading-tight font-bold ${
+            className={`text-sm sm:text-lg md:text-xl tabular-nums leading-tight font-bold ${
               dailyChange.cents >= 0 ? 'text-terminal-green' : 'text-terminal-red'
             }`}
             style={{
@@ -310,7 +310,7 @@ export default function CommandCenter() {
             {centsToUSD(dailyChange.cents)}
           </div>
           <div
-            className={`text-[10px] tabular-nums ${
+            className={`text-[9px] sm:text-[10px] tabular-nums ${
               dailyChange.cents >= 0 ? 'text-terminal-green-dim' : 'text-terminal-red-dim'
             }`}
           >
@@ -319,31 +319,31 @@ export default function CommandCenter() {
         </div>
 
         {/* Active Positions */}
-        <div className="panel p-3">
-          <div className="text-[10px] hierarchy-label tracking-[0.15em] mb-1">
+        <div className="panel p-2 sm:p-3">
+          <div className="text-[9px] sm:text-[10px] hierarchy-label tracking-[0.15em] mb-1">
             POSITIONS
           </div>
-          <div className="text-lg md:text-xl hierarchy-primary tabular-nums leading-tight">
+          <div className="text-sm sm:text-lg md:text-xl hierarchy-primary tabular-nums leading-tight">
             {positions.length}
           </div>
         </div>
 
         {/* Win Rate */}
-        <div className="panel p-3">
-          <div className="text-[10px] hierarchy-label tracking-[0.15em] mb-1">
+        <div className="panel p-2 sm:p-3">
+          <div className="text-[9px] sm:text-[10px] hierarchy-label tracking-[0.15em] mb-1">
             WIN RATE
           </div>
-          <div className="text-lg md:text-xl hierarchy-primary tabular-nums leading-tight">
+          <div className="text-sm sm:text-lg md:text-xl hierarchy-primary tabular-nums leading-tight">
             {blendedWinRate.toFixed(1)}%
           </div>
         </div>
 
         {/* Risk Used */}
-        <div className="panel p-3 col-span-2 sm:col-span-1">
-          <div className="text-[10px] hierarchy-label tracking-[0.15em] mb-1">
+        <div className="panel p-2 sm:p-3">
+          <div className="text-[9px] sm:text-[10px] hierarchy-label tracking-[0.15em] mb-1">
             RISK USED
           </div>
-          <div className="text-lg md:text-xl tabular-nums leading-tight font-bold"
+          <div className="text-sm sm:text-lg md:text-xl tabular-nums leading-tight font-bold"
             style={{ color: riskTier(riskPct).color, textShadow: riskTier(riskPct).glow }}
           >
             {riskPct.toFixed(0)}%
