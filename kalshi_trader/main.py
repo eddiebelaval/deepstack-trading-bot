@@ -707,7 +707,7 @@ class KalshiTradingBot:
                     )
 
                     # Attach LexiconOrderRouter for paper signal trading (Phase 2)
-                    if ibkr_config.get("port") in (7497, 4001):  # Paper port (TWS or Gateway)
+                    if ibkr_config.get("port") in (7497, 4001, 4002):  # Paper port (TWS or Gateway)
                         from markets.ibkr import LexiconOrderRouter
                         self._lexicon_order_router = LexiconOrderRouter(
                             ibkr_market=ibkr_market,
