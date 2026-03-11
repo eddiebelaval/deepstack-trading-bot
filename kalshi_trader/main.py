@@ -184,6 +184,14 @@ class KalshiTradingBot:
         # Cache of last scanned market data for governance feed (cold-start fix)
         self._last_scanned_markets: List[Dict[str, Any]] = []
 
+    async def _notify(self, message: str) -> None:
+        """Send a Telegram notification if bridge is available."""
+        if self.telegram_bridge and self.telegram_bridge.is_available:
+            try:
+                await self.telegram_bridge._send_message(message)
+            except Exception:
+                pass  # Never block trading on notification failure
+
         # Per-strategy dynamic Kelly fractions (prevents last-strategy-wins bug)
         self._dynamic_kelly_fractions: Dict[str, float] = {}
 
@@ -693,6 +701,10 @@ class KalshiTradingBot:
                         f"port={ibkr_config['port']}, "
                         f"watchlist={ibkr_config['watchlist']}"
                     )
+                    await self._notify(
+                        f"[IBKR] Connected (paper port {ibkr_config['port']})\n"
+                        f"Watchlist: {', '.join(ibkr_config['watchlist'][:8])}..."
+                    )
 
                     # Attach LexiconOrderRouter for paper signal trading (Phase 2)
                     if ibkr_config.get("port") in (7497, 4001):  # Paper port (TWS or Gateway)
@@ -704,6 +716,7 @@ class KalshiTradingBot:
                         logger.info("LexiconOrderRouter attached (paper mode)")
                 else:
                     logger.warning("IBKR connection failed — stock trading disabled")
+                    await self._notify("[IBKR] Connection FAILED — stock/futures/options trading disabled")
             except Exception as e:
                 logger.warning(f"Failed to initialize IBKR: {e}")
 
@@ -1211,6 +1224,20 @@ class KalshiTradingBot:
                         )
                     logger.info(f"Daily review: {' | '.join(parts)}")
 
+                    # Telegram daily summary
+                    strat_lines = []
+                    for strat, metrics in review["strategies"].items():
+                        pnl = metrics["total_pnl_cents"]
+                        strat_lines.append(
+                            f"  {strat}: {metrics['wins']}W/{metrics['losses']}L "
+                            f"({'+'if pnl>=0 else ''}${pnl/100:.2f})"
+                        )
+                    await self._notify(
+                        f"[DAILY SUMMARY] {review['total_trades']} trades | "
+                        f"{'+'if review['total_pnl_cents']>=0 else ''}${review['total_pnl_cents']/100:.2f}\n"
+                        + "\n".join(strat_lines)
+                    )
+
             # Close trade analyzer
             if self.trade_analyzer:
                 await self.trade_analyzer.close()
@@ -1703,6 +1730,8 @@ class KalshiTradingBot:
         self._auto_disabled_at[name] = datetime.now()
 
         logger.warning(f"{log_prefix}: {name} | {reason}")
+
+        await self._notify(f"[{log_prefix}] {name}\n{reason}")
 
         if self.captains_log:
             self.captains_log.record_event(NarrationEvent(
@@ -2390,6 +2419,14 @@ class KalshiTradingBot:
                                     self.market_governor.record_trade_outcome(strategy_name, pnl)
                                 self._apply_adaptive_thresholds()
                                 self._check_lab_milestones()
+
+                                # Telegram notification — settlement
+                                mode = "PAPER" if self.paper_trade else "LIVE"
+                                pnl_sign = "+" if pnl >= 0 else ""
+                                await self._notify(
+                                    f"[{mode} SETTLE] {ticker} -> {result}\n"
+                                    f"P&L: {pnl_sign}${pnl / 100:.2f} | {strategy_name}"
+                                )
                         else:
                             logger.info(f"Market {ticker} no longer open, removing from tracking")
                         del self.open_positions[ticker]
@@ -2570,6 +2607,14 @@ class KalshiTradingBot:
                     metadata={"ticker": ticker, "pnl_cents": pnl, "exit_type": exit_signal.exit_type, "paper_trade": self.paper_trade},
                 ))
 
+            # Telegram notification — trade closed
+            mode = "PAPER" if self.paper_trade else "LIVE"
+            pnl_emoji = "+" if pnl >= 0 else ""
+            await self._notify(
+                f"[{mode} EXIT] {ticker} closed ({exit_signal.exit_type})\n"
+                f"P&L: {pnl_emoji}${pnl / 100:.2f} | {position.get('strategy', 'unknown')}"
+            )
+
             # Remove from tracking
             del self.open_positions[ticker]
 
@@ -2745,6 +2790,10 @@ class KalshiTradingBot:
                             logger.critical(
                                 f"INACTION CRITICAL: Strategy '{name}' — ZERO "
                                 f"opportunities for {cycles} cycles (~{minutes:.0f} min). "
+                                f"Strategy may be broken or markets unavailable."
+                            )
+                            await self._notify(
+                                f"[INACTION] {name} — 0 opportunities for {minutes:.0f} min\n"
                                 f"Strategy may be broken or markets unavailable."
                             )
                         elif cycles >= self._inaction_error_threshold:
@@ -3159,6 +3208,16 @@ class KalshiTradingBot:
             logger.info(
                 f"Trade CONFIRMED: {ticker} | {opp.side} {actual_contracts} @ {opp.entry_price_cents}c | "
                 f"Strategy: {strategy_name} | Score: {opp.score:.1f}{fill_note} | {opp.reasoning}"
+            )
+
+            # Telegram notification — trade opened
+            asset_class = getattr(opp, 'asset_class', 'prediction_market')
+            mode = "PAPER" if self.paper_trade else "LIVE"
+            price_usd = opp.entry_price_cents / 100
+            await self._notify(
+                f"[{mode} TRADE] {opp.side.upper()} {actual_contracts}x {ticker}\n"
+                f"@ ${price_usd:.2f} | {asset_class} | {strategy_name}\n"
+                f"Score: {opp.score:.0f}/100{fill_note}"
             )
 
             return True
