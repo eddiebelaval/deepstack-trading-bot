@@ -535,6 +535,7 @@ class DashboardSync:
         mean_reversion_score: float,
         volume_ratio: float,
         num_markets: int,
+        source: str = "prediction_market",
     ) -> None:
         """Push a regime snapshot to Supabase for dashboard visualization."""
         await self._post("regime_history", {
@@ -545,6 +546,7 @@ class DashboardSync:
             "mean_reversion_score": mean_reversion_score,
             "volume_ratio": volume_ratio,
             "num_markets_sampled": num_markets,
+            "source": source,
         })
 
     async def update_strategy_disabled(

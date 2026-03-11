@@ -12,11 +12,13 @@ export const dynamic = 'force-dynamic';
 const VALID_VIEWS = new Set([
   'equity', 'daily_pnl', 'strategy_perf', 'regime_timeline',
   'win_rate', 'fitness_heatmap', 'trade_scatter', 'market_state', 'governance',
+  'decision_audit',
 ]);
 
 interface TradeRow {
   id: number;
   strategy: string;
+  status: string;
   pnl_cents: number;
   updated_at: string;
   created_at: string;
@@ -40,6 +42,211 @@ interface RegimeRow {
   num_markets_sampled: number;
   timestamp: string;
   source?: string;
+}
+
+interface GovernanceDecisionRow {
+  id: number;
+  timestamp: string;
+  regime: string;
+  regime_confidence: number | null;
+  action: string;
+  strategy_name: string | null;
+  reason: string | null;
+  mode: string | null;
+}
+
+interface StrategyFitnessRow {
+  strategy_name: string;
+  regime: string;
+  fitness_score: number;
+  trade_count: number;
+  total_pnl_cents: number;
+  last_updated?: string;
+}
+
+interface DecisionAuditCycle {
+  timestamp: string;
+  observed: {
+    prediction_market: RegimeRow | null;
+    stock: RegimeRow | null;
+  };
+  translation: {
+    effective_regime: string | null;
+    agreement: 'agree' | 'diverge' | 'partial' | 'unknown';
+    steering_source: 'prediction_market' | 'stock' | 'both' | 'unknown';
+    confidence_gap: number | null;
+  };
+  decisions: {
+    regime: string;
+    confidence: number | null;
+    mode: string | null;
+    enable: string[];
+    disable: string[];
+    reasons: string[];
+  };
+  context: {
+    top_fitness: StrategyFitnessRow[];
+  };
+  outcome: {
+    trade_count: number;
+    net_pnl_cents: number;
+    window_hours: number;
+  };
+}
+
+const DECISION_AUDIT_LIMIT = 18;
+const DECISION_AUDIT_WINDOW_HOURS = 3;
+const REGIME_MATCH_WINDOW_MS = 5 * 60 * 1000;
+
+function normalizeRegimeSource(source?: string | null): string {
+  if (!source) return 'prediction_market';
+  if (source === 'prediction') return 'prediction_market';
+  return source;
+}
+
+async function restGetOptionalSource<T extends { source?: string }>(
+  table: string,
+  withSourceParams: string,
+  withoutSourceParams: string,
+  defaultSource = 'prediction_market',
+): Promise<T[]> {
+  try {
+    const rows = await restGet<T>(table, withSourceParams);
+    return rows.map((row) => ({ ...row, source: normalizeRegimeSource(row.source ?? defaultSource) }));
+  } catch {
+    const rows = await restGet<T>(table, withoutSourceParams);
+    return rows.map((row) => ({ ...row, source: defaultSource }));
+  }
+}
+
+function buildDecisionAudit(
+  decisions: GovernanceDecisionRow[],
+  regimes: RegimeRow[],
+  fitness: StrategyFitnessRow[],
+  trades: TradeRow[],
+): DecisionAuditCycle[] {
+  const grouped = new Map<string, GovernanceDecisionRow[]>();
+  for (const decision of decisions) {
+    const key = decision.timestamp;
+    const bucket = grouped.get(key) ?? [];
+    bucket.push(decision);
+    grouped.set(key, bucket);
+  }
+
+  const timestamps = Array.from(grouped.keys())
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+    .slice(0, DECISION_AUDIT_LIMIT);
+
+  const normalizedRegimes = regimes.map((row) => ({
+    ...row,
+    source: normalizeRegimeSource(row.source),
+  }));
+
+  const nearestReading = (source: string, timestamp: string): RegimeRow | null => {
+    const target = new Date(timestamp).getTime();
+    let best: RegimeRow | null = null;
+    let bestDelta = Number.POSITIVE_INFINITY;
+
+    for (const row of normalizedRegimes) {
+      if (normalizeRegimeSource(row.source) !== source) continue;
+      const delta = Math.abs(new Date(row.timestamp).getTime() - target);
+      if (delta <= REGIME_MATCH_WINDOW_MS && delta < bestDelta) {
+        best = row;
+        bestDelta = delta;
+      }
+    }
+
+    return best;
+  };
+
+  return timestamps.map((timestamp) => {
+    const bucket = grouped.get(timestamp) ?? [];
+    const predictionMarket = nearestReading('prediction_market', timestamp);
+    const stock = nearestReading('stock', timestamp);
+    const decisionRegime = bucket[0]?.regime ?? predictionMarket?.regime ?? stock?.regime ?? null;
+    const enable = bucket
+      .filter((row) => row.action === 'enable' && row.strategy_name)
+      .map((row) => row.strategy_name as string);
+    const disable = bucket
+      .filter((row) => row.action === 'disable' && row.strategy_name)
+      .map((row) => row.strategy_name as string);
+    const reasons = Array.from(
+      new Set(
+        bucket
+          .map((row) => row.reason?.trim())
+          .filter((reason): reason is string => Boolean(reason))
+          .slice(0, 4),
+      ),
+    );
+
+    let agreement: DecisionAuditCycle['translation']['agreement'] = 'unknown';
+    let steeringSource: DecisionAuditCycle['translation']['steering_source'] = 'unknown';
+    let confidenceGap: number | null = null;
+
+    if (predictionMarket && stock) {
+      confidenceGap = Math.round(Math.abs(predictionMarket.confidence - stock.confidence) * 1000) / 1000;
+      if (predictionMarket.regime === stock.regime) {
+        agreement = 'agree';
+        steeringSource = 'both';
+      } else if (decisionRegime === predictionMarket.regime) {
+        agreement = 'diverge';
+        steeringSource = 'prediction_market';
+      } else if (decisionRegime === stock.regime) {
+        agreement = 'diverge';
+        steeringSource = 'stock';
+      } else {
+        agreement = 'partial';
+      }
+    } else if (predictionMarket || stock) {
+      agreement = 'partial';
+      steeringSource = predictionMarket ? 'prediction_market' : 'stock';
+    }
+
+    const touchedStrategies = new Set([...enable, ...disable]);
+    const start = new Date(timestamp).getTime();
+    const end = start + DECISION_AUDIT_WINDOW_HOURS * 60 * 60 * 1000;
+    const outcomeTrades = trades.filter((trade) => {
+      if (trade.pnl_cents == null || trade.status !== 'closed' || !trade.updated_at) return false;
+      if (touchedStrategies.size > 0 && !touchedStrategies.has(trade.strategy)) return false;
+      const updatedAt = new Date(trade.updated_at).getTime();
+      return updatedAt >= start && updatedAt <= end;
+    });
+
+    const topFitness = fitness
+      .filter((row) => row.regime === decisionRegime)
+      .sort((a, b) => b.fitness_score - a.fitness_score)
+      .slice(0, 4);
+
+    return {
+      timestamp,
+      observed: {
+        prediction_market: predictionMarket,
+        stock,
+      },
+      translation: {
+        effective_regime: decisionRegime,
+        agreement,
+        steering_source: steeringSource,
+        confidence_gap: confidenceGap,
+      },
+      decisions: {
+        regime: decisionRegime ?? 'unknown',
+        confidence: bucket[0]?.regime_confidence ?? predictionMarket?.confidence ?? stock?.confidence ?? null,
+        mode: bucket[0]?.mode ?? null,
+        enable,
+        disable,
+        reasons,
+      },
+      context: {
+        top_fitness: topFitness,
+      },
+      outcome: {
+        trade_count: outcomeTrades.length,
+        net_pnl_cents: outcomeTrades.reduce((sum, trade) => sum + (trade.pnl_cents ?? 0), 0),
+        window_hours: DECISION_AUDIT_WINDOW_HOURS,
+      },
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -168,37 +375,28 @@ async function supabaseTradeScatter() {
 }
 
 async function supabaseMarketState() {
-  try {
-    const rows = await restGet<RegimeRow>(
-      'deepstack_regime_history',
-      `select=regime,confidence,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled,timestamp&order=id.desc&limit=20`,
-    );
-    // Default source since column doesn't exist in Supabase yet
-    const withSource = rows.map((r) => ({ ...r, source: r.source ?? 'prediction_market' }));
-    // Deduplicate: keep only the latest row per source
-    const seen = new Set<string>();
-    return withSource.filter((r) => {
-      if (seen.has(r.source)) return false;
-      seen.add(r.source);
-      return true;
-    });
-  } catch {
-    return [];
-  }
+  const rows = await restGetOptionalSource<RegimeRow>(
+    'deepstack_regime_history',
+    `select=id,source,regime,confidence,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled,timestamp&order=id.desc&limit=20`,
+    `select=id,regime,confidence,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled,timestamp&order=id.desc&limit=20`,
+  );
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const source = normalizeRegimeSource(row.source);
+    if (seen.has(source)) return false;
+    seen.add(source);
+    return true;
+  });
 }
 
 async function supabaseRegimeTimeline(days: number) {
-  try {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-    const rows = await restGet<RegimeRow>(
-      'deepstack_regime_history',
-      `timestamp=gte.${cutoff.toISOString()}&select=id,regime,confidence,timestamp,volatility,trend_strength&order=timestamp.asc&limit=500`,
-    );
-    return rows.map((r) => ({ ...r, source: r.source ?? 'prediction_market' }));
-  } catch {
-    return [];
-  }
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  return restGetOptionalSource<RegimeRow>(
+    'deepstack_regime_history',
+    `timestamp=gte.${cutoff.toISOString()}&select=id,source,regime,confidence,timestamp,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled&order=timestamp.asc&limit=500`,
+    `timestamp=gte.${cutoff.toISOString()}&select=id,regime,confidence,timestamp,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled&order=timestamp.asc&limit=500`,
+  );
 }
 
 async function supabaseEquity(days: number) {
@@ -227,6 +425,34 @@ async function supabaseEquity(days: number) {
       cumulative += net_pnl_cents;
       return { date, starting_balance_cents: starting, ending_balance_cents: cumulative, net_pnl_cents };
     });
+}
+
+async function supabaseDecisionAudit(days: number) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+
+  const [decisions, regimes, fitness, trades] = await Promise.all([
+    restGet<GovernanceDecisionRow>(
+      'deepstack_governance_decisions',
+      `timestamp=gte.${cutoff.toISOString()}&select=id,timestamp,regime,regime_confidence,action,strategy_name,reason,mode&order=timestamp.desc&limit=500`,
+    ).catch(() => []),
+    restGetOptionalSource<RegimeRow>(
+      'deepstack_regime_history',
+      `timestamp=gte.${cutoff.toISOString()}&select=id,source,regime,confidence,timestamp,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled&order=timestamp.desc&limit=1000`,
+      `timestamp=gte.${cutoff.toISOString()}&select=id,regime,confidence,timestamp,volatility,trend_strength,mean_reversion_score,volume_ratio,num_markets_sampled&order=timestamp.desc&limit=1000`,
+    ).catch(() => []),
+    restGet<StrategyFitnessRow>(
+      'deepstack_strategy_regime_fitness',
+      `select=strategy_name,regime,fitness_score,trade_count,total_pnl_cents,last_updated&order=fitness_score.desc&limit=500`,
+    ).catch(() => []),
+    restGet<TradeRow>(
+      'deepstack_trades',
+      `status=eq.closed&pnl_cents=not.is.null&updated_at=gte.${cutoff.toISOString()}&select=id,strategy,pnl_cents,updated_at,created_at,market_ticker,side,contracts,entry_price_cents,exit_price_cents,is_paper,session_date&order=updated_at.desc&limit=1000`,
+    ).catch(() => []),
+  ]);
+
+  if (decisions.length === 0) return [];
+  return buildDecisionAudit(decisions, regimes, fitness, trades);
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +525,40 @@ function sqliteAnalytics(view: string, days: number): unknown[] | null {
           FROM governance_decisions WHERE timestamp >= datetime('now', '-' || ? || ' days')
           GROUP BY hour, regime, action ORDER BY hour ASC
         `).all(days);
+      case 'decision_audit': {
+        const decisions = db.prepare(`
+          SELECT id, timestamp, regime, regime_confidence, action, strategy_name, reason, mode
+          FROM governance_decisions
+          WHERE timestamp >= datetime('now', '-' || ? || ' days')
+          ORDER BY timestamp DESC, id DESC
+          LIMIT 500
+        `).all(days) as GovernanceDecisionRow[];
+        const regimes = db.prepare(`
+          SELECT id, source, regime, confidence, volatility, trend_strength,
+                 mean_reversion_score, volume_ratio, num_markets_sampled, timestamp
+          FROM regime_history
+          WHERE timestamp >= datetime('now', '-' || ? || ' days')
+          ORDER BY timestamp DESC, id DESC
+          LIMIT 1000
+        `).all(days) as RegimeRow[];
+        const fitness = db.prepare(`
+          SELECT strategy_name, regime, fitness_score, trade_count, total_pnl_cents, last_updated
+          FROM strategy_regime_fitness
+          WHERE trade_count > 0
+          ORDER BY fitness_score DESC, trade_count DESC
+        `).all() as StrategyFitnessRow[];
+        const trades = db.prepare(`
+          SELECT id, strategy, pnl_cents, updated_at, created_at, market_ticker, side,
+                 contracts, entry_price_cents, exit_price_cents, is_paper, session_date, status
+          FROM trades
+          WHERE status = 'closed'
+            AND pnl_cents IS NOT NULL
+            AND updated_at >= datetime('now', '-' || ? || ' days')
+          ORDER BY updated_at DESC, id DESC
+          LIMIT 1000
+        `).all(days) as TradeRow[];
+        return buildDecisionAudit(decisions, regimes, fitness, trades);
+      }
       default:
         return [];
     }
@@ -343,6 +603,9 @@ export async function GET(request: NextRequest) {
         break;
       case 'equity':
         data = await supabaseEquity(days);
+        break;
+      case 'decision_audit':
+        data = await supabaseDecisionAudit(days);
         break;
       default:
         // Views not yet migrated — try Supabase tables, fallback to SQLite
