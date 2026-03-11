@@ -155,7 +155,7 @@ export default function IndicatorDetailPanel({ scriptName, scriptUrl, onClose }:
                     className="p-2.5 rounded border border-terminal-green/10 bg-terminal-bg-panel/40"
                     style={{ animationDelay: `${i * 80}ms` }}
                   >
-                    <div className="text-[8px] text-terminal-dim tracking-[0.15em] uppercase">{card.label}</div>
+                    <div className="text-[9px] text-terminal-dim tracking-[0.15em] uppercase">{card.label}</div>
                     <div className={`text-lg font-bold tabular-nums ${card.color}`}>{card.value}</div>
                   </div>
                 ))}

@@ -241,7 +241,7 @@ export default function ChatHubPage() {
                             {isUser ? 'EDDIE' : 'DAE'}
                           </span>
                           <span
-                            className={`text-[8px] px-1 py-px rounded border ${
+                            className={`text-[9px] px-1 py-px rounded border ${
                               isTelegram
                                 ? 'text-terminal-amber/70 border-terminal-amber/20 bg-terminal-amber/5'
                                 : 'text-terminal-cyan/70 border-terminal-cyan/20 bg-terminal-cyan/5'
