@@ -1,104 +1,20 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import * as d3Scale from 'd3-scale';
 import * as d3Interpolate from 'd3-interpolate';
 import { formatStrategyName } from '@/lib/format';
+import type { MarketReading } from '@/lib/weather-types';
+import {
+  BEAUFORT_SCALE, FRONT_TYPES, SOURCE_LABELS, ADVISORIES,
+  computeBeaufort, computeAdvisory, isBootstrapReading,
+} from '@/lib/weather-types';
+import type { RegimePoint } from '@/lib/weather-types';
 
 // ---------------------------------------------------------------------------
-// Types
+// D3 color scales (kept here — only needed for deep view rendering)
 // ---------------------------------------------------------------------------
 
-interface MarketReading {
-  source: string;
-  regime: string;
-  confidence: number;
-  volatility: number;
-  trend_strength: number;
-  mean_reversion_score: number;
-  volume_ratio: number;
-  num_markets_sampled: number;
-  timestamp: string;
-}
-
-interface RegimePoint {
-  id: number;
-  regime: string;
-  confidence: number;
-  timestamp: string;
-  volatility: number;
-  trend_strength: number;
-  source: string;
-}
-
-// ---------------------------------------------------------------------------
-// Weather Mapping Constants
-// ---------------------------------------------------------------------------
-
-const BEAUFORT_SCALE: { max: number; label: string; description: string; seaState: string }[] = [
-  { max: 0.05, label: '0', description: 'CALM', seaState: 'Glassy' },
-  { max: 0.1,  label: '1', description: 'LIGHT AIR', seaState: 'Rippled' },
-  { max: 0.15, label: '2', description: 'LIGHT BREEZE', seaState: 'Small wavelets' },
-  { max: 0.25, label: '3', description: 'GENTLE BREEZE', seaState: 'Large wavelets' },
-  { max: 0.35, label: '4', description: 'MODERATE', seaState: 'Small waves' },
-  { max: 0.45, label: '5', description: 'FRESH BREEZE', seaState: 'Moderate waves' },
-  { max: 0.55, label: '6', description: 'STRONG BREEZE', seaState: 'Large waves' },
-  { max: 0.65, label: '7', description: 'HIGH WIND', seaState: 'Sea heaps up' },
-  { max: 0.75, label: '8', description: 'GALE', seaState: 'Mod. high waves' },
-  { max: 0.85, label: '9', description: 'STRONG GALE', seaState: 'High waves' },
-  { max: 0.92, label: '10', description: 'STORM', seaState: 'Very high waves' },
-  { max: 0.97, label: '11', description: 'VIOLENT STORM', seaState: 'Exceptionally high' },
-  { max: 1.01, label: '12', description: 'HURRICANE', seaState: 'Catastrophic' },
-];
-
-type AdvisoryLevel = 'ALL_CLEAR' | 'SMALL_CRAFT' | 'GALE_WARNING' | 'STORM_WARNING';
-
-interface Advisory {
-  level: AdvisoryLevel;
-  label: string;
-  color: string;
-  glow: string;
-  borderColor: string;
-  bgColor: string;
-}
-
-const ADVISORIES: Record<AdvisoryLevel, Advisory> = {
-  ALL_CLEAR: {
-    level: 'ALL_CLEAR', label: 'ALL CLEAR',
-    color: '#00FF41', glow: '0 0 8px rgba(0,255,65,0.4)',
-    borderColor: 'rgba(0,255,65,0.3)', bgColor: 'rgba(0,255,65,0.05)',
-  },
-  SMALL_CRAFT: {
-    level: 'SMALL_CRAFT', label: 'SMALL CRAFT ADVISORY',
-    color: '#FFBF00', glow: '0 0 8px rgba(255,191,0,0.4)',
-    borderColor: 'rgba(255,191,0,0.3)', bgColor: 'rgba(255,191,0,0.05)',
-  },
-  GALE_WARNING: {
-    level: 'GALE_WARNING', label: 'GALE WARNING',
-    color: '#FF0000', glow: '0 0 8px rgba(255,0,0,0.4)',
-    borderColor: 'rgba(255,0,0,0.3)', bgColor: 'rgba(255,0,0,0.05)',
-  },
-  STORM_WARNING: {
-    level: 'STORM_WARNING', label: 'STORM WARNING',
-    color: '#FF3333', glow: '0 0 12px rgba(255,0,0,0.6)',
-    borderColor: 'rgba(255,0,0,0.5)', bgColor: 'rgba(255,0,0,0.1)',
-  },
-};
-
-const FRONT_TYPES: Record<string, { label: string; color: string; symbol: string }> = {
-  trending_up:    { label: 'WARM FRONT', color: '#FF4444', symbol: 'W' },
-  trending_down:  { label: 'COLD FRONT', color: '#00FFFF', symbol: 'C' },
-  mean_reverting: { label: 'STATIONARY', color: '#FFBF00', symbol: 'S' },
-  high_vol_choppy:{ label: 'OCCLUDED', color: '#a855f7', symbol: 'O' },
-  low_vol_calm:   { label: 'HIGH PRESSURE', color: '#00FF41', symbol: 'H' },
-};
-
-const SOURCE_LABELS: Record<string, string> = {
-  prediction_market: 'PREDICTION MKTS',
-  stock: 'EQUITIES',
-};
-
-// D3 color scales for NOAA-style weather coloring
 const pressureColorScale = d3Scale.scaleLinear<string>()
   .domain([0, 0.25, 0.5, 0.75, 1.0])
   .range(['#00FF41', '#39FF14', '#FFBF00', '#FF6600', '#FF0000'])
@@ -109,44 +25,7 @@ const temperatureColorScale = d3Scale.scaleLinear<string>()
   .range(['#00FFFF', '#0088FF', '#888888', '#FF8800', '#FF0000'])
   .interpolate(d3Interpolate.interpolateRgb);
 
-// ---------------------------------------------------------------------------
-// Derived computations
-// ---------------------------------------------------------------------------
-
-function computeBeaufort(volatility: number, trendStrength: number, mrScore: number): number {
-  const composite = volatility * 0.5 + Math.abs(trendStrength) * 0.25 + Math.abs(mrScore) * 0.25;
-  const idx = BEAUFORT_SCALE.findIndex((b) => composite <= b.max);
-  return idx >= 0 ? idx : 12;
-}
-
-function isBootstrapReading(reading: MarketReading): boolean {
-  return (
-    reading.num_markets_sampled === 0
-    && reading.confidence <= 0.1
-    && reading.volatility === 0
-    && reading.trend_strength === 0
-    && reading.mean_reversion_score === 0
-  );
-}
-
-function computeAdvisory(readings: MarketReading[]): AdvisoryLevel {
-  const activeReadings = readings.filter((r) => !isBootstrapReading(r));
-  if (activeReadings.length === 0) return 'ALL_CLEAR';
-  const maxVol = Math.max(...activeReadings.map((r) => r.volatility));
-  const maxTrend = Math.max(...activeReadings.map((r) => Math.abs(r.trend_strength)));
-  const avgConfidence = activeReadings.reduce((s, r) => s + r.confidence, 0) / activeReadings.length;
-  if (maxVol > 0.85 || (maxVol > 0.7 && avgConfidence < 0.3)) return 'STORM_WARNING';
-  if (maxVol > 0.65 || (maxTrend > 0.4 && maxVol > 0.4)) return 'GALE_WARNING';
-  if (maxVol > 0.35 || maxTrend > 0.25) return 'SMALL_CRAFT';
-  return 'ALL_CLEAR';
-}
-
-// ---------------------------------------------------------------------------
-// Canvas-based Radar Display (animated sweep + contour rings)
-// ---------------------------------------------------------------------------
-
 function colorToRGBA(color: string, alpha: number): string {
-  // Handle both hex (#RRGGBB) and D3's rgb(R, G, B) format
   const rgbMatch = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
   if (rgbMatch) {
     return `rgba(${rgbMatch[1]},${rgbMatch[2]},${rgbMatch[3]},${alpha})`;
@@ -156,6 +35,10 @@ function colorToRGBA(color: string, alpha: number): string {
   const b = parseInt(color.slice(5, 7), 16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
+
+// ---------------------------------------------------------------------------
+// Canvas-based Radar Display
+// ---------------------------------------------------------------------------
 
 function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -179,7 +62,6 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
     const cy = size / 2;
     const maxR = size / 2 - 6;
 
-    // Precompute precipitation particle positions (golden angle spiral)
     const precipCount = Math.round(Math.abs(reading.volume_ratio - 1) * 300);
     const particles = Array.from({ length: Math.min(precipCount, 60) }, (_, i) => {
       const angle = (i * 137.508 * Math.PI) / 180;
@@ -187,14 +69,12 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
       return { x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist };
     });
 
-    // Number of isobar rings — more = higher pressure gradient (stormier)
     const ringCount = Math.max(3, Math.min(8, beaufort + 2));
 
     function draw() {
       if (!ctx) return;
       ctx.clearRect(0, 0, size, size);
 
-      // Background: radial pressure gradient
       const bgGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
       bgGrad.addColorStop(0, colorToRGBA(front.color, 0.08));
       bgGrad.addColorStop(0.5, colorToRGBA(front.color, 0.03));
@@ -204,7 +84,6 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
       ctx.fillStyle = bgGrad;
       ctx.fill();
 
-      // Isobar contour rings with pressure coloring
       for (let i = 1; i <= ringCount; i++) {
         const t = i / ringCount;
         const r = maxR * t * 0.95;
@@ -218,7 +97,6 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
         ctx.setLineDash([]);
       }
 
-      // Crosshairs
       ctx.strokeStyle = colorToRGBA(front.color, 0.07);
       ctx.lineWidth = 0.5;
       ctx.beginPath();
@@ -228,7 +106,6 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
       ctx.lineTo(cx + maxR, cy);
       ctx.stroke();
 
-      // Precipitation scatter
       for (const p of particles) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, 1, 0, Math.PI * 2);
@@ -236,15 +113,12 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
         ctx.fill();
       }
 
-      // Animated radar sweep — cone/wedge
       const sweepAngle = angleRef.current;
-      const sweepWidth = Math.PI / 4; // 45 degree cone
-
+      const sweepWidth = Math.PI / 4;
       const sweepGrad = ctx.createConicGradient(sweepAngle - sweepWidth, cx, cy);
       sweepGrad.addColorStop(0, 'rgba(0,0,0,0)');
       sweepGrad.addColorStop(0.5, colorToRGBA(front.color, 0.12));
       sweepGrad.addColorStop(1, 'rgba(0,0,0,0)');
-
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.arc(cx, cy, maxR * 0.95, sweepAngle - sweepWidth, sweepAngle);
@@ -252,7 +126,6 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
       ctx.fillStyle = sweepGrad;
       ctx.fill();
 
-      // Sweep leading edge line
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.lineTo(
@@ -263,7 +136,6 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Wind barb / trend arrow
       if (Math.abs(reading.trend_strength) > 0.005) {
         const windAngle = reading.trend_strength > 0
           ? -Math.PI / 4 - reading.trend_strength * Math.PI / 4
@@ -273,16 +145,12 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(windAngle);
-
-        // Arrow shaft
         ctx.beginPath();
         ctx.moveTo(0, 0);
         ctx.lineTo(windLen, 0);
         ctx.strokeStyle = 'rgba(0,255,255,0.5)';
         ctx.lineWidth = 2;
         ctx.stroke();
-
-        // Arrow head
         ctx.beginPath();
         ctx.moveTo(windLen, 0);
         ctx.lineTo(windLen - 6, -4);
@@ -290,8 +158,6 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
         ctx.closePath();
         ctx.fillStyle = 'rgba(0,255,255,0.5)';
         ctx.fill();
-
-        // Wind barbs for strong trends
         if (Math.abs(reading.trend_strength) > 0.1) {
           ctx.beginPath();
           ctx.moveTo(windLen - 10, 0);
@@ -300,17 +166,9 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
           ctx.lineWidth = 1.5;
           ctx.stroke();
         }
-        if (Math.abs(reading.trend_strength) > 0.3) {
-          ctx.beginPath();
-          ctx.moveTo(windLen - 18, 0);
-          ctx.lineTo(windLen - 24, reading.trend_strength > 0 ? -8 : 8);
-          ctx.stroke();
-        }
-
         ctx.restore();
       }
 
-      // Center station model
       ctx.beginPath();
       ctx.arc(cx, cy, 16, 0, Math.PI * 2);
       ctx.fillStyle = '#0a0a0f';
@@ -319,22 +177,19 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Station symbol
       ctx.font = 'bold 13px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = front.color;
       ctx.fillText(front.symbol, cx, cy + 1);
 
-      // Beaufort label — top right
       ctx.font = '10px "JetBrains Mono", monospace';
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
       ctx.fillStyle = colorToRGBA(front.color, 0.5);
       ctx.fillText(`F${beaufort}`, size - 8, 6);
 
-      // Advance sweep angle
-      angleRef.current += 0.025; // ~4s full rotation
+      angleRef.current += 0.025;
       animRef.current = requestAnimationFrame(draw);
     }
 
@@ -354,22 +209,16 @@ function RadarCanvas({ reading, size = 160 }: { reading: MarketReading; size?: n
 }
 
 // ---------------------------------------------------------------------------
-// Station Readout — NOAA weather station style metrics
+// Station Readout
 // ---------------------------------------------------------------------------
 
 function StationReadout({ reading }: { reading: MarketReading }) {
   if (isBootstrapReading(reading)) {
     return (
       <div className="rounded border border-terminal-amber/15 bg-terminal-amber/5 px-2.5 py-2.5 space-y-1.5">
-        <div className="text-[10px] font-bold tracking-[0.16em] text-terminal-amber">
-          WARMING UP
-        </div>
+        <div className="text-[10px] font-bold tracking-[0.16em] text-terminal-amber">WARMING UP</div>
         <div className="text-[9px] text-terminal-dim/65 leading-relaxed">
-          Awaiting enough fresh market snapshots to classify this source.
-        </div>
-        <div className="flex items-center justify-between text-[8px] tabular-nums text-terminal-dim/45">
-          <span>CONF {Math.round(reading.confidence * 100)}%</span>
-          <span>SNAPSHOTS PENDING</span>
+          Awaiting enough snapshots to classify this source.
         </div>
       </div>
     );
@@ -377,69 +226,23 @@ function StationReadout({ reading }: { reading: MarketReading }) {
 
   const beaufort = computeBeaufort(reading.volatility, reading.trend_strength, reading.mean_reversion_score);
   const beaufortInfo = BEAUFORT_SCALE[beaufort];
-
-  // Map market data to weather metaphors
-  const pressure = (1 - reading.volatility) * 1013.25; // hPa — inverted volatility
+  const pressure = (1 - reading.volatility) * 1013.25;
   const trendColor = temperatureColorScale(reading.trend_strength);
 
   const metrics = [
-    {
-      label: 'PRESSURE',
-      subtitle: 'volatility',
-      value: pressure.toFixed(0),
-      unit: 'hPa',
-      tag: reading.volatility < 0.3 ? 'HIGH' : reading.volatility < 0.6 ? 'FALLING' : 'LOW',
-      color: pressureColorScale(reading.volatility),
-    },
-    {
-      label: 'WIND',
-      subtitle: 'trend',
-      value: (Math.abs(reading.trend_strength) * 100).toFixed(1),
-      unit: 'kts',
-      tag: reading.trend_strength > 0.01 ? 'N' : reading.trend_strength < -0.01 ? 'S' : 'CALM',
-      color: trendColor,
-    },
-    {
-      label: 'SEA STATE',
-      subtitle: 'intensity',
-      value: `F${beaufortInfo.label}`,
-      unit: '',
-      tag: beaufortInfo.seaState,
-      color: pressureColorScale(beaufort / 12),
-    },
-    {
-      label: 'VISIBILITY',
-      subtitle: 'confidence',
-      value: (reading.confidence * 100).toFixed(0),
-      unit: '%',
-      tag: reading.confidence > 0.7 ? 'CLEAR' : reading.confidence > 0.4 ? 'HAZY' : 'FOG',
-      color: reading.confidence > 0.7 ? '#00FF41' : reading.confidence > 0.4 ? '#FFBF00' : '#FF0000',
-    },
+    { label: 'PRESSURE', value: pressure.toFixed(0), unit: 'hPa', tag: reading.volatility < 0.3 ? 'HIGH' : reading.volatility < 0.6 ? 'FALLING' : 'LOW', color: pressureColorScale(reading.volatility) },
+    { label: 'WIND', value: (Math.abs(reading.trend_strength) * 100).toFixed(1), unit: 'kts', tag: reading.trend_strength > 0.01 ? 'N' : reading.trend_strength < -0.01 ? 'S' : 'CALM', color: trendColor },
+    { label: 'SEA STATE', value: `F${beaufortInfo.label}`, unit: '', tag: beaufortInfo.seaState, color: pressureColorScale(beaufort / 12) },
+    { label: 'VISIBILITY', value: (reading.confidence * 100).toFixed(0), unit: '%', tag: reading.confidence > 0.7 ? 'CLEAR' : reading.confidence > 0.4 ? 'HAZY' : 'FOG', color: reading.confidence > 0.7 ? '#00FF41' : reading.confidence > 0.4 ? '#FFBF00' : '#FF0000' },
   ];
 
   return (
     <div className="space-y-1.5">
       {metrics.map((m) => (
         <div key={m.label} className="flex items-center justify-between gap-2">
-          <div className="w-16 shrink-0">
-            <div className="text-[9px] text-terminal-dim/50 tracking-wider leading-tight">
-              {m.label}
-            </div>
-            <div className="text-[6px] text-terminal-dim/25 tracking-wider leading-tight">
-              {m.subtitle}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] tabular-nums font-bold" style={{ color: m.color }}>
-              {m.value}
-            </span>
-            {m.unit && (
-              <span className="text-[7px] text-terminal-dim/30">{m.unit}</span>
-            )}
-          </div>
-          <span className="text-[9px] text-terminal-dim/30 w-12 text-right truncate">
-            {m.tag}
-          </span>
+          <span className="text-[9px] text-terminal-dim/50 tracking-wider w-16 shrink-0">{m.label}</span>
+          <span className="text-[10px] tabular-nums font-bold" style={{ color: m.color }}>{m.value}{m.unit && <span className="text-[7px] text-terminal-dim/30 ml-0.5">{m.unit}</span>}</span>
+          <span className="text-[9px] text-terminal-dim/30 w-12 text-right truncate">{m.tag}</span>
         </div>
       ))}
     </div>
@@ -447,15 +250,11 @@ function StationReadout({ reading }: { reading: MarketReading }) {
 }
 
 // ---------------------------------------------------------------------------
-// Pressure Gauge — mini horizontal bar with D3 color interpolation
+// Pressure Gauge
 // ---------------------------------------------------------------------------
 
 function PressureGauge({ value, label, min = 0, max = 1, title }: {
-  value: number;
-  label: string;
-  min?: number;
-  max?: number;
-  title?: string;
+  value: number; label: string; min?: number; max?: number; title?: string;
 }) {
   const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
   const color = pressureColorScale(normalized);
@@ -464,7 +263,6 @@ function PressureGauge({ value, label, min = 0, max = 1, title }: {
     <div className="flex items-center gap-2" title={title}>
       <span className="text-[7px] text-terminal-dim/40 w-8 shrink-0 tracking-wider">{label}</span>
       <div className="flex-1 h-1.5 rounded-full bg-terminal-bg overflow-hidden relative">
-        {/* Gradient fill */}
         <div
           className="h-full rounded-full transition-all duration-700"
           style={{
@@ -474,223 +272,48 @@ function PressureGauge({ value, label, min = 0, max = 1, title }: {
           }}
         />
       </div>
-      <span className="text-[9px] tabular-nums w-10 text-right" style={{ color }}>
-        {value.toFixed(3)}
-      </span>
+      <span className="text-[9px] tabular-nums w-10 text-right" style={{ color }}>{value.toFixed(3)}</span>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Main Weather Map Component
+// WeatherMap — deep view (now prop-driven, rendered inside WeatherStatusBar)
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Legend / How to Read — collapsible explainer
-// ---------------------------------------------------------------------------
-
-function WeatherLegend() {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="border-b border-terminal-green/10">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 w-full text-left px-3 py-1.5"
-      >
-        <span
-          className="text-[9px] text-terminal-dim transition-transform duration-200"
-          style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
-        >
-          &gt;
-        </span>
-        <span className="text-[9px] tracking-[0.2em] text-terminal-dim/60">
-          HOW TO READ THIS MAP
-        </span>
-      </button>
-      {expanded && (
-        <div className="px-3 pb-3 space-y-3">
-          {/* Translation table */}
-          <div className="space-y-1">
-            <div className="text-[9px] font-bold tracking-[0.15em] text-terminal-green/60 mb-1.5">
-              WEATHER &rarr; MARKET TRANSLATION
-            </div>
-            {[
-              { weather: 'PRESSURE', market: 'Volatility (inverted)', detail: 'High pressure = calm markets. Low pressure = volatile/stormy.' },
-              { weather: 'WIND', market: 'Trend Strength', detail: 'Wind speed = how strong the directional trend is. N = bullish, S = bearish.' },
-              { weather: 'SEA STATE', market: 'Beaufort Scale (0-12)', detail: 'Composite intensity score. F0 = glassy calm, F12 = hurricane-level chaos.' },
-              { weather: 'VISIBILITY', market: 'Model Confidence', detail: 'How certain the regime classifier is. Fog = low confidence, Clear = high.' },
-            ].map((row) => (
-              <div key={row.weather} className="flex gap-2 text-[9px]">
-                <span className="text-terminal-green w-16 shrink-0 font-bold">{row.weather}</span>
-                <span className="text-terminal-dim/40">=</span>
-                <div className="flex-1 min-w-0">
-                  <span className="text-terminal-dim/70">{row.market}</span>
-                  <span className="text-terminal-dim/30 ml-1.5">
-                    {row.detail}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Front types */}
-          <div className="space-y-1">
-            <div className="text-[9px] font-bold tracking-[0.15em] text-terminal-green/60 mb-1.5">
-              FRONT TYPES (RADAR CENTER SYMBOL)
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-1">
-              {Object.entries(FRONT_TYPES).map(([regime, info]) => (
-                <div key={regime} className="flex items-center gap-1.5 text-[9px]">
-                  <span
-                    className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-bold shrink-0"
-                    style={{ background: `${info.color}20`, color: info.color }}
-                  >
-                    {info.symbol}
-                  </span>
-                  <span className="text-terminal-dim/50">{info.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Advisory levels */}
-          <div className="space-y-1">
-            <div className="text-[9px] font-bold tracking-[0.15em] text-terminal-green/60 mb-1.5">
-              ADVISORY LEVELS
-            </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-              {[
-                { label: 'ALL CLEAR', color: '#00FF41', meaning: 'Low risk, full trading' },
-                { label: 'SMALL CRAFT', color: '#FFBF00', meaning: 'Moderate — reduce size' },
-                { label: 'GALE WARNING', color: '#FF0000', meaning: 'High vol — defensive only' },
-                { label: 'STORM WARNING', color: '#FF3333', meaning: 'Extreme — halt trading' },
-              ].map((adv) => (
-                <div key={adv.label} className="flex items-center gap-1.5 text-[9px]">
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{ background: adv.color, boxShadow: `0 0 3px ${adv.color}60` }}
-                  />
-                  <span style={{ color: adv.color }} className="font-bold shrink-0">{adv.label}</span>
-                  <span className="text-terminal-dim/30 truncate">{adv.meaning}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Radar reading guide */}
-          <div className="text-[9px] text-terminal-dim/30 border-t border-terminal-green/5 pt-2">
-            <span className="text-terminal-dim/50 font-bold">READING THE RADAR:</span>{' '}
-            Rings = pressure contours (tighter = more volatile). Cyan arrow = trend direction &amp; strength. Scatter dots = volume deviation. Center symbol = current regime classification.
-          </div>
-        </div>
-      )}
-    </div>
-  );
+interface WeatherMapProps {
+  readings: MarketReading[];
+  recentRegimes: RegimePoint[];
 }
 
-export default function WeatherMap() {
-  const [readings, setReadings] = useState<MarketReading[]>([]);
-  const [recentRegimes, setRecentRegimes] = useState<RegimePoint[]>([]);
-
-  const fetchData = useCallback(async () => {
-    try {
-      const [stateRes, regimeRes] = await Promise.all([
-        fetch('/api/analytics?view=market_state'),
-        fetch('/api/analytics?view=regime_timeline&days=1'),
-      ]);
-      if (stateRes.ok) {
-        const d = await stateRes.json();
-        setReadings(d.data || []);
-      }
-      if (regimeRes.ok) {
-        const d = await regimeRes.json();
-        setRecentRegimes(d.data || []);
-      }
-    } catch {
-      /* silent */
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 30_000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
-
+export default function WeatherMap({ readings, recentRegimes }: WeatherMapProps) {
   const advisory = useMemo(() => computeAdvisory(readings), [readings]);
   const advisoryInfo = ADVISORIES[advisory];
-  const systemWarmingUp = useMemo(
-    () => readings.length > 0 && readings.every((reading) => isBootstrapReading(reading)),
-    [readings],
-  );
 
-  // Regime transitions in last 24h
   const transitions = useMemo(() => {
     if (recentRegimes.length < 2) return [];
     const changes: { from: string; to: string; time: string }[] = [];
     for (let i = 1; i < recentRegimes.length; i++) {
       if (recentRegimes[i].regime !== recentRegimes[i - 1].regime) {
-        changes.push({
-          from: recentRegimes[i - 1].regime,
-          to: recentRegimes[i].regime,
-          time: recentRegimes[i].timestamp,
-        });
+        changes.push({ from: recentRegimes[i - 1].regime, to: recentRegimes[i].regime, time: recentRegimes[i].timestamp });
       }
     }
     return changes.slice(-5);
   }, [recentRegimes]);
 
-  if (readings.length === 0) {
-    return (
-      <div className="panel p-4">
-        <div className="text-[10px] text-terminal-dim text-center">
-          WEATHER SYSTEM INITIALIZING...
-        </div>
-      </div>
-    );
-  }
+  if (readings.length === 0) return null;
 
   return (
-    <div className="panel overflow-visible">
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-green/20">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold tracking-[0.15em] terminal-glow">
-            MARKET WEATHER SYSTEM
-          </span>
-          <span className="text-[9px] text-terminal-dim/40">NWS / DAE</span>
-        </div>
-        <span className="text-[9px] text-terminal-dim/40 tabular-nums">
-          UPD {new Date(readings[0]?.timestamp || '').toLocaleTimeString([], {
-            hour: '2-digit', minute: '2-digit',
-          })}
-        </span>
-      </div>
-
+    <div className="border-t border-terminal-green/10">
       {/* Advisory Banner */}
       <div
-        className={`px-3 py-1.5 border-b text-center ${
-          advisory !== 'ALL_CLEAR' && !systemWarmingUp ? 'animate-pulse' : ''
-        }`}
-        style={{
-          borderColor: systemWarmingUp ? 'rgba(255,191,0,0.2)' : advisoryInfo.borderColor,
-          background: systemWarmingUp ? 'rgba(255,191,0,0.05)' : advisoryInfo.bgColor,
-        }}
+        className={`px-3 py-1.5 border-b text-center ${advisory !== 'ALL_CLEAR' ? 'animate-pulse' : ''}`}
+        style={{ borderColor: advisoryInfo.borderColor, background: advisoryInfo.bgColor }}
       >
-        <span
-          className="text-[10px] font-bold tracking-[0.25em]"
-          style={{
-            color: systemWarmingUp ? '#FFBF00' : advisoryInfo.color,
-            textShadow: systemWarmingUp ? '0 0 8px rgba(255,191,0,0.35)' : advisoryInfo.glow,
-          }}
-        >
-          {systemWarmingUp ? 'SYSTEM WARMING UP' : advisoryInfo.label}
+        <span className="text-[10px] font-bold tracking-[0.25em]" style={{ color: advisoryInfo.color, textShadow: advisoryInfo.glow }}>
+          {advisoryInfo.label}
         </span>
       </div>
-
-      {/* How to Read legend */}
-      <WeatherLegend />
 
       {/* Radar Stations */}
       <div className="p-3">
@@ -700,12 +323,7 @@ export default function WeatherMap() {
             const bootstrap = isBootstrapReading(r);
             const accentColor = bootstrap ? '#FFBF00' : front.color;
             return (
-              <div
-                key={`${r.source}-${idx}`}
-                className="bg-terminal-bg rounded-lg p-2.5 border"
-                style={{ borderColor: `${accentColor}18` }}
-              >
-                {/* Source header */}
+              <div key={`${r.source}-${idx}`} className="bg-terminal-bg rounded-lg p-2.5 border" style={{ borderColor: `${accentColor}18` }}>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[9px] font-bold tracking-[0.15em]" style={{ color: accentColor }}>
                     {SOURCE_LABELS[r.source] ?? r.source.toUpperCase()}
@@ -714,41 +332,24 @@ export default function WeatherMap() {
                     {bootstrap ? 'WARMUP' : `${r.num_markets_sampled.toLocaleString()} SRC`}
                   </span>
                 </div>
-
-                {/* Radar + Readout */}
                 <div className="flex items-start gap-3">
-                  <RadarCanvas reading={r} size={readings.length === 1 ? 180 : 140} />
+                  <RadarCanvas reading={r} size={140} />
                   <div className="flex-1 min-w-0 pt-2">
                     <StationReadout reading={r} />
                   </div>
                 </div>
-
-                {/* Raw indicator gauges */}
-                <div className="mt-2 pt-2 border-t space-y-1" style={{ borderColor: `${accentColor}10` }}>
-                  <div className="text-[7px] text-terminal-dim/25 tracking-[0.15em] mb-0.5">
-                    {bootstrap ? 'RAW SIGNALS PENDING' : 'RAW SIGNALS'}
+                {!bootstrap && (
+                  <div className="mt-2 pt-2 border-t space-y-1" style={{ borderColor: `${accentColor}10` }}>
+                    <div className="text-[7px] text-terminal-dim/25 tracking-[0.15em] mb-0.5">RAW SIGNALS</div>
+                    <PressureGauge value={r.volatility} label="VOL" title="Market volatility" />
+                    <PressureGauge value={Math.abs(r.trend_strength)} label="TREND" title="Trend strength" />
+                    <PressureGauge value={Math.abs(r.mean_reversion_score)} label="MR" title="Mean reversion" />
+                    <PressureGauge value={Math.abs(r.volume_ratio - 1)} label="DVOL" max={0.2} title="Volume deviation" />
                   </div>
-                  {bootstrap ? (
-                    <div className="rounded border border-terminal-amber/10 bg-terminal-amber/5 px-2 py-2 text-[9px] text-terminal-dim/60 leading-relaxed">
-                      Raw factors stay hidden until the governor has enough fresh post-restart snapshots.
-                    </div>
-                  ) : (
-                    <>
-                      <PressureGauge value={r.volatility} label="VOL" title="Market volatility — drives pressure reading" />
-                      <PressureGauge value={Math.abs(r.trend_strength)} label="TREND" title="Directional trend strength — drives wind speed" />
-                      <PressureGauge value={Math.abs(r.mean_reversion_score)} label="MR" title="Mean reversion score — tendency to snap back" />
-                      <PressureGauge value={Math.abs(r.volume_ratio - 1)} label="DVOL" max={0.2} title="Volume deviation from normal — drives precipitation" />
-                    </>
-                  )}
-                </div>
-
-                {/* Front type footer */}
+                )}
                 <div className="flex items-center justify-between mt-2 pt-1.5 border-t" style={{ borderColor: `${accentColor}10` }}>
                   <div className="flex items-center gap-1.5">
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{ background: accentColor, boxShadow: `0 0 4px ${accentColor}60` }}
-                    />
+                    <span className="w-2 h-2 rounded-full" style={{ background: accentColor, boxShadow: `0 0 4px ${accentColor}60` }} />
                     <span className="text-[9px] font-bold tracking-wider" style={{ color: accentColor }}>
                       {bootstrap ? 'INSUFFICIENT DATA' : front.label}
                     </span>
@@ -767,36 +368,20 @@ export default function WeatherMap() {
       {transitions.length > 0 && (
         <div className="px-3 pb-2 border-t border-terminal-green/10">
           <div className="flex items-center gap-2 py-1.5">
-            <span className="text-[9px] font-bold tracking-[0.2em] text-terminal-dim">
-              FRONT MOVEMENT (24H)
-            </span>
+            <span className="text-[9px] font-bold tracking-[0.2em] text-terminal-dim">FRONT MOVEMENT (24H)</span>
           </div>
           <div className="space-y-0.5">
             {transitions.map((t, i) => {
               const fromFront = FRONT_TYPES[t.from] ?? FRONT_TYPES.low_vol_calm;
               const toFront = FRONT_TYPES[t.to] ?? FRONT_TYPES.low_vol_calm;
-              const time = new Date(t.time).toLocaleTimeString([], {
-                hour: '2-digit', minute: '2-digit',
-              });
+              const time = new Date(t.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
               return (
                 <div key={i} className="flex items-center gap-2 text-[9px]">
                   <span className="text-terminal-dim/40 tabular-nums w-10">{time}</span>
-                  <span
-                    className="w-3 h-3 rounded-full flex items-center justify-center text-[7px] font-bold"
-                    style={{ background: `${fromFront.color}20`, color: fromFront.color }}
-                  >
-                    {fromFront.symbol}
-                  </span>
+                  <span className="w-3 h-3 rounded-full flex items-center justify-center text-[7px] font-bold" style={{ background: `${fromFront.color}20`, color: fromFront.color }}>{fromFront.symbol}</span>
                   <span className="text-terminal-dim/20">&rarr;</span>
-                  <span
-                    className="w-3 h-3 rounded-full flex items-center justify-center text-[7px] font-bold"
-                    style={{ background: `${toFront.color}20`, color: toFront.color }}
-                  >
-                    {toFront.symbol}
-                  </span>
-                  <span className="text-terminal-dim/25 truncate">
-                    {formatStrategyName(t.from)} &rarr; {formatStrategyName(t.to)}
-                  </span>
+                  <span className="w-3 h-3 rounded-full flex items-center justify-center text-[7px] font-bold" style={{ background: `${toFront.color}20`, color: toFront.color }}>{toFront.symbol}</span>
+                  <span className="text-terminal-dim/25 truncate">{formatStrategyName(t.from)} &rarr; {formatStrategyName(t.to)}</span>
                 </div>
               );
             })}
@@ -804,41 +389,19 @@ export default function WeatherMap() {
         </div>
       )}
 
-      {/* Beaufort Scale Legend */}
+      {/* Beaufort Scale */}
       <div className="px-3 pb-2 border-t border-terminal-green/10">
         <div className="flex items-center gap-2 py-1.5">
-          <span className="text-[9px] font-bold tracking-[0.2em] text-terminal-dim">
-            BEAUFORT SCALE
-          </span>
+          <span className="text-[9px] font-bold tracking-[0.2em] text-terminal-dim">BEAUFORT SCALE</span>
         </div>
         <div className="flex gap-px">
           {BEAUFORT_SCALE.map((b, i) => {
-            const isActive = readings.some((r) => {
-              return computeBeaufort(r.volatility, r.trend_strength, r.mean_reversion_score) === i;
-            });
+            const isActive = readings.some((r) => computeBeaufort(r.volatility, r.trend_strength, r.mean_reversion_score) === i);
             const color = pressureColorScale(i / 12);
             return (
-              <div
-                key={i}
-                className="flex-1 flex flex-col items-center"
-                title={`F${b.label}: ${b.description} — ${b.seaState}`}
-              >
-                <div
-                  className="w-full h-2.5 rounded-sm transition-all duration-500"
-                  style={{
-                    background: isActive ? color : `${color}33`,
-                    boxShadow: isActive ? `0 0 6px ${color}` : 'none',
-                    opacity: isActive ? 1 : 0.25,
-                  }}
-                />
-                <span
-                  className="text-[7px] tabular-nums mt-0.5"
-                  style={{
-                    color: isActive ? color : 'rgba(255,255,255,0.15)',
-                  }}
-                >
-                  {b.label}
-                </span>
+              <div key={i} className="flex-1 flex flex-col items-center" title={`F${b.label}: ${b.description} — ${b.seaState}`}>
+                <div className="w-full h-2.5 rounded-sm transition-all duration-500" style={{ background: isActive ? color : `${color}33`, boxShadow: isActive ? `0 0 6px ${color}` : 'none', opacity: isActive ? 1 : 0.25 }} />
+                <span className="text-[7px] tabular-nums mt-0.5" style={{ color: isActive ? color : 'rgba(255,255,255,0.15)' }}>{b.label}</span>
               </div>
             );
           })}

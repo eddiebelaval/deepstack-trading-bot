@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { centsToUSD, formatStrategyName, regimeColor, shortDate } from '@/lib/format';
 
+
 interface RegimeSnapshot {
   regime: string;
   confidence: number;
@@ -126,7 +127,7 @@ export default function DecisionAuditPanel() {
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/analytics?view=decision_audit&days=3');
+      const res = await fetch('/api/analytics?view=decision_audit&days=7');
       if (!res.ok) return;
       const json = await res.json();
       setCycles(json.data || []);
@@ -144,20 +145,48 @@ export default function DecisionAuditPanel() {
   }, [fetchData]);
 
   const summary = useMemo(() => {
-    const diverged = cycles.filter((cycle) => cycle.translation.agreement === 'diverge').length;
-    const positive = cycles.filter((cycle) => cycle.outcome.net_pnl_cents > 0).length;
-    return { diverged, positive };
+    const diverged = cycles.filter((c) => c.translation.agreement === 'diverge').length;
+    const positive = cycles.filter((c) => c.outcome.net_pnl_cents > 0).length;
+    const totalPnl = cycles.reduce((s, c) => s + c.outcome.net_pnl_cents, 0);
+    const avgPnl = cycles.length > 0 ? Math.round(totalPnl / cycles.length) : 0;
+    const positiveRate = cycles.length > 0 ? Math.round((positive / cycles.length) * 100) : 0;
+    return { diverged, positive, totalPnl, avgPnl, positiveRate };
+  }, [cycles]);
+
+  // Historical pattern: how do divergences perform?
+  const divergencePattern = useMemo(() => {
+    const diverged = cycles.filter((c) => c.translation.agreement === 'diverge');
+    if (diverged.length < 2) return null;
+    const avgPnl = Math.round(diverged.reduce((s, c) => s + c.outcome.net_pnl_cents, 0) / diverged.length);
+    const winRate = Math.round(diverged.filter((c) => c.outcome.net_pnl_cents > 0).length / diverged.length * 100);
+    return { count: diverged.length, avgPnlCents: avgPnl, winRate };
+  }, [cycles]);
+
+  // Regime performance breakdown
+  const regimePatterns = useMemo(() => {
+    const byRegime = new Map<string, { count: number; totalPnl: number; wins: number }>();
+    for (const cycle of cycles) {
+      const regime = cycle.translation.effective_regime ?? cycle.decisions.regime ?? 'unknown';
+      const entry = byRegime.get(regime) ?? { count: 0, totalPnl: 0, wins: 0 };
+      entry.count++;
+      entry.totalPnl += cycle.outcome.net_pnl_cents;
+      if (cycle.outcome.net_pnl_cents > 0) entry.wins++;
+      byRegime.set(regime, entry);
+    }
+    return Array.from(byRegime.entries())
+      .map(([regime, d]) => ({ regime, ...d, winRate: d.count > 0 ? Math.round((d.wins / d.count) * 100) : 0 }))
+      .sort((a, b) => b.totalPnl - a.totalPnl);
   }, [cycles]);
 
   return (
-    <div className="panel">
+    <div className="panel-hero">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2 border-b border-terminal-green/20">
         <div>
           <div className="text-[10px] font-bold tracking-[0.15em] terminal-glow">
             DECISION AUDIT
           </div>
           <div className="text-[9px] text-terminal-dim/45 tracking-[0.12em]">
-            SENSE → TRANSLATE → DECIDE → OUTCOME
+            SENSE &rarr; TRANSLATE &rarr; DECIDE &rarr; OUTCOME (7D)
           </div>
         </div>
         <div className="flex items-center gap-3 text-[9px] text-terminal-dim">
@@ -166,6 +195,59 @@ export default function DecisionAuditPanel() {
           <span>{summary.positive} POSITIVE</span>
         </div>
       </div>
+
+      {/* Summary Stats Bar */}
+      {cycles.length > 0 && (
+        <div className="px-3 py-2 border-b border-terminal-green/10">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {[
+              { label: 'NET PNL', value: centsToUSD(summary.totalPnl), color: summary.totalPnl >= 0 ? 'text-terminal-green' : 'text-terminal-red' },
+              { label: 'AVG / CYCLE', value: centsToUSD(summary.avgPnl), color: summary.avgPnl >= 0 ? 'text-terminal-green' : 'text-terminal-red' },
+              { label: 'WIN RATE', value: `${summary.positiveRate}%`, color: summary.positiveRate >= 50 ? 'text-terminal-green' : 'text-terminal-amber' },
+              { label: 'DIVERGENCES', value: `${summary.diverged}`, color: summary.diverged > 0 ? 'text-terminal-amber' : 'text-terminal-dim' },
+              { label: 'TOTAL CYCLES', value: `${cycles.length}`, color: 'text-terminal-dim' },
+            ].map((s) => (
+              <div key={s.label} className="px-2 py-1.5 rounded border border-terminal-green/8 bg-terminal-bg-panel/40">
+                <div className="text-[8px] text-terminal-dim/50 tracking-[0.15em]">{s.label}</div>
+                <div className={`text-sm font-bold tabular-nums ${s.color}`}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Divergence pattern callout */}
+          {divergencePattern && (
+            <div className="mt-2 px-2 py-1.5 rounded border border-terminal-amber/15 bg-terminal-amber/[0.03] text-[9px]">
+              <span className="text-terminal-amber font-bold">PATTERN:</span>
+              <span className="text-terminal-dim/70 ml-1.5">
+                Last {divergencePattern.count} divergences: avg {centsToUSD(divergencePattern.avgPnlCents)}/cycle, {divergencePattern.winRate}% win rate
+              </span>
+            </div>
+          )}
+
+          {/* Regime performance grid */}
+          {regimePatterns.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {regimePatterns.map((rp) => (
+                <div
+                  key={rp.regime}
+                  className="px-2 py-1 rounded border text-[8px] tabular-nums"
+                  style={{
+                    borderColor: `${regimeColor(rp.regime)}20`,
+                    color: regimeColor(rp.regime),
+                  }}
+                >
+                  <span className="font-bold">{formatStrategyName(rp.regime)}</span>
+                  <span className="text-terminal-dim/50 ml-1">{rp.count}x</span>
+                  <span className={`ml-1 ${rp.totalPnl >= 0 ? 'text-terminal-green' : 'text-terminal-red'}`}>
+                    {centsToUSD(rp.totalPnl)}
+                  </span>
+                  <span className="text-terminal-dim/40 ml-1">{rp.winRate}%W</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="p-4 text-[10px] text-terminal-dim text-center">

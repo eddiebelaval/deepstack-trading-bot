@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import AnalyticsPanel from '@/components/AnalyticsPanel';
 import DecisionAuditPanel from '@/components/DecisionAuditPanel';
 import StrategiesPanel from '@/components/StrategiesPanel';
-import WeatherMap from '@/components/WeatherMap';
+import WeatherStatusBar from '@/components/WeatherStatusBar';
 import type {
   DashboardState,
   Position,
@@ -371,8 +371,8 @@ export default function CommandCenter() {
           {/* ------ Strategies Panel (regime-driven) ------ */}
           <StrategiesPanel strategies={strategies} onToggle={handleToggle} />
 
-          {/* ------ Market Weather System ------ */}
-          <WeatherMap />
+          {/* ------ Market Weather System (compact + expandable) ------ */}
+          <WeatherStatusBar />
 
           {/* ------ Decision Audit ------ */}
           <DecisionAuditPanel />
