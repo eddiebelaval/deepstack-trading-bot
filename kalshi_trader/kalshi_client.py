@@ -35,6 +35,59 @@ from .exceptions import (
 logger = logging.getLogger(__name__)
 
 
+def _dollars_to_cents(value: Any) -> int:
+    """Convert a dollar-denominated value (str or float) to integer cents.
+
+    Kalshi API v2 migrated from integer-cent fields (yes_ask=45)
+    to dollar-string fields (yes_ask_dollars="0.4500"). This helper
+    supports both formats so the rest of the codebase can keep using cents.
+    """
+    if value is None:
+        return 0
+    try:
+        return int(round(float(value) * 100))
+    except (ValueError, TypeError):
+        return 0
+
+
+def _normalize_market(m: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a raw Kalshi market dict to the internal cents-based format.
+
+    Handles both legacy (integer cents) and new (dollar-denominated) API responses.
+    """
+    # Prefer new dollar fields, fall back to legacy cent fields
+    yes_bid = _dollars_to_cents(m.get("yes_bid_dollars")) or m.get("yes_bid", 0) or 0
+    yes_ask = _dollars_to_cents(m.get("yes_ask_dollars")) or m.get("yes_ask", 0) or 0
+    no_bid = _dollars_to_cents(m.get("no_bid_dollars")) or m.get("no_bid", 0) or 0
+    no_ask = _dollars_to_cents(m.get("no_ask_dollars")) or m.get("no_ask", 0) or 0
+    last_price = _dollars_to_cents(m.get("last_price_dollars")) or m.get("last_price", 0) or 0
+
+    # Volume fields: _fp suffix is float contracts, no dollar conversion needed
+    volume = int(float(m.get("volume_fp", 0) or 0)) or m.get("volume", 0) or 0
+    volume_24h = int(float(m.get("volume_24h_fp", 0) or 0)) or m.get("volume_24h", 0) or 0
+    open_interest = int(float(m.get("open_interest_fp", 0) or 0)) or m.get("open_interest", 0) or 0
+
+    return {
+        "ticker": m.get("ticker"),
+        "title": m.get("title"),
+        "yes_bid": yes_bid,
+        "yes_ask": yes_ask,
+        "no_bid": no_bid,
+        "no_ask": no_ask,
+        "last_price": last_price,
+        "volume": volume,
+        "volume_24h": volume_24h,
+        "open_interest": open_interest,
+        "close_time": m.get("close_time"),
+        "expiration_time": m.get("expiration_time") or m.get("expected_expiration_time"),
+        "status": m.get("status"),
+        "result": m.get("result"),
+        "previous_price": _dollars_to_cents(m.get("previous_price_dollars")) or m.get("previous_price"),
+        "previous_yes_bid": _dollars_to_cents(m.get("previous_yes_bid_dollars")) or m.get("previous_yes_bid"),
+        "previous_yes_ask": _dollars_to_cents(m.get("previous_yes_ask_dollars")) or m.get("previous_yes_ask"),
+    }
+
+
 class AuthenticatedKalshiClient:
     """
     Authenticated HTTP client for Kalshi Trading API.
@@ -536,24 +589,7 @@ class AuthenticatedKalshiClient:
                     list(response.keys()) if response else "empty",
                 )
 
-            all_markets.extend([
-                {
-                    "ticker": m.get("ticker"),
-                    "title": m.get("title"),
-                    "yes_bid": m.get("yes_bid", 0),
-                    "yes_ask": m.get("yes_ask", 0),
-                    "no_bid": m.get("no_bid", 0),
-                    "no_ask": m.get("no_ask", 0),
-                    "last_price": m.get("last_price", 0),
-                    "volume": m.get("volume", 0),
-                    "volume_24h": m.get("volume_24h", 0),
-                    "open_interest": m.get("open_interest", 0),
-                    "close_time": m.get("close_time"),
-                    "expiration_time": m.get("expiration_time"),
-                    "status": m.get("status"),
-                }
-                for m in markets
-            ])
+            all_markets.extend([_normalize_market(m) for m in markets])
 
             pages_fetched += 1
 
@@ -584,23 +620,7 @@ class AuthenticatedKalshiClient:
         try:
             response = await self._request("GET", f"/markets/{ticker}")
             market = response.get("market", {})
-            return {
-                "ticker": market.get("ticker"),
-                "title": market.get("title"),
-                "yes_bid": market.get("yes_bid", 0),
-                "yes_ask": market.get("yes_ask", 0),
-                "no_bid": market.get("no_bid", 0),
-                "no_ask": market.get("no_ask", 0),
-                "last_price": market.get("last_price", 0),
-                "volume": market.get("volume", 0),
-                "volume_24h": market.get("volume_24h", 0),
-                "open_interest": market.get("open_interest", 0),
-                "previous_price": market.get("previous_price"),
-                "previous_yes_bid": market.get("previous_yes_bid"),
-                "previous_yes_ask": market.get("previous_yes_ask"),
-                "status": market.get("status"),
-                "result": market.get("result"),  # "yes"/"no"/null for settled markets
-            }
+            return _normalize_market(market)
         except KalshiTradingError as e:
             if "not found" in str(e).lower() or e.details.get("code") == "not_found":
                 raise MarketNotFoundError(ticker)
