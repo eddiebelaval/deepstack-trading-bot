@@ -2603,7 +2603,15 @@ class KalshiTradingBot:
                         bypass_circuit_breaker=True,
                     )
 
-            # Update journal
+            # Compute PnL — positions synced from exchange may not have trade_id
+            entry_price = position.get("entry_price", 0) or 0
+            pnl = exit_signal.pnl_cents if exit_signal.pnl_cents else (
+                (exit_signal.current_price_cents - entry_price) * contracts
+                if side == "yes" else
+                (entry_price - exit_signal.current_price_cents) * contracts
+            )
+
+            # Update journal (only for positions that have a journal entry)
             if trade_id := position.get("trade_id"):
                 pnl = self.journal.close_trade(
                     trade_id=trade_id,
