@@ -1543,8 +1543,8 @@ class KalshiTradingBot:
                         "status": "active" if state.enabled else "inactive",
                     }
 
-                    # Add learning stats if tracker is active
-                    if self.performance_tracker:
+                    # Add learning stats if tracker is active (skip disabled strategies)
+                    if self.performance_tracker and state.enabled:
                         blended = self.performance_tracker.get_blended_stats(name)
                         prior = self.performance_tracker.get_prior(name)
                         if prior:

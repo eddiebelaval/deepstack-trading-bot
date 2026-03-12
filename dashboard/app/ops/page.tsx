@@ -12,6 +12,7 @@ import type {
   Holding,
   BotConfig,
   CaptainsLogEntry,
+  Fill,
 } from '@/lib/types';
 import { centsToUSD, shortTime } from '@/lib/format';
 
@@ -72,6 +73,8 @@ export default function CommandCenter() {
   const [config, setConfig] = useState<BotConfig | null>(null);
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [logEntries, setLogEntries] = useState<CaptainsLogEntry[]>([]);
+  const [fills, setFills] = useState<Fill[]>([]);
+  const [seenFillIds, setSeenFillIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   // Optimistic toggle tracking
@@ -179,6 +182,43 @@ export default function CommandCenter() {
     }
   }, []);
 
+  const fetchFills = useCallback(async () => {
+    try {
+      const res = await fetch('/api/fills?limit=20');
+      if (res.ok) {
+        const d = await res.json();
+        const incoming: Fill[] = d.fills || [];
+        setFills((prev) => {
+          // Track new fills for pulse animation
+          if (prev.length > 0) {
+            const prevIds = new Set(prev.map((f) => f.fill_id));
+            const newIds = incoming
+              .filter((f) => !prevIds.has(f.fill_id))
+              .map((f) => f.fill_id);
+            if (newIds.length > 0) {
+              setSeenFillIds((s) => {
+                const next = new Set(s);
+                newIds.forEach((id) => next.add(id));
+                // Clear animation flag after 3s
+                setTimeout(() => {
+                  setSeenFillIds((cur) => {
+                    const cleaned = new Set(cur);
+                    newIds.forEach((id) => cleaned.delete(id));
+                    return cleaned;
+                  });
+                }, 3000);
+                return next;
+              });
+            }
+          }
+          return incoming;
+        });
+      }
+    } catch {
+      /* silent */
+    }
+  }, []);
+
   // ---- initial load ----
   useEffect(() => {
     (async () => {
@@ -190,6 +230,7 @@ export default function CommandCenter() {
         fetchPerformance(),
         fetchConfig(),
         fetchLog(),
+        fetchFills(),
       ]);
       setLoading(false);
     })();
@@ -205,6 +246,7 @@ export default function CommandCenter() {
       fetchOrders();
       fetchConfig();
       fetchLog();
+      fetchFills();
     }, 10_000);
     const slow = setInterval(fetchPerformance, 30_000);
     return () => {
@@ -399,6 +441,81 @@ export default function CommandCenter() {
 
         {/* -------- RIGHT COLUMN (40%) -------- */}
         <div className="lg:w-[40%] shrink-0 space-y-4">
+          {/* ------ Live Trade Feed ------ */}
+          <div className="panel flex flex-col max-h-[35vh]">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-green/20 shrink-0">
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-block w-2 h-2 rounded-full bg-terminal-green animate-pulse"
+                  style={{ boxShadow: '0 0 6px rgba(0,255,65,0.8)' }}
+                />
+                <span className="text-[10px] font-bold tracking-[0.15em] terminal-glow">
+                  LIVE TRADES
+                </span>
+              </div>
+              <span className="text-[10px] text-terminal-dim tabular-nums">
+                {fills.length} RECENT
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto px-1 py-1.5 space-y-0.5">
+              {fills.length === 0 ? (
+                <div className="text-[10px] text-terminal-dim py-6 text-center">
+                  AWAITING FILLS...
+                </div>
+              ) : (
+                fills.map((f) => {
+                  const isNew = seenFillIds.has(f.fill_id);
+                  const price = f.action === 'buy'
+                    ? (f.yes_price ?? f.no_price ?? 0)
+                    : (f.yes_price ?? f.no_price ?? 0);
+                  const cost = price * f.count;
+                  return (
+                    <div
+                      key={f.fill_id}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded text-[10px] transition-all duration-500 ${
+                        isNew
+                          ? 'bg-terminal-green/10 border border-terminal-green/30'
+                          : 'hover:bg-terminal-bg-elevated/50'
+                      }`}
+                      style={isNew ? { animation: 'fade-in 0.5s ease-out' } : undefined}
+                    >
+                      {/* Action badge */}
+                      <span
+                        className={`shrink-0 w-8 text-center font-bold text-[9px] py-0.5 rounded ${
+                          f.action === 'buy'
+                            ? 'bg-terminal-green/20 text-terminal-green'
+                            : 'bg-terminal-red/20 text-terminal-red'
+                        }`}
+                      >
+                        {f.action === 'buy' ? 'BUY' : 'SELL'}
+                      </span>
+                      {/* Side */}
+                      <span className="shrink-0 w-6 text-center text-terminal-cyan-dim text-[9px] uppercase">
+                        {f.side}
+                      </span>
+                      {/* Ticker */}
+                      <span className="flex-1 text-terminal-green font-semibold truncate min-w-0">
+                        {f.ticker}
+                      </span>
+                      {/* Qty x Price */}
+                      <span className="shrink-0 tabular-nums text-terminal-dim">
+                        {f.count}x{price}c
+                      </span>
+                      {/* Cost */}
+                      <span className="shrink-0 tabular-nums text-right w-12 text-terminal-amber">
+                        ${(cost / 100).toFixed(2)}
+                      </span>
+                      {/* Time */}
+                      <span className="shrink-0 tabular-nums text-terminal-dim text-[9px] w-10 text-right">
+                        {f.created_time ? shortTime(f.created_time) : '--'}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
           {/* ------ Captain's Log ------ */}
           <div className="panel flex flex-col max-h-[50vh] lg:max-h-[40vh]">
             <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-green/20 shrink-0">

@@ -2,79 +2,34 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { centsToUSD, formatStrategyName, regimeColor, shortDate } from '@/lib/format';
-import type { DecisionAuditCycle, RegimeSnapshot } from '@/lib/weather-types';
-import { SOURCE_LABELS } from '@/lib/weather-types';
+import type { DecisionAuditCycle } from '@/lib/weather-types';
 
-function agreementStyle(agreement: DecisionAuditCycle['translation']['agreement']) {
+function agreementBadge(agreement: DecisionAuditCycle['translation']['agreement']) {
   switch (agreement) {
     case 'agree':
-      return 'text-terminal-green border-terminal-green/30 bg-terminal-green/5';
+      return 'text-terminal-green bg-terminal-green/10';
     case 'diverge':
-      return 'text-terminal-red border-terminal-red/30 bg-terminal-red/5';
+      return 'text-terminal-red bg-terminal-red/10';
     case 'partial':
-      return 'text-terminal-amber border-terminal-amber/30 bg-terminal-amber/5';
+      return 'text-terminal-amber bg-terminal-amber/10';
     default:
-      return 'text-terminal-dim border-terminal-dim/20 bg-terminal-bg';
+      return 'text-terminal-dim bg-terminal-dim/10';
   }
 }
 
 function steeringLabel(source: DecisionAuditCycle['translation']['steering_source']) {
   switch (source) {
-    case 'prediction_market':
-      return 'PM LEAD';
-    case 'stock':
-      return 'STOCK LEAD';
-    case 'both':
-      return 'ALIGNED';
-    default:
-      return 'UNCLEAR';
+    case 'prediction_market': return 'PM';
+    case 'stock': return 'STK';
+    case 'both': return 'BOTH';
+    default: return '--';
   }
-}
-
-function reasonSnippet(reason: string) {
-  return reason.length > 72 ? `${reason.slice(0, 72)}...` : reason;
-}
-
-function SnapshotCard({
-  label,
-  reading,
-}: {
-  label: string;
-  reading: RegimeSnapshot | null;
-}) {
-  if (!reading) {
-    return (
-      <div className="rounded border border-terminal-dim/10 bg-terminal-bg px-2 py-2">
-        <div className="text-[9px] tracking-[0.18em] text-terminal-dim/50">{label}</div>
-        <div className="mt-1 text-[9px] text-terminal-dim/40">NO READING</div>
-      </div>
-    );
-  }
-
-  const color = regimeColor(reading.regime);
-
-  return (
-    <div className="rounded border bg-terminal-bg px-2 py-2" style={{ borderColor: `${color}25` }}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[9px] tracking-[0.18em] text-terminal-dim/50">{label}</span>
-        <span className="text-[9px] tabular-nums text-terminal-dim/40">
-          {(reading.confidence * 100).toFixed(0)}% CONF
-        </span>
-      </div>
-      <div className="mt-1 text-[10px] font-bold tracking-wide" style={{ color }}>
-        {formatStrategyName(reading.regime)}
-      </div>
-      <div className="mt-1 flex items-center gap-3 text-[9px] tabular-nums text-terminal-dim/45">
-        <span>VOL {reading.volatility != null ? `${(reading.volatility * 100).toFixed(0)}%` : '--'}</span>
-        <span>{shortDate(reading.timestamp)}</span>
-      </div>
-    </div>
-  );
 }
 
 export default function DecisionAuditPanel() {
   const [cycles, setCycles] = useState<DecisionAuditCycle[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const prevCyclesRef = useRef('');
 
   const fetchData = useCallback(async () => {
@@ -100,7 +55,6 @@ export default function DecisionAuditPanel() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  // Single-pass analysis: summary stats, divergence pattern, regime breakdown
   const { summary, divergencePattern, regimePatterns } = useMemo(() => {
     let divergedCount = 0;
     let positiveCount = 0;
@@ -143,8 +97,11 @@ export default function DecisionAuditPanel() {
     };
   }, [cycles]);
 
+  const selected = selectedIdx != null ? cycles[selectedIdx] : null;
+
   return (
     <div className="panel-hero">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2 border-b border-terminal-green/20">
         <div>
           <div className="text-[10px] font-bold tracking-[0.15em] terminal-glow">
@@ -161,7 +118,7 @@ export default function DecisionAuditPanel() {
         </div>
       </div>
 
-      {/* Summary Stats Bar */}
+      {/* Summary Stats */}
       {cycles.length > 0 && (
         <div className="px-3 py-2 border-b border-terminal-green/10">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
@@ -179,7 +136,6 @@ export default function DecisionAuditPanel() {
             ))}
           </div>
 
-          {/* Divergence pattern callout */}
           {divergencePattern && (
             <div className="mt-2 px-2 py-1.5 rounded border border-terminal-amber/15 bg-terminal-amber/[0.03] text-[9px]">
               <span className="text-terminal-amber font-bold">PATTERN:</span>
@@ -189,7 +145,6 @@ export default function DecisionAuditPanel() {
             </div>
           )}
 
-          {/* Regime performance grid */}
           {regimePatterns.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {regimePatterns.map((rp) => (
@@ -214,6 +169,7 @@ export default function DecisionAuditPanel() {
         </div>
       )}
 
+      {/* Cycle Log — compact scrollable rows */}
       {loading ? (
         <div className="p-4 text-[10px] text-terminal-dim text-center">
           LOADING DECISION AUDIT<span className="animate-cursor-blink">_</span>
@@ -223,159 +179,147 @@ export default function DecisionAuditPanel() {
           NO GOVERNANCE CYCLES YET
         </div>
       ) : (
-        <div className="p-3 space-y-3">
-          {cycles.map((cycle) => {
+        <div className="max-h-[280px] overflow-y-auto">
+          {cycles.map((cycle, i) => {
             const regime = cycle.translation.effective_regime ?? cycle.decisions.regime;
             const color = regimeColor(regime || 'low_vol_calm');
-            const outcomePositive = cycle.outcome.net_pnl_cents >= 0;
-            const fitness = cycle.context.top_fitness.slice(0, 3);
+            const pnl = cycle.outcome.net_pnl_cents;
+            const positive = pnl >= 0;
+            const isSelected = selectedIdx === i;
 
             return (
-              <div
+              <button
                 key={cycle.timestamp}
-                className="rounded-lg border bg-terminal-bg-panel p-3 space-y-3"
-                style={{ borderColor: `${color}20` }}
+                type="button"
+                onClick={() => setSelectedIdx(isSelected ? null : i)}
+                className={`w-full text-left flex items-center gap-2 px-3 py-1.5 text-[10px] border-b border-terminal-green/5 transition-colors ${
+                  isSelected
+                    ? 'bg-terminal-green/8'
+                    : 'hover:bg-terminal-bg-elevated/50'
+                }`}
               >
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[9px] text-terminal-dim/45 tracking-[0.16em]">
-                      {shortDate(cycle.timestamp)}
-                    </span>
-                    <span
-                      className="text-[10px] font-bold tracking-[0.14em]"
-                      style={{ color }}
-                    >
-                      {formatStrategyName(regime || 'unknown')}
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded border text-[9px] tracking-[0.16em] ${agreementStyle(cycle.translation.agreement)}`}
-                    >
-                      {cycle.translation.agreement.toUpperCase()}
-                    </span>
-                    <span className="text-[9px] text-terminal-cyan border border-terminal-cyan/20 bg-terminal-cyan/5 rounded px-2 py-0.5 tracking-[0.16em]">
-                      {steeringLabel(cycle.translation.steering_source)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-3 text-[9px] tabular-nums">
-                    <span className={outcomePositive ? 'text-terminal-green' : 'text-terminal-red'}>
-                      {outcomePositive ? '+' : ''}
-                      {centsToUSD(cycle.outcome.net_pnl_cents)}
-                    </span>
-                    <span className="text-terminal-dim/50">
-                      {cycle.outcome.trade_count} TRADES / {cycle.outcome.window_hours}H
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_0.9fr_1fr_0.95fr] gap-3">
-                  <div className="space-y-2">
-                    <div className="text-[9px] tracking-[0.18em] text-terminal-dim/45">SENSE</div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      <SnapshotCard
-                        label={SOURCE_LABELS.prediction_market}
-                        reading={cycle.observed.prediction_market}
-                      />
-                      <SnapshotCard
-                        label={SOURCE_LABELS.stock}
-                        reading={cycle.observed.stock}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-[9px] tracking-[0.18em] text-terminal-dim/45">TRANSLATE</div>
-                    <div className="rounded border border-terminal-green/10 bg-terminal-bg px-2 py-2 space-y-1.5 text-[9px]">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-terminal-dim/45">EFFECTIVE</span>
-                        <span style={{ color }} className="font-bold">
-                          {formatStrategyName(regime || 'unknown')}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-terminal-dim/45">CONF GAP</span>
-                        <span className="tabular-nums text-terminal-dim">
-                          {cycle.translation.confidence_gap != null
-                            ? `${(cycle.translation.confidence_gap * 100).toFixed(0)} pts`
-                            : '--'}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-terminal-dim/45">MODE</span>
-                        <span className="text-terminal-cyan">
-                          {(cycle.decisions.mode || 'unknown').toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-[9px] tracking-[0.18em] text-terminal-dim/45">DECIDE</div>
-                    <div className="rounded border border-terminal-green/10 bg-terminal-bg px-2 py-2 space-y-2 text-[9px]">
-                      <div>
-                        <div className="text-terminal-green/80 tracking-[0.14em]">ENABLE</div>
-                        <div className="mt-1 text-terminal-dim">
-                          {cycle.decisions.enable.length > 0
-                            ? cycle.decisions.enable.slice(0, 4).map(formatStrategyName).join(' / ')
-                            : 'NONE'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-terminal-red/80 tracking-[0.14em]">DISABLE</div>
-                        <div className="mt-1 text-terminal-dim">
-                          {cycle.decisions.disable.length > 0
-                            ? cycle.decisions.disable.slice(0, 4).map(formatStrategyName).join(' / ')
-                            : 'NONE'}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-terminal-dim/45 tracking-[0.14em]">WHY</div>
-                        <div className="mt-1 text-terminal-dim/70">
-                          {cycle.decisions.reasons.length > 0
-                            ? reasonSnippet(cycle.decisions.reasons[0])
-                            : 'No reason recorded'}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-[9px] tracking-[0.18em] text-terminal-dim/45">OUTCOME</div>
-                    <div className="rounded border border-terminal-green/10 bg-terminal-bg px-2 py-2 space-y-2 text-[9px]">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-terminal-dim/45">REALIZED</span>
-                        <span className={outcomePositive ? 'text-terminal-green' : 'text-terminal-red'}>
-                          {outcomePositive ? '+' : ''}
-                          {centsToUSD(cycle.outcome.net_pnl_cents)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-terminal-dim/45">TRADES</span>
-                        <span className="tabular-nums text-terminal-dim">{cycle.outcome.trade_count}</span>
-                      </div>
-                      <div>
-                        <div className="text-terminal-dim/45 tracking-[0.14em]">TOP FITNESS</div>
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {fitness.length > 0 ? (
-                            fitness.map((row) => (
-                              <span
-                                key={`${cycle.timestamp}-${row.strategy_name}`}
-                                className="text-[9px] rounded border border-terminal-cyan/15 bg-terminal-cyan/5 px-1.5 py-0.5 text-terminal-cyan"
-                              >
-                                {formatStrategyName(row.strategy_name)} {(row.fitness_score * 100).toFixed(0)}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-terminal-dim/45">No fitness rows</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                {/* Timestamp */}
+                <span className="shrink-0 w-[90px] tabular-nums text-terminal-dim/50 text-[9px]">
+                  {shortDate(cycle.timestamp)}
+                </span>
+                {/* Regime dot + name */}
+                <span className="shrink-0 flex items-center gap-1.5 w-[100px]">
+                  <span
+                    className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ backgroundColor: color }}
+                  />
+                  <span className="truncate text-[9px] font-bold" style={{ color }}>
+                    {formatStrategyName(regime || 'unknown')}
+                  </span>
+                </span>
+                {/* Agreement badge */}
+                <span className={`shrink-0 px-1.5 py-0 rounded text-[8px] tracking-wider font-bold ${agreementBadge(cycle.translation.agreement)}`}>
+                  {cycle.translation.agreement === 'agree' ? 'AGR' : cycle.translation.agreement === 'diverge' ? 'DIV' : 'PRT'}
+                </span>
+                {/* Steering */}
+                <span className="shrink-0 w-8 text-[9px] text-terminal-cyan-dim text-center">
+                  {steeringLabel(cycle.translation.steering_source)}
+                </span>
+                {/* Trades */}
+                <span className="shrink-0 w-6 text-right tabular-nums text-terminal-dim text-[9px]">
+                  {cycle.outcome.trade_count}t
+                </span>
+                {/* P&L — right aligned, pushed to end */}
+                <span className={`ml-auto shrink-0 tabular-nums font-bold text-right w-14 ${positive ? 'text-terminal-green' : 'text-terminal-red'}`}>
+                  {positive ? '+' : ''}{centsToUSD(pnl)}
+                </span>
+              </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Expanded detail for selected cycle */}
+      {selected && (
+        <div className="px-3 py-2 border-t border-terminal-green/15 bg-terminal-bg-panel/30 space-y-2 animate-fade-in">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[9px]">
+            {/* Sense */}
+            <div className="space-y-1">
+              <div className="tracking-[0.16em] text-terminal-dim/50">SENSE</div>
+              {(['prediction_market', 'stock'] as const).map((src) => {
+                const reading = selected.observed[src];
+                if (!reading) return (
+                  <div key={src} className="text-terminal-dim/30">
+                    {src === 'prediction_market' ? 'PM' : 'STK'}: no data
+                  </div>
+                );
+                return (
+                  <div key={src} className="flex items-center gap-1.5">
+                    <span className="text-terminal-dim/50">{src === 'prediction_market' ? 'PM' : 'STK'}:</span>
+                    <span style={{ color: regimeColor(reading.regime) }} className="font-bold">
+                      {formatStrategyName(reading.regime)}
+                    </span>
+                    <span className="text-terminal-dim/40 tabular-nums">
+                      {(reading.confidence * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Translate */}
+            <div className="space-y-1">
+              <div className="tracking-[0.16em] text-terminal-dim/50">TRANSLATE</div>
+              <div className="text-terminal-dim">
+                Conf gap: {selected.translation.confidence_gap != null
+                  ? `${(selected.translation.confidence_gap * 100).toFixed(0)} pts`
+                  : '--'}
+              </div>
+              <div className="text-terminal-cyan">
+                Mode: {(selected.decisions.mode || 'unknown').toUpperCase()}
+              </div>
+            </div>
+            {/* Decide */}
+            <div className="space-y-1">
+              <div className="tracking-[0.16em] text-terminal-dim/50">DECIDE</div>
+              <div>
+                <span className="text-terminal-green/80">ON: </span>
+                <span className="text-terminal-dim">
+                  {selected.decisions.enable.length > 0
+                    ? selected.decisions.enable.slice(0, 3).map(formatStrategyName).join(', ')
+                    : 'none'}
+                </span>
+              </div>
+              <div>
+                <span className="text-terminal-red/80">OFF: </span>
+                <span className="text-terminal-dim">
+                  {selected.decisions.disable.length > 0
+                    ? selected.decisions.disable.slice(0, 3).map(formatStrategyName).join(', ')
+                    : 'none'}
+                </span>
+              </div>
+            </div>
+            {/* Outcome */}
+            <div className="space-y-1">
+              <div className="tracking-[0.16em] text-terminal-dim/50">OUTCOME</div>
+              <div className={selected.outcome.net_pnl_cents >= 0 ? 'text-terminal-green' : 'text-terminal-red'}>
+                {selected.outcome.net_pnl_cents >= 0 ? '+' : ''}{centsToUSD(selected.outcome.net_pnl_cents)}
+                <span className="text-terminal-dim/50 ml-1">
+                  / {selected.outcome.window_hours}h
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {selected.context.top_fitness.slice(0, 3).map((row) => (
+                  <span
+                    key={row.strategy_name}
+                    className="rounded bg-terminal-cyan/5 border border-terminal-cyan/15 px-1 py-0 text-terminal-cyan text-[8px]"
+                  >
+                    {formatStrategyName(row.strategy_name)} {(row.fitness_score * 100).toFixed(0)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+          {/* Reason */}
+          {selected.decisions.reasons.length > 0 && (
+            <div className="text-[9px] text-terminal-dim/60 border-t border-terminal-green/8 pt-1.5">
+              {selected.decisions.reasons[0]}
+            </div>
+          )}
         </div>
       )}
     </div>

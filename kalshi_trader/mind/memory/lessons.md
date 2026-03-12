@@ -24,12 +24,6 @@
 
 ## AI-Learned
 
-- Cross_platform_arbitrage and tv_signals enabled with n=0 trades—pure monitoring overhead. Auto-disable after 48h idle.
-- Momentum at n=2 insufficient for regime inference. Monitor to n≥5 before allocating beyond current size.
-- Lessons.md compressed. Consolidate further only if new patterns emerge.
-- Calibration_edge at 32 trades (64% to graduation). Regime gate remains 0/2—do not scale beyond 13 positions until validated in ≥1 additional regime.
-- Mean_reversion disabled correctly at EV=-13.3c. Re-enable only after positive EV + n≥10 trades.
-- Cross_platform_arbitrage and tv_signals idle (n=0). Auto-disable after 48h to reduce monitoring overhead.
 - Lessons.md compressed to 4 core patterns. Archive repetition on next update cycle.
 - Calibration_edge at 32/50 trades (64% to graduation). Regime gate 0/2 remains critical blocker—do not scale beyond 13 positions until validated in ≥1 additional regime.
 - Cross_platform_arbitrage and tv_signals idle at n=0 trades for 48h+. Auto-disable to reduce monitoring overhead and false confidence.
@@ -49,3 +43,9 @@
 - Regime confidence <0.50 invalidates graduation progress. Calibration_edge success in low_vol_calm (0.10 confidence) is unreliable signal—require regime stability before scaling.
 - Idle strategies (enabled=true, n=0 trades, 48h+) are cognitive load masquerading as optionality. Auto-disable after 48h inactivity per standing order.
 - 5 strategies enabled with zero trades add false confidence to portfolio. Implement auto-disable logic: if (enabled && n==0 && idle_hours>48) then disable.
+- Idle strategies (enabled=true, n=0 trades, 48h+) are pure overhead. Implement auto-disable after 48h inactivity per standing order.
+- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (0.57) is unreliable signal until regime stability improves.
+- Capital constraint at $153.92 forces fractional Kelly to zero. Graduation readiness is theoretical only until balance supports minimum 1-contract positions across strategies.
+- Idle strategies (enabled=true, n=0 trades, 48h+ inactivity) are cognitive load masquerading as optionality. Auto-disable per standing order to reduce false confidence.
+- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (0.30 confidence) is unreliable signal until regime stability improves.
+- Capital constraint at $149.57 forces fractional Kelly to zero across non-Kalshi strategies. Graduation readiness is theoretical until balance supports minimum 1-contract positions.

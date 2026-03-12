@@ -280,9 +280,10 @@ class CalibrationEdgeStrategy(Strategy):
         # Determine zone and direction
         if market_price >= self.favorite_threshold and edge_cents >= self.min_edge:
             # Favorite is underpriced — buy YES
-            # Round 3 P0: Use bid price (maker order, 2c fee) not ask (taker, 7c)
+            # Use ask price to cross the spread and fill immediately.
+            # Maker orders at the bid rarely fill on illiquid hourly contracts.
             side = "yes"
-            entry_price = yes_bid if yes_bid else market_price
+            entry_price = yes_ask if yes_ask else market_price
             zone = "favorite"
             zone_strength = (market_price - self.favorite_threshold) / 30.0
             reasoning = (
@@ -293,8 +294,9 @@ class CalibrationEdgeStrategy(Strategy):
         elif market_price <= self.longshot_threshold and edge_cents <= -self.min_edge:
             # Longshot is overpriced — buy NO
             side = "no"
-            # Round 3 P0: Use bid price (maker order, 2c fee) not ask (taker, 7c)
-            entry_price = no_bid if no_bid else (100 - market_price)
+            # Use ask price to cross the spread and fill immediately.
+            # Maker orders at the bid rarely fill on illiquid hourly contracts.
+            entry_price = no_ask if no_ask else (100 - market_price)
             edge_cents = abs(edge_cents)
             zone = "longshot"
             zone_strength = (self.longshot_threshold - market_price) / 30.0
