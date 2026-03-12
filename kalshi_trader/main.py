@@ -800,6 +800,31 @@ class KalshiTradingBot:
             self.strategy._performance_tracker = self.performance_tracker
             logger.info(f"Learning loop attached: {self.strategy.name}")
 
+    async def _sync_fitness_to_supabase(self, strategy_name: str) -> None:
+        """Push updated fitness scores for a strategy to Supabase."""
+        if not self.dashboard or not self.market_governor:
+            return
+        try:
+            router = self.market_governor.strategy_router
+            for (s, r), (score, count) in router._fitness_cache.items():
+                if s != strategy_name:
+                    continue
+                pnl = 0.0
+                try:
+                    from kalshi_trader.market_governor import _db_connection
+                    with _db_connection(router.db_path, wal=True) as conn:
+                        row = conn.execute(
+                            "SELECT total_pnl_cents FROM strategy_regime_fitness WHERE strategy_name=? AND regime=?",
+                            (s, r),
+                        ).fetchone()
+                        if row:
+                            pnl = row[0]
+                except Exception:
+                    pass
+                await self.dashboard.push_fitness(s, r, score, count, pnl)
+        except Exception as e:
+            logger.debug("Fitness sync failed: %s", e)
+
     def _apply_adaptive_thresholds(self) -> None:
         """Apply learned take_profit/stop_loss and dynamic Kelly to active strategies."""
         if not self.performance_tracker:
@@ -2466,6 +2491,7 @@ class KalshiTradingBot:
                                 self.risk.record_trade_result(ticker, pnl, contracts)
                                 if self.market_governor:
                                     self.market_governor.record_trade_outcome(strategy_name, pnl)
+                                    await self._sync_fitness_to_supabase(strategy_name)
                                 self._apply_adaptive_thresholds()
                                 self._check_lab_milestones()
 
@@ -2638,6 +2664,9 @@ class KalshiTradingBot:
                 if self.market_governor:
                     self.market_governor.record_trade_outcome(
                         position.get("strategy", "mean_reversion"), pnl
+                    )
+                    await self._sync_fitness_to_supabase(
+                        position.get("strategy", "mean_reversion")
                     )
 
                 # Sync close to Supabase dashboard

@@ -337,6 +337,66 @@ async function supabaseTradeScatter() {
   );
 }
 
+async function supabaseFitnessHeatmap() {
+  // Try the fitness table first
+  const rows = await restGet<StrategyFitnessRow>(
+    'deepstack_strategy_regime_fitness',
+    `trade_count=gt.0&select=strategy_name,regime,fitness_score,trade_count,total_pnl_cents,last_updated&order=strategy_name,regime`,
+  ).catch(() => []);
+
+  if (rows.length > 0) return rows;
+
+  // Fallback: compute from trades + regime data
+  const [trades, regimes] = await Promise.all([
+    restGet<TradeRow>(
+      'deepstack_trades',
+      `status=eq.closed&pnl_cents=not.is.null&select=strategy,pnl_cents,updated_at&order=updated_at.asc`,
+    ).catch(() => []),
+    restGetOptionalSource<RegimeRow>(
+      'deepstack_regime_history',
+      `select=id,source,regime,timestamp&order=timestamp.asc&limit=5000`,
+      `select=id,regime,timestamp&order=timestamp.asc&limit=5000`,
+    ).catch(() => []),
+  ]);
+
+  if (trades.length === 0 || regimes.length === 0) return [];
+
+  // Match each trade to the nearest regime snapshot
+  const fitnessMap = new Map<string, { wins: number; total: number; pnl: number }>();
+  for (const trade of trades) {
+    const tradeTime = new Date(trade.updated_at).getTime();
+    let nearestRegime = regimes[0]?.regime ?? 'unknown';
+    let minDelta = Infinity;
+    for (const r of regimes) {
+      const delta = Math.abs(new Date(r.timestamp).getTime() - tradeTime);
+      if (delta < minDelta) {
+        minDelta = delta;
+        nearestRegime = r.regime;
+      }
+    }
+
+    const key = `${trade.strategy}|${nearestRegime}`;
+    const entry = fitnessMap.get(key) ?? { wins: 0, total: 0, pnl: 0 };
+    entry.total++;
+    entry.pnl += trade.pnl_cents;
+    if (trade.pnl_cents > 0) entry.wins++;
+    fitnessMap.set(key, entry);
+  }
+
+  return Array.from(fitnessMap.entries())
+    .filter(([, v]) => v.total > 0)
+    .map(([key, v]) => {
+      const [strategy_name, regime] = key.split('|');
+      return {
+        strategy_name,
+        regime,
+        fitness_score: Math.round((v.wins / v.total) * 100) / 100,
+        trade_count: v.total,
+        total_pnl_cents: v.pnl,
+      };
+    });
+}
+
 async function supabaseMarketState() {
   const rows = await restGetOptionalSource<RegimeRow>(
     'deepstack_regime_history',
@@ -557,6 +617,9 @@ export async function GET(request: NextRequest) {
         break;
       case 'trade_scatter':
         data = await supabaseTradeScatter();
+        break;
+      case 'fitness_heatmap':
+        data = await supabaseFitnessHeatmap();
         break;
       case 'market_state':
         data = await supabaseMarketState();

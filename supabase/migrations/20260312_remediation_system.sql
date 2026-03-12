@@ -27,5 +27,14 @@ CREATE INDEX IF NOT EXISTS idx_remediation_queue_status
 -- RLS: service role only
 ALTER TABLE deepstack_remediation_queue ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "service_role_remediation_queue" ON deepstack_remediation_queue
-    FOR ALL USING (auth.role() = 'service_role');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename = 'deepstack_remediation_queue'
+        AND policyname = 'service_role_remediation_queue'
+    ) THEN
+        CREATE POLICY "service_role_remediation_queue" ON deepstack_remediation_queue
+            FOR ALL USING (auth.role() = 'service_role');
+    END IF;
+END $$;

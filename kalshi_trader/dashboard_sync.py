@@ -586,6 +586,23 @@ class DashboardSync:
             "mode": mode,
         })
 
+    async def push_fitness(
+        self,
+        strategy_name: str,
+        regime: str,
+        fitness_score: float,
+        trade_count: int,
+        total_pnl_cents: float,
+    ) -> None:
+        """Upsert strategy-regime fitness to Supabase."""
+        await self._upsert("strategy_regime_fitness", {
+            "strategy_name": strategy_name,
+            "regime": regime,
+            "fitness_score": fitness_score,
+            "trade_count": trade_count,
+            "total_pnl_cents": total_pnl_cents,
+        }, on_conflict="strategy_name,regime")
+
     # ================================================================
     # MULTI-ASSET: Holdings, Balance Snapshots, Stock Trades, Securities
     # ================================================================
