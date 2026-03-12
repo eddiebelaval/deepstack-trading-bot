@@ -29,18 +29,27 @@ CREATE TABLE IF NOT EXISTS deepstack_backtest_results (
 );
 
 -- Index for graduation API: latest results per strategy per gate
-CREATE INDEX idx_backtest_results_gate_strategy
+CREATE INDEX IF NOT EXISTS idx_backtest_results_gate_strategy
     ON deepstack_backtest_results (gate, strategy, created_at DESC);
 
 -- Index for querying latest run per gate
-CREATE INDEX idx_backtest_results_gate_latest
+CREATE INDEX IF NOT EXISTS idx_backtest_results_gate_latest
     ON deepstack_backtest_results (gate, created_at DESC);
 
 -- RLS: service role only (bot writes, dashboard reads via API route)
 ALTER TABLE deepstack_backtest_results ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Service role full access"
-    ON deepstack_backtest_results
-    FOR ALL
-    USING (true)
-    WITH CHECK (true);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename = 'deepstack_backtest_results'
+        AND policyname = 'Service role full access'
+    ) THEN
+        CREATE POLICY "Service role full access"
+            ON deepstack_backtest_results
+            FOR ALL
+            USING (true)
+            WITH CHECK (true);
+    END IF;
+END $$;

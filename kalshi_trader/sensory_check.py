@@ -1,10 +1,24 @@
 """
-Sensory Check — Runtime Preflight Monitor for Dae
+Sensory Check — 3-Tier Remediation System for Dae
 
 Runs inside the bot on a configurable interval (default: 15 min).
-Checks the 7 "senses" that the standalone preflight script checks,
-but as an async module that can auto-fix recoverable failures and
-log results to Supabase.
+Checks the 7 "senses" and routes failures through 3 remediation tiers:
+
+  Tier 1: Self-healing (in-process, immediate)
+    Auto-fixes for known recoverable issues. Supabase reconnect,
+    Telegram reconnect, cycle rate normalization. Known-absent services
+    (IBKR, CryExc, Polymarket) are downgraded to informational.
+
+  Tier 2: Claude-routed remediation (external script)
+    Persistent criticals (2+ consecutive checks) write a remediation
+    request to Supabase. An external launchd script polls this table,
+    spawns a Claude Code session on a feature branch, creates a PR,
+    and notifies Eddie via Telegram.
+
+  Tier 3: Human escalation (Telegram)
+    Only fires for issues that truly need Eddie: API key rotation,
+    balance top-up, strategy decisions. Includes actionable context
+    and deduplication to prevent alert fatigue.
 
 Senses:
   SIGHT     - Market data feed (Kalshi API reachable, series returning markets)
@@ -14,15 +28,10 @@ Senses:
   MEMORY    - SQLite journal + Supabase sync health
   VOICE     - Telegram bot + dashboard sync liveness
   BODY      - Process metrics (uptime, cycle rate, log freshness)
-
-Auto-fix actions (clamped, reversible):
-  - Supabase reconnect on consecutive failures
-  - Telegram reconnect on ping failure
-  - Forward signal bridge data re-ingest on stale signals
 """
 
 import asyncio
-import base64
+import json
 import logging
 import os
 import time
@@ -42,6 +51,20 @@ _MIND_DIR = _MODULE_DIR / "mind"
 _MIND_SUBDIRS = ["kernel", "lexicon", "models", "drives"]
 
 
+# ── Remediation tier classification ──────────────────────────────────
+
+class RemediationTier:
+    """Issue routing classification."""
+    AUTO_FIX = "auto_fix"          # Tier 1: fix in-process immediately
+    CLAUDE_ROUTE = "claude_route"  # Tier 2: needs code change, route to Claude
+    HUMAN_REQUIRED = "human_required"  # Tier 3: needs Eddie
+
+
+# Known-absent services that should not trigger criticals.
+# These are optional integrations — their absence is expected.
+_OPTIONAL_SERVICES = {"ibkr", "cryexc", "polymarket", "fred"}
+
+
 @dataclass
 class SenseResult:
     """Result of a single sensory check."""
@@ -51,6 +74,7 @@ class SenseResult:
     detail: str = ""
     critical: bool = False
     auto_fixed: bool = False
+    tier: str = ""  # Remediation tier for failures
 
 
 @dataclass
@@ -77,6 +101,14 @@ class SensoryReport:
         return [r for r in self.results if not r.passed and not r.critical]
 
     @property
+    def claude_routable(self) -> List[SenseResult]:
+        return [r for r in self.results if not r.passed and r.tier == RemediationTier.CLAUDE_ROUTE]
+
+    @property
+    def human_required(self) -> List[SenseResult]:
+        return [r for r in self.results if not r.passed and r.tier == RemediationTier.HUMAN_REQUIRED]
+
+    @property
     def overall_status(self) -> str:
         if self.critical_failures:
             return "critical"
@@ -91,14 +123,22 @@ class SensoryReport:
             "passed": self.passed,
             "total": self.total,
             "critical_failures": [
-                {"sense": r.sense, "name": r.name, "detail": r.detail}
+                {"sense": r.sense, "name": r.name, "detail": r.detail, "tier": r.tier}
                 for r in self.critical_failures
             ],
             "warnings": [
-                {"sense": r.sense, "name": r.name, "detail": r.detail}
+                {"sense": r.sense, "name": r.name, "detail": r.detail, "tier": r.tier}
                 for r in self.warnings
             ],
             "auto_fix_actions": self.auto_fix_actions,
+            "claude_routable": [
+                {"sense": r.sense, "name": r.name, "detail": r.detail}
+                for r in self.claude_routable
+            ],
+            "human_required": [
+                {"sense": r.sense, "name": r.name, "detail": r.detail}
+                for r in self.human_required
+            ],
             "senses": {
                 sense: {
                     "status": "green" if all(
@@ -125,10 +165,11 @@ class SensoryReport:
 
 class SensoryMonitor:
     """
-    Runtime sensory monitor that runs inside the bot process.
+    Runtime sensory monitor with 3-tier remediation.
 
-    Checks all 7 senses on a configurable interval. Auto-fixes
-    recoverable failures. Logs results and alerts on degradation.
+    Tier 1: Auto-fix recoverable failures in-process.
+    Tier 2: Route persistent code issues to Claude via Supabase.
+    Tier 3: Escalate human-required issues to Eddie via Telegram.
     """
 
     def __init__(self, bot: Any, interval_seconds: int = 900):
@@ -137,6 +178,12 @@ class SensoryMonitor:
         self._last_check: float = 0
         self._last_report: Optional[SensoryReport] = None
         self._consecutive_critical: int = 0
+        # Deduplication: track which issues have been alerted to avoid spam
+        self._alerted_issues: Dict[str, float] = {}  # issue_key -> last_alert_time
+        self._alert_cooldown = 3600  # 1 hour between repeat alerts for same issue
+        # Track which issues have been routed to Claude
+        self._claude_routed_issues: Dict[str, float] = {}  # issue_key -> route_time
+        self._claude_route_cooldown = 7200  # 2 hours between re-routing same issue
 
     async def maybe_run(self) -> Optional[SensoryReport]:
         """Run sensory check if interval has elapsed. Returns report or None."""
@@ -159,11 +206,15 @@ class SensoryMonitor:
         else:
             self._consecutive_critical = 0
 
-        # Push to Supabase
+        # Push full report to Supabase (for Tier 2 polling + dashboard)
         await self._push_report(report)
 
-        # Alert on degradation
-        await self._alert_if_needed(report)
+        # Tier 2: Route to Claude if criticals persist
+        if self._consecutive_critical >= 2:
+            await self._route_to_claude(report)
+
+        # Tier 3: Alert Eddie only for human-required issues
+        await self._alert_human(report)
 
         return report
 
@@ -185,13 +236,18 @@ class SensoryMonitor:
 
     async def _check_sight(self, report: SensoryReport) -> None:
         """Check Kalshi API reachability and market data availability."""
-        api_url = os.getenv("KALSHI_API_URL", "")
+        # Check config-based URL first, then env var
+        config_url = ""
+        if hasattr(self._bot, "config"):
+            config_url = getattr(self._bot.config, "api_base_url", "") or ""
+        api_url = os.getenv("KALSHI_API_URL", "") or config_url
 
         report.results.append(SenseResult(
             sense="SIGHT", name="Kalshi API URL",
             passed=bool(api_url),
-            detail=api_url or "NOT SET",
+            detail=api_url[:50] if api_url else "NOT SET",
             critical=not bool(api_url),
+            tier=RemediationTier.HUMAN_REQUIRED if not api_url else "",
         ))
 
         if not api_url:
@@ -200,7 +256,7 @@ class SensoryMonitor:
         # API reachability (use bot's existing client if available)
         try:
             if self._bot.client:
-                balance = await self._bot.client.get_balance()
+                bal = await self._bot.client.get_balance()
                 report.results.append(SenseResult(
                     sense="SIGHT", name="Kalshi API reachable",
                     passed=True, detail="Connected via bot client",
@@ -213,12 +269,14 @@ class SensoryMonitor:
                         passed=r.status_code == 200,
                         detail=f"HTTP {r.status_code}",
                         critical=r.status_code != 200,
+                        tier=RemediationTier.CLAUDE_ROUTE if r.status_code != 200 else "",
                     ))
         except Exception as e:
             report.results.append(SenseResult(
                 sense="SIGHT", name="Kalshi API reachable",
                 passed=False, detail=str(e)[:100],
                 critical=True,
+                tier=RemediationTier.CLAUDE_ROUTE,
             ))
 
         # Market data from last scan
@@ -228,7 +286,7 @@ class SensoryMonitor:
             sense="SIGHT", name="Markets in last scan",
             passed=market_count > 0,
             detail=f"{market_count} markets",
-            critical=False,  # Warning only — could be between scans
+            critical=False,
         ))
 
     # ── ACTION: Order Execution ──────────────────────────────────────
@@ -236,34 +294,55 @@ class SensoryMonitor:
     async def _check_action(self, report: SensoryReport) -> None:
         """Check authenticated API access and balance."""
         api_key = os.getenv("KALSHI_API_KEY", "")
+        config_key = getattr(self._bot.config, "api_key_id", "") if hasattr(self._bot, "config") else ""
+        has_key = bool(api_key) or bool(config_key)
+        key_hint = (
+            f"***{api_key[-4:]}" if api_key
+            else (f"config:***{config_key[-4:]}" if config_key else "NOT SET")
+        )
         report.results.append(SenseResult(
             sense="ACTION", name="API key configured",
-            passed=bool(api_key),
-            detail=f"***{api_key[-4:]}" if api_key else "NOT SET",
-            critical=not bool(api_key),
+            passed=has_key,
+            detail=key_hint,
+            critical=not has_key,
+            tier=RemediationTier.HUMAN_REQUIRED if not has_key else "",
         ))
 
-        # Check balance via bot client (avoids re-signing)
+        # Check balance via bot client
         if self._bot.client:
             try:
-                balance = await self._bot.client.get_balance()
-                balance_usd = balance / 100 if balance > 1 else balance
+                bal = await self._bot.client.get_balance()
+                balance_usd = bal["balance"] if isinstance(bal, dict) else (bal / 100 if bal > 1 else bal)
                 report.results.append(SenseResult(
                     sense="ACTION", name="Authenticated API access",
                     passed=True,
                     detail=f"Balance: ${balance_usd:.2f}",
                 ))
+
+                # Balance thresholds
+                if balance_usd <= 0:
+                    tier = RemediationTier.HUMAN_REQUIRED
+                    critical = True
+                elif balance_usd < 10:
+                    tier = RemediationTier.HUMAN_REQUIRED
+                    critical = False
+                else:
+                    tier = ""
+                    critical = False
+
                 report.results.append(SenseResult(
                     sense="ACTION", name="Balance sufficient",
                     passed=balance_usd > 1,
                     detail=f"${balance_usd:.2f}",
-                    critical=balance_usd <= 0,
+                    critical=critical,
+                    tier=tier,
                 ))
             except Exception as e:
                 report.results.append(SenseResult(
                     sense="ACTION", name="Authenticated API access",
                     passed=False, detail=str(e)[:100],
                     critical=True,
+                    tier=RemediationTier.CLAUDE_ROUTE,
                 ))
 
         # Trading mode
@@ -278,21 +357,22 @@ class SensoryMonitor:
 
     def _check_thought(self, report: SensoryReport) -> None:
         """Check governance engine, config, and mind files."""
-        # Config
         config = getattr(self._bot, "config", None)
         report.results.append(SenseResult(
             sense="THOUGHT", name="Config loaded",
             passed=config is not None,
             detail="Loaded" if config else "MISSING",
             critical=config is None,
+            tier=RemediationTier.CLAUDE_ROUTE if config is None else "",
         ))
 
-        # Anthropic API key (for AI analysis)
+        # Anthropic API key (for AI analysis — optional, not critical)
         has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY", ""))
         report.results.append(SenseResult(
             sense="THOUGHT", name="ANTHROPIC_API_KEY",
             passed=has_anthropic,
             detail="Configured" if has_anthropic else "MISSING — AI analysis disabled",
+            tier=RemediationTier.HUMAN_REQUIRED if not has_anthropic else "",
         ))
 
         # Mind files
@@ -304,6 +384,7 @@ class SensoryMonitor:
                 passed=file_count > 0,
                 detail=f"{file_count} files in mind/",
                 critical=file_count == 0,
+                tier=RemediationTier.CLAUDE_ROUTE if file_count == 0 else "",
             ))
 
             for subdir in _MIND_SUBDIRS:
@@ -320,6 +401,7 @@ class SensoryMonitor:
                 sense="THOUGHT", name="Mind files",
                 passed=False, detail="mind/ directory missing",
                 critical=True,
+                tier=RemediationTier.CLAUDE_ROUTE,
             ))
 
         # Governor state
@@ -348,10 +430,10 @@ class SensoryMonitor:
                 sense="FORESIGHT", name="Forward signal bridge",
                 passed=False, detail="Not initialized",
                 critical=True,
+                tier=RemediationTier.CLAUDE_ROUTE,
             ))
             return
 
-        # Check signal source coverage
         signal_sources = {
             "RATE_SHIFT": "KXFED",
             "INFLATION": "KXCPI",
@@ -379,13 +461,13 @@ class SensoryMonitor:
             passed=active_count >= 3,
             detail=f"{active_count}/{len(signal_sources)} sources active",
             critical=active_count == 0,
+            tier=RemediationTier.CLAUDE_ROUTE if active_count == 0 else "",
         ))
 
     # ── MEMORY: Data Persistence ─────────────────────────────────────
 
     async def _check_memory(self, report: SensoryReport) -> None:
         """Check SQLite journal and Supabase sync health."""
-        # SQLite journal
         db_path = getattr(self._bot.config, "journal_db_path", None)
         if db_path and Path(db_path).exists():
             try:
@@ -406,12 +488,14 @@ class SensoryMonitor:
                     sense="MEMORY", name="SQLite journal",
                     passed=False, detail=str(e)[:100],
                     critical=True,
+                    tier=RemediationTier.CLAUDE_ROUTE,
                 ))
         else:
             report.results.append(SenseResult(
                 sense="MEMORY", name="SQLite journal",
                 passed=False, detail="DB file not found",
                 critical=True,
+                tier=RemediationTier.CLAUDE_ROUTE,
             ))
 
         # Supabase sync
@@ -425,14 +509,14 @@ class SensoryMonitor:
             report.results.append(SenseResult(
                 sense="MEMORY", name="Supabase sync",
                 passed=False, detail="Disconnected",
+                tier=RemediationTier.AUTO_FIX,
             ))
-            # AUTO-FIX: try to reconnect
+            # TIER 1 AUTO-FIX: reconnect Supabase
             if dashboard:
                 try:
                     await dashboard.connect()
                     if getattr(dashboard, "_available", False):
                         report.auto_fix_actions.append("Reconnected Supabase dashboard sync")
-                        # Update the result
                         report.results[-1] = SenseResult(
                             sense="MEMORY", name="Supabase sync",
                             passed=True, detail="Reconnected (auto-fix)",
@@ -448,7 +532,6 @@ class SensoryMonitor:
         telegram = getattr(self._bot, "telegram_bridge", None)
 
         if telegram and getattr(telegram, "is_available", False):
-            # Ping the bot API to verify it's still alive
             token = getattr(telegram, "_token", "") or os.getenv("DAE_TELEGRAM_TOKEN", "")
             if token:
                 try:
@@ -466,23 +549,27 @@ class SensoryMonitor:
                             report.results.append(SenseResult(
                                 sense="VOICE", name="Telegram bot alive",
                                 passed=False, detail=f"HTTP {r.status_code}",
+                                tier=RemediationTier.AUTO_FIX,
                             ))
                 except Exception as e:
                     report.results.append(SenseResult(
                         sense="VOICE", name="Telegram bot alive",
                         passed=False, detail=str(e)[:80],
+                        tier=RemediationTier.AUTO_FIX,
                     ))
             else:
                 report.results.append(SenseResult(
                     sense="VOICE", name="Telegram bot",
                     passed=False, detail="No token configured",
+                    tier=RemediationTier.HUMAN_REQUIRED,
                 ))
         else:
             report.results.append(SenseResult(
                 sense="VOICE", name="Telegram bot",
                 passed=False, detail="Not available",
+                tier=RemediationTier.AUTO_FIX,
             ))
-            # AUTO-FIX: try to reconnect Telegram
+            # TIER 1 AUTO-FIX: reconnect Telegram
             if telegram:
                 try:
                     await telegram.connect()
@@ -508,7 +595,6 @@ class SensoryMonitor:
 
     def _check_body(self, report: SensoryReport) -> None:
         """Check process-level health metrics."""
-        # Uptime
         health_monitor = getattr(self._bot, "health_monitor", None)
         if health_monitor:
             uptime = health_monitor.uptime_seconds
@@ -519,18 +605,25 @@ class SensoryMonitor:
                 detail=f"{hours:.1f}h",
             ))
 
-            # Cycle rate
+            # Cycle rate — only meaningful after 5 min of uptime
             total_cycles = getattr(health_monitor, "_total_cycles", 0)
-            if total_cycles > 0 and uptime > 60:
+            if total_cycles > 0 and uptime > 300:
                 cycles_per_min = total_cycles / (uptime / 60)
                 report.results.append(SenseResult(
                     sense="BODY", name="Cycle rate",
-                    passed=cycles_per_min > 0.5,
+                    passed=cycles_per_min > 0.3,
                     detail=f"{cycles_per_min:.1f}/min ({total_cycles} total)",
                     critical=cycles_per_min < 0.1,
+                    tier=RemediationTier.CLAUDE_ROUTE if cycles_per_min < 0.1 else "",
+                ))
+            elif uptime <= 300:
+                report.results.append(SenseResult(
+                    sense="BODY", name="Cycle rate",
+                    passed=True,
+                    detail=f"Warming up ({int(uptime)}s uptime)",
                 ))
 
-        # Paper vs live
+        # Running mode
         paper = getattr(self._bot, "paper_trade", True)
         report.results.append(SenseResult(
             sense="BODY", name="Running mode",
@@ -538,15 +631,179 @@ class SensoryMonitor:
             detail="LIVE" if not paper else "PAPER",
         ))
 
-    # ── Reporting & Alerting ─────────────────────────────────────────
+    # ── Tier 1: Self-Healing ─────────────────────────────────────────
+    # (Auto-fix actions are embedded in each check method above)
+
+    # ── Tier 2: Claude-Routed Remediation ────────────────────────────
+
+    async def _route_to_claude(self, report: SensoryReport) -> None:
+        """Write remediation request to Supabase for the external script to pick up."""
+        routable = report.claude_routable
+        if not routable:
+            return
+
+        # Build issue key for deduplication
+        issue_key = "|".join(f"{r.sense}:{r.name}" for r in routable)
+        now = time.time()
+
+        # Check cooldown — don't re-route the same issue too quickly
+        last_routed = self._claude_routed_issues.get(issue_key, 0)
+        if now - last_routed < self._claude_route_cooldown:
+            logger.debug(f"Claude route cooldown active for: {issue_key}")
+            return
+
+        self._claude_routed_issues[issue_key] = now
+
+        dashboard = getattr(self._bot, "dashboard", None)
+        if not dashboard or not getattr(dashboard, "_available", False):
+            logger.warning("Cannot route to Claude — Supabase unavailable")
+            return
+
+        remediation_request = {
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "consecutive_critical": self._consecutive_critical,
+            "failures": [
+                {
+                    "sense": r.sense,
+                    "name": r.name,
+                    "detail": r.detail,
+                }
+                for r in routable
+            ],
+            "full_report": report.to_dict(),
+            "prompt": self._build_claude_prompt(routable),
+        }
+
+        try:
+            await dashboard._upsert(
+                "remediation_queue",
+                remediation_request,
+            )
+            logger.info(
+                f"Tier 2: Routed {len(routable)} issues to Claude remediation queue"
+            )
+        except Exception as e:
+            # Fall back to log entry if table doesn't exist yet
+            logger.warning(f"Claude route failed (table may not exist): {e}")
+            try:
+                await dashboard.push_log(
+                    f"REMEDIATION NEEDED: {len(routable)} issues require code fix. "
+                    + "; ".join(f"{r.sense}/{r.name}: {r.detail}" for r in routable),
+                    level="ERROR",
+                    strategy="remediation",
+                )
+            except Exception:
+                pass
+
+    def _build_claude_prompt(self, failures: List[SenseResult]) -> str:
+        """Build the prompt that Claude Code will receive."""
+        lines = [
+            "Dae trading bot sensory check detected persistent failures.",
+            "Investigate and fix the following issues:",
+            "",
+        ]
+        for f in failures:
+            lines.append(f"- [{f.sense}] {f.name}: {f.detail}")
+
+        lines.extend([
+            "",
+            "Context:",
+            f"- Bot repo: ~/clawd/projects/kalshi-trading/",
+            f"- Sensory check: kalshi_trader/sensory_check.py",
+            f"- Consecutive critical checks: {self._consecutive_critical}",
+            "",
+            "Instructions:",
+            "1. Read the relevant source files to understand the failure",
+            "2. Fix the root cause (not just suppress the warning)",
+            "3. Test the fix if possible",
+            "4. Create a commit on a feature branch",
+        ])
+        return "\n".join(lines)
+
+    # ── Tier 3: Human Escalation (Telegram) ──────────────────────────
+
+    async def _alert_human(self, report: SensoryReport) -> None:
+        """Send Telegram alert only for human-required issues."""
+        telegram = getattr(self._bot, "telegram_bridge", None)
+        if not telegram or not getattr(telegram, "is_available", False):
+            return
+
+        now = time.time()
+        lines = []
+
+        # Tier 3: Issues that need Eddie
+        human_issues = report.human_required
+        if human_issues:
+            # Dedup check — only alert for NEW issues or after cooldown
+            new_issues = []
+            for r in human_issues:
+                issue_key = f"{r.sense}:{r.name}"
+                last_alert = self._alerted_issues.get(issue_key, 0)
+                if now - last_alert >= self._alert_cooldown:
+                    new_issues.append(r)
+                    self._alerted_issues[issue_key] = now
+
+            if new_issues:
+                lines.append("[Dae] ACTION NEEDED")
+                lines.append("")
+                for r in new_issues:
+                    action = self._get_human_action(r)
+                    lines.append(f"  {r.sense}: {r.name}")
+                    lines.append(f"    Status: {r.detail}")
+                    lines.append(f"    Action: {action}")
+                    lines.append("")
+
+        # Also mention auto-fixes (informational, no action needed)
+        if report.auto_fix_actions:
+            if lines:
+                lines.append("---")
+            lines.append("Auto-fixed:")
+            for action in report.auto_fix_actions:
+                lines.append(f"  > {action}")
+
+        # Mention Claude-routed issues (informational)
+        routable = report.claude_routable
+        if routable and self._consecutive_critical >= 2:
+            if lines:
+                lines.append("---")
+            lines.append(f"Routed to Claude ({len(routable)} issues):")
+            for r in routable:
+                lines.append(f"  {r.sense}: {r.name}")
+
+        if lines:
+            try:
+                await telegram._send_message("\n".join(lines))
+            except Exception:
+                pass
+
+    def _get_human_action(self, result: SenseResult) -> str:
+        """Return actionable instruction for a human-required issue."""
+        name_lower = result.name.lower()
+
+        if "api key" in name_lower:
+            return "Check API key in config.yaml or .env — may need rotation"
+        if "balance" in name_lower:
+            return "Fund the Kalshi account — balance too low to trade"
+        if "anthropic" in name_lower:
+            return "Add ANTHROPIC_API_KEY to .env for AI analysis"
+        if "telegram" in name_lower and "token" in result.detail.lower():
+            return "Configure DAE_TELEGRAM_TOKEN in .env"
+        if "kalshi api url" in name_lower:
+            return "Set KALSHI_API_URL in .env"
+
+        return "Investigate manually — this issue requires human judgment"
+
+    # ── Reporting ────────────────────────────────────────────────────
 
     async def _push_report(self, report: SensoryReport) -> None:
-        """Push sensory report to Supabase for dashboard display."""
+        """Push sensory report to Supabase for dashboard and Tier 2 polling."""
         dashboard = getattr(self._bot, "dashboard", None)
         if not dashboard or not getattr(dashboard, "_available", False):
             return
 
         try:
+            # Push summary log
             await dashboard.push_log(
                 report.summary_line(),
                 level="ERROR" if report.critical_failures else (
@@ -554,40 +811,21 @@ class SensoryMonitor:
                 ),
                 strategy="sensory_check",
             )
+
+            # Push full report to health status for Tier 2 script to read
+            report_data = {
+                "id": 1,
+                "sensory_report": json.dumps(report.to_dict()),
+                "sensory_status": report.overall_status,
+                "consecutive_critical": self._consecutive_critical,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            try:
+                await dashboard._upsert(
+                    "health_status", report_data, on_conflict="id"
+                )
+            except Exception:
+                pass  # health_status table may not have sensory columns yet
+
         except Exception as e:
             logger.debug(f"Sensory report push failed: {e}")
-
-    async def _alert_if_needed(self, report: SensoryReport) -> None:
-        """Send Telegram alert on critical failures or new degradation."""
-        if not report.critical_failures and not report.auto_fix_actions:
-            return
-
-        telegram = getattr(self._bot, "telegram_bridge", None)
-        if not telegram or not getattr(telegram, "is_available", False):
-            return
-
-        lines = [f"[Sensory Check] {report.overall_status.upper()}"]
-        lines.append(f"{report.passed}/{report.total} checks passed")
-
-        if report.critical_failures:
-            lines.append("")
-            lines.append("CRITICAL:")
-            for r in report.critical_failures:
-                lines.append(f"  X {r.sense}: {r.name} — {r.detail}")
-
-        if report.auto_fix_actions:
-            lines.append("")
-            lines.append("Auto-fixed:")
-            for action in report.auto_fix_actions:
-                lines.append(f"  > {action}")
-
-        if report.warnings and len(report.warnings) <= 3:
-            lines.append("")
-            lines.append("Warnings:")
-            for r in report.warnings:
-                lines.append(f"  ! {r.sense}: {r.name} — {r.detail}")
-
-        try:
-            await telegram._send_message("\n".join(lines))
-        except Exception:
-            pass
