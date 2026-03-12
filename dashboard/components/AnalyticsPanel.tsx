@@ -421,8 +421,8 @@ function TradeScatterChart({ data }: { data: TradeScatterRow[] }) {
     <ResponsiveContainer width="100%" height="100%">
       <ScatterChart>
         <CartesianGrid strokeDasharray="3 3" stroke={GRID} />
-        <XAxis dataKey="idx" tick={{ fill: GREEN_DIM, fontSize: 9 }} tickLine={false} axisLine={{ stroke: AXIS }} name="Trade #" />
-        <YAxis tick={{ fill: GREEN_DIM, fontSize: 9 }} tickLine={false} axisLine={{ stroke: AXIS }} tickFormatter={(v: number) => `$${v}`} width={45} name="P&L" />
+        <XAxis type="number" dataKey="idx" tick={{ fill: GREEN_DIM, fontSize: 9 }} tickLine={false} axisLine={{ stroke: AXIS }} name="Trade #" />
+        <YAxis type="number" dataKey="pnl" tick={{ fill: GREEN_DIM, fontSize: 9 }} tickLine={false} axisLine={{ stroke: AXIS }} tickFormatter={(v: number) => `$${v}`} width={45} name="P&L" />
         <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" />
         <Tooltip
           contentStyle={tooltipStyle}
