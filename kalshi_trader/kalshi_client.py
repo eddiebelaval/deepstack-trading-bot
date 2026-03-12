@@ -50,6 +50,129 @@ def _dollars_to_cents(value: Any) -> int:
         return 0
 
 
+def _fp_to_int(value: Any) -> int:
+    """Convert a float-point string field (e.g. '5.00') to integer."""
+    if value is None:
+        return 0
+    try:
+        return int(round(float(value)))
+    except (ValueError, TypeError):
+        return 0
+
+
+def _normalize_order(o: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a raw Kalshi order dict to internal format.
+
+    Handles v2 field migration: count→initial_count_fp, yes_price→yes_price_dollars, etc.
+    """
+    count = _fp_to_int(o.get("initial_count_fp")) or o.get("initial_count") or o.get("count") or 0
+    remaining = _fp_to_int(o.get("remaining_count_fp")) or o.get("remaining_count") or 0
+    fill_count = _fp_to_int(o.get("fill_count_fp")) or o.get("fill_count") or 0
+    yes_price = _dollars_to_cents(o.get("yes_price_dollars")) or o.get("yes_price")
+    no_price = _dollars_to_cents(o.get("no_price_dollars")) or o.get("no_price")
+    taker_fees = _dollars_to_cents(o.get("taker_fees_dollars")) or o.get("taker_fees") or 0
+    maker_fees = _dollars_to_cents(o.get("maker_fees_dollars")) or o.get("maker_fees") or 0
+    taker_fill_cost = _dollars_to_cents(o.get("taker_fill_cost_dollars")) or o.get("taker_fill_cost") or 0
+    maker_fill_cost = _dollars_to_cents(o.get("maker_fill_cost_dollars")) or o.get("maker_fill_cost") or 0
+
+    return {
+        "order_id": o.get("order_id"),
+        "ticker": o.get("ticker"),
+        "side": o.get("side"),
+        "action": o.get("action"),
+        "type": o.get("type", "limit"),
+        "status": o.get("status"),
+        "count": count,
+        "remaining_count": remaining,
+        "fill_count": fill_count,
+        "yes_price": yes_price,
+        "no_price": no_price,
+        "price": no_price if o.get("side") == "no" else yes_price,
+        "initial_count": count,
+        "taker_fees": taker_fees,
+        "maker_fees": maker_fees,
+        "taker_fill_cost": taker_fill_cost,
+        "maker_fill_cost": maker_fill_cost,
+        "created_time": o.get("created_time"),
+        "last_update_time": o.get("last_update_time"),
+        "expiration_time": o.get("expiration_time"),
+    }
+
+
+def _normalize_position(pos: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a raw Kalshi position dict to internal format.
+
+    Handles v2 field migration: position→position_fp, market_exposure→market_exposure_dollars, etc.
+    """
+    position = _fp_to_int(pos.get("position_fp")) or pos.get("position") or 0
+    total_traded = _dollars_to_cents(pos.get("total_traded_dollars")) or pos.get("total_traded") or 0
+    market_exposure = _dollars_to_cents(pos.get("market_exposure_dollars")) or pos.get("market_exposure") or 0
+    realized_pnl = _dollars_to_cents(pos.get("realized_pnl_dollars")) or pos.get("realized_pnl") or 0
+    fees_paid = _dollars_to_cents(pos.get("fees_paid_dollars")) or pos.get("fees_paid") or 0
+
+    return {
+        "ticker": pos.get("ticker"),
+        "market_ticker": pos.get("market_ticker") or pos.get("ticker"),
+        "position": position,
+        "resting_orders_count": pos.get("resting_orders_count", 0),
+        "total_traded": total_traded,
+        "market_exposure": market_exposure,
+        "realized_pnl": realized_pnl,
+        "fees_paid": fees_paid,
+        "last_updated_ts": pos.get("last_updated_ts"),
+    }
+
+
+def _normalize_fill(f: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a raw Kalshi fill dict to internal format.
+
+    Handles v2 field migration: count→count_fp, yes_price→yes_price_dollars, etc.
+    """
+    count = _fp_to_int(f.get("count_fp")) or f.get("count") or 0
+    yes_price = _dollars_to_cents(f.get("yes_price_dollars")) or f.get("yes_price")
+    no_price = _dollars_to_cents(f.get("no_price_dollars")) or f.get("no_price")
+    fee_str = f.get("fee_cost")
+    fee_cost = _dollars_to_cents(fee_str) if isinstance(fee_str, str) else (fee_str or 0)
+
+    return {
+        "fill_id": f.get("fill_id") or f.get("trade_id"),
+        "order_id": f.get("order_id"),
+        "ticker": f.get("ticker") or f.get("market_ticker"),
+        "side": f.get("side"),
+        "action": f.get("action"),
+        "count": count,
+        "yes_price": yes_price,
+        "no_price": no_price,
+        "is_taker": f.get("is_taker", False),
+        "fee_cost": fee_cost,
+        "created_time": f.get("created_time"),
+    }
+
+
+def _normalize_settlement(s: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a raw Kalshi settlement dict to internal format."""
+    yes_count = _fp_to_int(s.get("yes_count_fp")) or s.get("yes_count") or 0
+    no_count = _fp_to_int(s.get("no_count_fp")) or s.get("no_count") or 0
+    yes_total_cost = _dollars_to_cents(s.get("yes_total_cost_dollars")) or s.get("yes_total_cost") or 0
+    no_total_cost = _dollars_to_cents(s.get("no_total_cost_dollars")) or s.get("no_total_cost") or 0
+    fee_str = s.get("fee_cost")
+    fee_cost = _dollars_to_cents(fee_str) if isinstance(fee_str, str) else (fee_str or 0)
+
+    return {
+        "ticker": s.get("ticker"),
+        "event_ticker": s.get("event_ticker"),
+        "market_result": s.get("market_result"),
+        "yes_count": yes_count,
+        "no_count": no_count,
+        "yes_total_cost": yes_total_cost,
+        "no_total_cost": no_total_cost,
+        "revenue": s.get("revenue", 0),
+        "settled_time": s.get("settled_time"),
+        "fee_cost": fee_cost,
+        "value": s.get("value"),
+    }
+
+
 def _normalize_market(m: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize a raw Kalshi market dict to the internal cents-based format.
 
@@ -450,21 +573,7 @@ class AuthenticatedKalshiClient:
         """
         response = await self._request("GET", "/portfolio/positions")
         positions = response.get("market_positions", [])
-
-        return [
-            {
-                "ticker": pos.get("ticker"),
-                "market_ticker": pos.get("market_ticker"),
-                "position": pos.get("position", 0),  # Positive=yes, Negative=no
-                "resting_orders_count": pos.get("resting_orders_count", 0),
-                "total_traded": pos.get("total_traded", 0),
-                "market_exposure": pos.get("market_exposure", 0),
-                "realized_pnl": pos.get("realized_pnl", 0),
-                "fees_paid": pos.get("fees_paid", 0),
-                "last_updated_ts": pos.get("last_updated_ts"),
-            }
-            for pos in positions
-        ]
+        return [_normalize_position(pos) for pos in positions]
 
     async def get_fills(
         self,
@@ -487,23 +596,7 @@ class AuthenticatedKalshiClient:
 
         response = await self._request("GET", "/portfolio/fills", params=params)
         fills = response.get("fills", [])
-
-        return [
-            {
-                "fill_id": f.get("fill_id") or f.get("trade_id"),
-                "order_id": f.get("order_id"),
-                "ticker": f.get("ticker") or f.get("market_ticker"),
-                "side": f.get("side"),
-                "action": f.get("action"),
-                "count": f.get("count", 0),
-                "yes_price": f.get("yes_price"),
-                "no_price": f.get("no_price"),
-                "is_taker": f.get("is_taker", False),
-                "fee_cost": f.get("fee_cost"),
-                "created_time": f.get("created_time"),
-            }
-            for f in fills
-        ]
+        return [_normalize_fill(f) for f in fills]
 
     async def get_settlements(
         self,
@@ -530,23 +623,7 @@ class AuthenticatedKalshiClient:
 
         response = await self._request("GET", "/portfolio/settlements", params=params)
         settlements = response.get("settlements", [])
-
-        return [
-            {
-                "ticker": s.get("ticker"),
-                "event_ticker": s.get("event_ticker"),
-                "market_result": s.get("market_result"),
-                "yes_count": s.get("yes_count", 0),
-                "no_count": s.get("no_count", 0),
-                "yes_total_cost": s.get("yes_total_cost", 0),
-                "no_total_cost": s.get("no_total_cost", 0),
-                "revenue": s.get("revenue", 0),
-                "settled_time": s.get("settled_time"),
-                "fee_cost": s.get("fee_cost"),
-                "value": s.get("value"),
-            }
-            for s in settlements
-        ]
+        return [_normalize_settlement(s) for s in settlements]
 
     # -------------------------------------------------------------------------
     # Market Methods
@@ -763,16 +840,7 @@ class AuthenticatedKalshiClient:
                 f"ID: {order.get('order_id')}"
             )
 
-            return {
-                "order_id": order.get("order_id"),
-                "ticker": order.get("ticker"),
-                "side": order.get("side"),
-                "action": order.get("action"),
-                "count": order.get("count"),
-                "price": order.get("yes_price") or order.get("no_price"),
-                "status": order.get("status"),
-                "created_time": order.get("created_time"),
-            }
+            return _normalize_order(order)
 
         except KalshiTradingError as e:
             raise KalshiOrderError(
@@ -820,19 +888,7 @@ class AuthenticatedKalshiClient:
             bypass_circuit_breaker=bypass_circuit_breaker,
         )
         order = response.get("order", {})
-
-        return {
-            "order_id": order.get("order_id"),
-            "ticker": order.get("ticker"),
-            "side": order.get("side"),
-            "action": order.get("action"),
-            "count": order.get("count"),
-            "remaining_count": order.get("remaining_count"),
-            "price": order.get("yes_price") or order.get("no_price"),
-            "status": order.get("status"),
-            "created_time": order.get("created_time"),
-            "expiration_time": order.get("expiration_time"),
-        }
+        return _normalize_order(order)
 
     async def get_orders(
         self,
@@ -857,30 +913,7 @@ class AuthenticatedKalshiClient:
 
         response = await self._request("GET", "/portfolio/orders", params=params)
         orders = response.get("orders", [])
-
-        return [
-            {
-                "order_id": o.get("order_id"),
-                "ticker": o.get("ticker"),
-                "side": o.get("side"),
-                "action": o.get("action"),
-                "type": o.get("type", "limit"),
-                "status": o.get("status"),
-                "yes_price": o.get("yes_price"),
-                "no_price": o.get("no_price"),
-                "initial_count": o.get("initial_count", o.get("count", 0)),
-                "remaining_count": o.get("remaining_count", 0),
-                "fill_count": o.get("fill_count", 0),
-                "taker_fees": o.get("taker_fees", 0),
-                "maker_fees": o.get("maker_fees", 0),
-                "taker_fill_cost": o.get("taker_fill_cost", 0),
-                "maker_fill_cost": o.get("maker_fill_cost", 0),
-                "created_time": o.get("created_time"),
-                "last_update_time": o.get("last_update_time"),
-                "expiration_time": o.get("expiration_time"),
-            }
-            for o in orders
-        ]
+        return [_normalize_order(o) for o in orders]
 
     async def cancel_all_orders(self, ticker: Optional[str] = None) -> int:
         """
