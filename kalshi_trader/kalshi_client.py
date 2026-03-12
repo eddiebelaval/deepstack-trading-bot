@@ -386,8 +386,12 @@ class AuthenticatedKalshiClient:
                 break
 
         # All retries exhausted or non-retryable error — record failure
+        # When bypass_circuit_breaker is True, still raise but don't record
+        # the failure. This prevents expected transient errors (e.g., 404s
+        # during order polling) from tripping the breaker.
         if last_error is not None:
-            await self._circuit_breaker._record_failure(last_error)
+            if not bypass_circuit_breaker:
+                await self._circuit_breaker._record_failure(last_error)
             raise last_error
 
     # -------------------------------------------------------------------------
@@ -796,17 +800,25 @@ class AuthenticatedKalshiClient:
             logger.warning(f"Failed to cancel order {order_id}: {e}")
             return False
 
-    async def get_order(self, order_id: str) -> Dict:
+    async def get_order(
+        self, order_id: str, bypass_circuit_breaker: bool = False,
+    ) -> Dict:
         """
         Get order details.
 
         Args:
             order_id: Order ID
+            bypass_circuit_breaker: If True, don't trip circuit breaker on errors.
+                Used during fill-polling where transient 404s are expected due to
+                Kalshi's eventual consistency between write and query services.
 
         Returns:
             Order details dictionary
         """
-        response = await self._request("GET", f"/portfolio/orders/{order_id}")
+        response = await self._request(
+            "GET", f"/portfolio/orders/{order_id}",
+            bypass_circuit_breaker=bypass_circuit_breaker,
+        )
         order = response.get("order", {})
 
         return {

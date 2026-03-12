@@ -3029,9 +3029,19 @@ class KalshiTradingBot:
         poll_interval = 5  # seconds between status checks
         elapsed = 0
 
+        # Kalshi's write and query services have eventual consistency.
+        # Polling immediately after order creation hits the stale query-exchange
+        # service, returning 404. Wait for propagation before first poll.
+        await asyncio.sleep(2)
+        elapsed += 2
+
         while elapsed < ttl_seconds:
             try:
-                order_info = await self.client.get_order(order_id)
+                # bypass_circuit_breaker=True: transient 404s during polling are
+                # expected (Kalshi eventual consistency), not actual API failures.
+                order_info = await self.client.get_order(
+                    order_id, bypass_circuit_breaker=True,
+                )
                 status = order_info.get("status", "")
                 total_count = order_info.get("count", 0)
                 remaining = order_info.get("remaining_count", 0)
@@ -3057,14 +3067,16 @@ class KalshiTradingBot:
                 )
 
             except Exception as e:
-                logger.warning(f"Error polling order status for {order_id}: {e}")
+                logger.debug(f"Order poll transient error for {order_id}: {e}")
 
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
         # TTL expired — check one final time
         try:
-            order_info = await self.client.get_order(order_id)
+            order_info = await self.client.get_order(
+                order_id, bypass_circuit_breaker=True,
+            )
             total_count = order_info.get("count", 0)
             remaining = order_info.get("remaining_count", 0)
             return total_count - remaining if total_count else 0
