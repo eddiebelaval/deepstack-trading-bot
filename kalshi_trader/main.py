@@ -3043,23 +3043,25 @@ class KalshiTradingBot:
                     order_id, bypass_circuit_breaker=True,
                 )
                 status = order_info.get("status", "")
-                total_count = order_info.get("count", 0)
+                fill_count = order_info.get("fill_count", 0) or 0
+                total_count = order_info.get("count", 0) or 0
                 remaining = order_info.get("remaining_count", 0)
-                filled = total_count - remaining if total_count else 0
 
-                if status == "executed" or remaining == 0:
-                    logger.info(
-                        f"Order FILLED for {ticker}: {filled} contracts "
-                        f"(order_id={order_id}, waited {elapsed}s)"
-                    )
-                    return filled
-
+                # Check canceled/expired FIRST — a cancelled order also has
+                # remaining=0, which would falsely trigger the "filled" branch.
                 if status in ("canceled", "expired"):
                     logger.info(
                         f"Order {status.upper()} for {ticker} "
-                        f"(order_id={order_id}, filled={filled})"
+                        f"(order_id={order_id}, filled={fill_count})"
                     )
-                    return filled  # Return partial fill count (may be 0)
+                    return fill_count  # Return partial fill count (may be 0)
+
+                if status == "executed" or (total_count > 0 and remaining == 0):
+                    logger.info(
+                        f"Order FILLED for {ticker}: {fill_count} contracts "
+                        f"(order_id={order_id}, waited {elapsed}s)"
+                    )
+                    return fill_count
 
                 logger.debug(
                     f"Order PENDING for {ticker}: {remaining}/{total_count} remaining "
@@ -3077,9 +3079,7 @@ class KalshiTradingBot:
             order_info = await self.client.get_order(
                 order_id, bypass_circuit_breaker=True,
             )
-            total_count = order_info.get("count", 0)
-            remaining = order_info.get("remaining_count", 0)
-            return total_count - remaining if total_count else 0
+            return order_info.get("fill_count", 0) or 0
         except Exception:
             return 0
 
