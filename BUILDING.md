@@ -2,7 +2,7 @@
 
 This document tells the build story of DeepStack, an autonomous multi-asset trading bot. It evolved from a two-strategy prediction market weekend project into a wealth generation engine spanning Kalshi, IBKR stocks/ETFs/futures/options, with forward-looking intelligence from prediction markets, self-governing regime detection, and graceful degradation across exchanges.
 
-**135+ commits. 16 active build days. Feb 7 — Mar 12, 2026. LIVE on Kalshi.**
+**140+ commits. 17 active build days. Feb 7 — Mar 13, 2026. LIVE on Kalshi.**
 
 ---
 
@@ -594,6 +594,44 @@ e5d4ecf feat: go live — raise drawdown threshold to 20%, remove paper trading
 
 ---
 
+## Phase 17: Agent SDK + Wealth Engine Persistence (Mar 13)
+
+**Two threads converged: Dae needed a way to think autonomously (beyond code modification), and the wealth engine plan needed to be persisted where Dae could reference it.**
+
+### What Was Built
+
+**DaeAgent SDK** (`kalshi_trader/agent.py` — 809 lines)
+- Scoped cognitive agent with 10 tools: read_file, list_files, query_journal, query_supabase, read_long_term_memory, update_long_term_memory, write_report, update_lessons, web_search, get_bot_state
+- Follows DaeEngineer's tool_use pattern (httpx → Claude Sonnet → tool dispatch loop, max 15 iterations) but with a critical difference: **the agent CANNOT modify code.** DaeEngineer writes code; DaeAgent thinks, researches, and reports.
+- Security hardening: SQLite opened in read-only URI mode (`file:...?mode=ro`) as defense-in-depth beyond keyword blocklist. PostgREST parameters validated with regex before URL interpolation. Blocked credential paths (.env, private key). try/finally lifecycle on httpx client.
+- Supabase table whitelist (12 tables). SQL keyword blocklist (INSERT, UPDATE, DELETE, DROP, ALTER, CREATE) plus URI-level enforcement.
+- AgentResult dataclass tracks: task, success, summary, tools_used, reports_written, memories_updated, iterations, error.
+- `run_agent_task()` convenience function handles full lifecycle (create → run → close).
+
+**Telegram Agent Routing**
+- Intent classifier updated with 7 agent examples ("investigate...", "write an oak tree report...", "research...", "analyze...", etc.)
+- `_handle_agent()` routes to `run_agent_task()` with formatted response (reports written, memories updated, tools used, summary, iteration count)
+- Agent responses truncated to 800 chars for Telegram readability
+
+**Wealth Engine Persistence** (three-layer system)
+- **Filesystem:** `mind/drives/90_day_wealth_engine.md` (3 phases: Diagnostics Mar 13-27, Optimization Mar 28 - Apr 27, Compounding Apr 28 - Jun 11) and `mind/drives/oak_tree_principles.md` (10 capital preservation rules + anti-principles)
+- **Supabase:** `deepstack_long_term_memory` table with 7 seed entries (owner, mission, phase, primary_strategy, risk_philosophy, plan_reference, oak_tree_report). Migration: `20260313000000_create_long_term_memory.sql`
+- **Standing orders:** HEARTBEAT.md updated to reference plan and principles. goals.md cross-references all three persistence layers.
+
+**Test Coverage**
+- 26 new tests in `tests/test_agent.py`: file reads, blocked paths, path traversal, SQL injection blocking, report writes, lesson appends, tool dispatch, AgentResult, DaeAgent initialization, system prompt identity
+
+### Architecture Decisions
+- **Two agents, not one.** DaeEngineer and DaeAgent share the same tool_use loop structure but have fundamentally different security postures. The engineer can write files and run commands (with boundaries). The agent can only read, query, and write reports. Keeping them separate means a bug in one doesn't compromise the other.
+- **SQLite URI read-only over PRAGMA.** `file:...?mode=ro` is enforced at the connection level by the SQLite driver — it can't be bypassed by CTEs or subqueries that smuggle writes past the keyword blocklist. PRAGMA query_only can be turned off by a subsequent PRAGMA call.
+- **Three-layer persistence for wealth engine.** Filesystem (human-readable, version-controlled), Supabase (queryable by agent), standing orders in HEARTBEAT.md (referenced every cycle). Any one layer can reconstruct context if another fails.
+
+### Lessons
+- **Read-only mode catches what blocklists miss.** A CTE like `WITH x AS (DELETE FROM trades RETURNING *) SELECT * FROM x` passes the "starts with SELECT" check. URI mode blocks it at the driver level.
+- **Deduplication isn't always worth it.** The agent and engineer both have read_file/list_files functions. They look similar but have different blocked paths, different security contexts, and different error messages. Extracting a shared module would blur the security boundary for marginal DRY benefit.
+
+---
+
 ## Current Architecture
 
 ```
@@ -640,7 +678,8 @@ kalshi-trading/
 │   ├── graduation_gate.py   # Per-asset-class graduation evaluation
 │   ├── graduation_report.py # HTML report generator on graduation
 │   ├── consciousness.py     # CaF self-awareness
-│   ├── telegram_bridge.py   # Two-way Telegram
+│   ├── agent.py             # DaeAgent — cognitive tools (read/query/report)
+│   ├── telegram_bridge.py   # Two-way Telegram + agent routing
 │   └── journal.py           # Trade journal (SQLite)
 ├── markets/                  # Exchange adapters
 │   ├── kalshi.py            # Kalshi API
@@ -688,11 +727,11 @@ kalshi-trading/
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 135+ |
-| Active build days | 16 (Feb 7 — Mar 12, 2026) |
-| PRs merged | 109 |
+| Total commits | 140+ |
+| Active build days | 17 (Feb 7 — Mar 13, 2026) |
+| PRs merged | 111 |
 | Strategies | 19 (6 active, 13 disabled) |
-| Tests | 38+ |
+| Tests | 64+ (38 existing + 26 agent) |
 | Real balance | $159.64 (LIVE on Kalshi since Mar 11) |
 | Paper balance | N/A — Kalshi graduated |
 | Best strategy | calibration_edge: 87% WR, 145 trades |
@@ -723,5 +762,5 @@ These are hard-won lessons from production bugs. Save yourself the debugging.
 
 ---
 
-*Last updated: 2026-03-12*
+*Last updated: 2026-03-13*
 *Private -- id8Labs LLC*

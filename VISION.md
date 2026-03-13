@@ -1,8 +1,8 @@
 # VISION.md -- Living North Star
 ## DeepStack
 
-> Last evolved: 2026-03-12 | Confidence: HIGH
-> Distance from SPEC: 80% (10 of 13 pillars realized, Council of Masters active, convergence confirmation live)
+> Last evolved: 2026-03-13 | Confidence: HIGH
+> Distance from SPEC: 85% (11 of 14 pillars realized, Agent SDK live, wealth engine plan persisted)
 
 ---
 
@@ -48,7 +48,10 @@ DeepStack exists because the market is a conversation between fear and greed, an
 12. **Deep Wisdom + Principle Router** -- REALIZED
     The Council of Masters is runtime. 14 trader archetypes with deep strategic DNA — each ~80-120 lines of Core Principles, Mental Models, and Prediction Market Translation. The Principle Router scores each master's relevance (60% phase fit + 40% regime fit), enforces role diversity, and outputs a CouncilVerdict. Convergence/divergence as confirmation signal — the same fractal shape that runs through forward signals, regime detection, and TradingView indicators. When the council converges, conviction amplifies. When it diverges, reserve increases and sizing dampens. The router resolves conflicts: phase trumps regime, evidence trumps philosophy, caution trumps aggression.
 
-13. **Dashboard Intelligence** -- REALIZED
+13. **Autonomous Cognition** -- REALIZED
+    Two-agent architecture. DaeEngineer modifies code through git branches and PRs (human gate). DaeAgent thinks — investigates trade failures, writes Oak Tree Reports, researches market conditions, updates long-term memory with observations. 10 cognitive tools, all read-only or report-only. Security boundary enforced at the driver level (SQLite read-only URI, PostgREST param validation). The agent can explain its own reasoning, recall persistent facts from Supabase, and produce weekly reports without touching a single line of code. This is the first step toward Dae running his own diagnostic and optimization loops from the 90-day wealth engine plan.
+
+14. **Dashboard Intelligence** -- REALIZED
     v3 multi-page dashboard live at milo.deepstack.trade. 5 dedicated pages (Command Center, Operations, Intelligence, Graduation, Research). WeatherMap NOAA-style radar visualization. AnalyticsPanel with 6 chart views. Security-hardened API layer (PostgREST filter injection fixed, whitelist validation). 34 orphaned v2 components cleaned up. Terminal green-on-black aesthetic. Real-time Supabase sync. Telegram bridge for mobile alerts.
 
 ## User Truth
@@ -59,7 +62,7 @@ DeepStack exists because the market is a conversation between fear and greed, an
 
 **Now:** "145 trades, 87% win rate, $683.60 paper P&L. The system proved itself. We graduated. Real money on the line now."
 
-**After (vision):** "The bot thinks in centuries. It reads the market, convenes its council of masters, and acts with conviction when they converge. In SEED phase, Thorp, Jobs, and Buffett speak loudest — fractional Kelly, focus, don't lose money. As capital grows, the allocator automatically diversifies into IBKR — stocks, options, futures — each graduating on merit. When crisis hits, Taleb and Soros take the lead. When markets are calm, Livermore and Templeton say 'sit tight.' Every decision carries the synthesized wisdom of 14 traders who collectively managed trillions. The $160 becomes generational."
+**After (vision):** "The bot thinks in centuries. It reads the market, convenes its council of masters, and acts with conviction when they converge. In SEED phase, Thorp, Jobs, and Buffett speak loudest — fractional Kelly, focus, don't lose money. As capital grows, the allocator automatically diversifies into IBKR — stocks, options, futures — each graduating on merit. When crisis hits, Taleb and Soros take the lead. When markets are calm, Livermore and Templeton say 'sit tight.' Every Sunday, Dae writes his own Oak Tree Report — investigating what worked, what didn't, and what the plan says to do next. Every decision carries the synthesized wisdom of 14 traders who collectively managed trillions. The $160 becomes generational."
 
 ## Edges
 
