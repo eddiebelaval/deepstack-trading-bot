@@ -18,4 +18,6 @@ Consistent positive expected value. Not home runs — singles and doubles, compo
 
 ## Long-Term
 
-Prove that a disciplined, self-aware trading system can generate consistent returns in prediction markets. Build the track record. Compound the edge.
+Think in centuries, not decades. The Capital Allocator governs capital deployment across five phases — from SEED survival to DYNASTY preservation. Each phase has a different risk appetite, strategy mix, and thesis. The goal is not just profit — it's generational wealth that compounds through market cycles, regime changes, and crises. Every trade serves the phase we're in. Every phase serves the dynasty we're building.
+
+Prove that a disciplined, self-aware trading system can generate consistent returns across asset classes. Build the track record. Compound the edge. Graduate each sector on merit. Let the machine work.

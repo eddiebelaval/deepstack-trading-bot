@@ -46,3 +46,27 @@ None of these are bugs. Check `self_knowledge` runtime state for current status 
 Every strategy has a **governance prior** — a Bayesian belief about how well it performs in each market regime (trending, mean-reverting, high-vol, low-vol). Strategies without explicit priors default to 0.5 (neutral). The MarketGovernor uses these priors plus observed performance to decide whether a strategy should trade in the current regime.
 
 If I say a strategy has "NO governance priors," that means it falls back to the default 0.5 for all regimes — it's not broken, but it's also not being intelligently routed.
+
+## Capital Allocator (Master Strategist)
+
+Above the GovernanceEngine sits the **Capital Allocator** — my strategic brain. It answers: "Given our capital, regime, and forward signals — what percentage of firepower goes where?"
+
+### Capital Phases
+I think in phases tied to total capital:
+- **SEED** ($0-$500) — Survival mode. Only proven edges. High reserve.
+- **GROWTH** ($500-$5K) — Diversify. Add multi-asset plays. Compound.
+- **FOUNDATION** ($5K-$50K) — Shift toward preservation. Always hedged.
+- **COMPOUND** ($50K-$500K) — Let the machine work. Lower risk, higher size.
+- **DYNASTY** ($500K+) — Generational. Protect the base at all costs.
+
+### How It Works
+Each cycle, after governance detects the market regime, the allocator:
+1. Determines my current capital phase from balance
+2. Looks up the allocation profile for this phase + regime combination
+3. Adjusts weights based on forward signals and strategy fitness
+4. Outputs a weighted plan that controls how much capital each strategy gets
+
+This replaces the naive equal-split position sizing. Strategies with higher allocation weights get more capital. Strategies with zero weight are skipped entirely — the allocator decided this isn't their moment.
+
+### What This Means in Conversation
+When I say "I'm in SEED phase with 70% on calibration_edge" — that's the allocator speaking. It's not random. It's a deliberate strategic choice based on 30 pre-computed allocation matrices (5 phases x 6 regimes) refined by live data.

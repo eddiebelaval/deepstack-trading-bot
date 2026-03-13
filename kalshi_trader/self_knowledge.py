@@ -58,7 +58,10 @@ async def gather_self_knowledge(bot) -> str:
     # 7. Health status
     sections.append(_gather_health(bot))
 
-    # 8. Active config summary
+    # 8. Capital allocation plan
+    sections.append(_gather_allocation(bot))
+
+    # 9. Active config summary
     sections.append(_gather_config(bot))
 
     return "\n\n".join(s for s in sections if s)
@@ -340,6 +343,31 @@ def _gather_health(bot) -> str:
     if cb and hasattr(cb, 'is_open'):
         if cb.is_open:
             lines.append("- CIRCUIT BREAKER: OPEN (API calls blocked)")
+
+    return "\n".join(lines)
+
+
+def _gather_allocation(bot) -> str:
+    """Current capital allocation plan from the master strategist layer."""
+    lines = ["## Capital Allocation"]
+
+    allocator = getattr(bot, 'capital_allocator', None)
+    if not allocator:
+        lines.append("- Capital Allocator not active")
+        return "\n".join(lines)
+
+    plan = allocator.current_plan
+    if not plan:
+        lines.append("- No allocation plan computed yet (cold start)")
+        return "\n".join(lines)
+
+    lines.append(f"- Capital phase: {plan.phase.value.upper()}")
+    lines.append(f"- Thesis: {plan.thesis}")
+    lines.append(f"- Deployed: {plan.deployed_pct:.0%} | Reserve: {plan.reserve_pct:.0%}")
+    lines.append(f"- Max positions: {plan.max_simultaneous} | Scale: {plan.position_scale:.1f}x")
+    lines.append("- Weights:")
+    for name, weight in sorted(plan.weights.items(), key=lambda x: -x[1]):
+        lines.append(f"  - {name}: {weight:.0%}")
 
     return "\n".join(lines)
 

@@ -43,6 +43,7 @@ from .health_monitor import HealthMonitor
 from .kalshi_client import AuthenticatedKalshiClient
 from .deepstack_integration import DeepStackIntegration
 from .journal import TradeJournal
+from .capital_allocator import CapitalAllocator
 from .market_governor import GovernanceEngine, MarketSnapshot
 from .performance_tracker import PerformanceTracker
 from .exceptions import (
@@ -143,6 +144,7 @@ class KalshiTradingBot:
         # Market governance engine (optional, regime-aware strategy routing)
         self.market_governor: Optional[GovernanceEngine] = None
         self.forward_signal_bridge = None
+        self.capital_allocator: Optional[CapitalAllocator] = None
 
         # News feed — lightweight headline sentiment (plugs into ForwardSignalBridge)
         self.news_feed = None
@@ -442,6 +444,10 @@ class KalshiTradingBot:
                 paper_trade=self.paper_trade,
             )
             logger.info("Market governor initialized (mode=%s, paper=%s)", gov_cfg.mode, self.paper_trade)
+
+            # Attach Capital Allocator — master strategist layer above governance
+            self.capital_allocator = CapitalAllocator()
+            logger.info("Capital Allocator initialized (phase detection active)")
 
             # Attach ForwardSignalBridge — cross-market intelligence layer
             from .forward_signal_bridge import ForwardSignalBridge
@@ -2229,6 +2235,44 @@ class KalshiTradingBot:
                 ))
                 self.market_governor._last_bleed_alert = None  # Clear after logging
 
+        # Compute capital allocation plan — needs fresh regime from governance
+        if self.capital_allocator:
+            balance = 0.0
+            if self.risk:
+                balance = self.risk.account_balance
+            regime_str = "default"
+            regime_conf = 0.5
+            post_regime = getattr(self.market_governor, 'current_regime', None)
+            if post_regime:
+                regime_str = post_regime.regime.value
+                regime_conf = post_regime.confidence
+
+            # Gather forward signals for allocation adjustment
+            fwd_signals = None
+            if self.forward_signal_bridge:
+                fwd_signals = self.forward_signal_bridge.detect_signals()
+
+            # Gather strategy fitness from performance tracker
+            strategy_fitness = None
+            if self.performance_tracker:
+                try:
+                    health_map = self.performance_tracker.evaluate_all()
+                    strategy_fitness = {}
+                    for name, health in health_map.items():
+                        fitness = getattr(health, 'fitness', None)
+                        if fitness is not None:
+                            strategy_fitness[name] = fitness
+                except Exception:
+                    pass
+
+            self.capital_allocator.compute_plan(
+                balance_dollars=balance,
+                regime=regime_str,
+                regime_confidence=regime_conf,
+                forward_signals=fwd_signals,
+                strategy_fitness=strategy_fitness,
+            )
+
     def _update_circuit_breaker_state(self, strategy_name: str, pnl_cents: int) -> None:
         """Update per-strategy circuit breaker tracking after a trade closes."""
         if strategy_name not in self._strategy_circuit_breakers:
@@ -2971,8 +3015,19 @@ class KalshiTradingBot:
         ticker = opp.ticker
         strategy_name = opp.strategy_name
 
-        # Get allocated position size for this strategy
-        max_size = self.strategy_manager.get_position_size_for_strategy(strategy_name)
+        # Get allocated position size — Capital Allocator weight-based if available,
+        # otherwise falls back to naive equal split
+        if self.capital_allocator and self.capital_allocator.current_plan:
+            weight = self.capital_allocator.get_position_weight(strategy_name)
+            if weight <= 0.0:
+                logger.debug(
+                    f"Opportunity {ticker} [{strategy_name}] skipped — zero allocation weight"
+                )
+                return False
+            scale = self.capital_allocator.get_position_scale()
+            max_size = self.strategy_manager.max_position_size * weight * scale
+        else:
+            max_size = self.strategy_manager.get_position_size_for_strategy(strategy_name)
 
         # Final risk check
         risk_check = self.risk.check_trade_allowed(
