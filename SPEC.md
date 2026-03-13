@@ -1,9 +1,9 @@
 # SPEC.md -- Living Specification
 ## DeepStack
 
-> Last reconciled: 2026-03-12 | Build stage: Phase 14 (Governance + Self-Awareness)
+> Last reconciled: 2026-03-12 | Build stage: Phase 15 (Capital Allocator)
 > Drift status: CURRENT
-> VISION alignment: 70% (8 of 11 pillars realized, graduation auto-promotes)
+> VISION alignment: 73% (8 of 11 pillars realized + Capital Allocator layer)
 
 ---
 
@@ -51,6 +51,15 @@ What this system can do TODAY.
 - **Actuators:** Enable/disable strategies via strategy_manager. Log decisions with confidence and reasoning.
 - **Short-Window Bleed Detection:** Per-strategy rolling 7-trade EV check. Fires `bleed_alert` governance decision before slope-based BleedDetector catches it.
 - **Governance Priors:** All IBKR strategies have explicit regime fitness priors (crisis_alpha, options_directional added 2026-03-12).
+
+### Capital Allocator (Master Strategist)
+- **Capital Phases:** 5 phases -- SEED ($0-$500), GROWTH ($500-$5K), FOUNDATION ($5K-$50K), COMPOUND ($50K-$500K), DYNASTY ($500K+).
+- **Allocation Profiles:** 30 matrices (5 phases x 6 regimes). Each has strategy weights, reserve %, max positions, position scale, and market thesis.
+- **Integration:** Runs after every governance cycle. Replaces naive equal-split position sizing with weight-based allocation.
+- **Forward Signal Adjustment:** PM-derived signals (rate shifts, growth, risk appetite) modify allocation weights in real-time.
+- **Fitness Feedback:** Strategies with proven fitness get capital boosts (up to 1.5x); unproven strategies get reduced (down to 0.3x).
+- **Phase Auto-Detection:** Phase is determined by balance, not config. As capital grows, the allocator automatically shifts strategy.
+- **Status:** ACTIVE. Currently in SEED phase at $159.64 balance.
 
 ### Risk Management
 - **Kelly Sizing:** Dynamic per-strategy from realized win rate. Capped at 0.05.
@@ -141,6 +150,7 @@ kalshi-trading/
 ├── kalshi_trader/
 │   ├── main.py                  # Core loop (~2900 lines)
 │   ├── strategy_manager.py      # Multi-strategy orchestrator
+│   ├── capital_allocator.py     # Master strategist (5 phases x 6 regimes)
 │   ├── market_governor.py       # Autonomous governance + regime detection
 │   ├── forward_signal_bridge.py # NEW: Cross-market intelligence (PM -> stock bias)
 │   ├── captains_log.py          # AI narration

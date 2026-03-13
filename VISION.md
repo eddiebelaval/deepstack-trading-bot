@@ -2,7 +2,7 @@
 ## DeepStack
 
 > Last evolved: 2026-03-12 | Confidence: HIGH
-> Distance from SPEC: 70% (8 of 11 pillars realized, Kalshi LIVE, graduation auto-promotes)
+> Distance from SPEC: 75% (9 of 12 pillars realized, Capital Allocator active, graduation auto-promotes)
 
 ---
 
@@ -42,7 +42,10 @@ DeepStack exists because the market is a conversation between fear and greed, an
 10. **Graduation Gates** -- REALIZED
     Per-asset-class graduation fully implemented across all 4 sectors with AUTO-PROMOTION. Kalshi GRADUATED 2026-03-11 (145 trades, 87% WR, 17.5% DD, $683.60 PnL). When any IBKR sector passes all gates, the heartbeat automatically flips paper_trade=false on all strategies in that sector — both at runtime and in config.yaml. No manual intervention required. Generates HTML report and sends "AUTO-PROMOTED to LIVE" Telegram alert. IBKR sectors still accumulating paper trades (blocked by IBKR connectivity).
 
-11. **Dashboard Intelligence** -- REALIZED
+11. **Capital Allocator (Master Strategist)** -- REALIZED
+    The strategic brain. Sits above GovernanceEngine and answers: "Given our capital, regime, and forward signals — what percentage of firepower goes where?" 5 capital phases (SEED through DYNASTY) with 30 allocation profiles (5 phases x 6 regimes). Replaces naive equal-split position sizing with weight-based allocation. Forward signal adjustments modify weights in real-time. Fitness feedback loop rewards proven strategies with more capital. Phase auto-detects from balance — as the $160 grows, the allocator automatically shifts from SEED (concentrated on proven edges) through GROWTH (diversifying into IBKR) toward DYNASTY (generational preservation). Currently SEED phase: 65% calibration_edge, 25% high_probability_bonds, 10% reserve.
+
+12. **Dashboard Intelligence** -- REALIZED
     v3 multi-page dashboard live at milo.deepstack.trade. 5 dedicated pages (Command Center, Operations, Intelligence, Graduation, Research). WeatherMap NOAA-style radar visualization. AnalyticsPanel with 6 chart views. Security-hardened API layer (PostgREST filter injection fixed, whitelist validation). 34 orphaned v2 components cleaned up. Terminal green-on-black aesthetic. Real-time Supabase sync. Telegram bridge for mobile alerts.
 
 ## User Truth
@@ -53,7 +56,7 @@ DeepStack exists because the market is a conversation between fear and greed, an
 
 **Now:** "145 trades, 87% win rate, $683.60 paper P&L. The system proved itself. We graduated. Real money on the line now."
 
-**After (vision):** "The bot sees forward through prediction markets, trades across asset classes, governs itself through regime changes, and learns from every trade. When crisis hits, it's already positioned. When markets are calm, it collects prediction market alpha. Each sector graduates on its own merit — Kalshi first, then stocks, futures, options. The $160 grows."
+**After (vision):** "The bot thinks in centuries. It reads the market, makes a plan, and sticks to it. In SEED phase, it concentrates on the proven 87% win rate edge. As capital grows, the allocator automatically diversifies into IBKR — stocks, options, futures — each graduating on merit. When crisis hits, crisis_alpha leads. When markets are calm, it stacks premium. The Capital Allocator sequences everything: short-term survival, medium-term growth, long-term dynasty. The $160 becomes generational."
 
 ## Edges
 

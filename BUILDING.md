@@ -2,7 +2,7 @@
 
 This document tells the build story of DeepStack, an autonomous multi-asset trading bot. It evolved from a two-strategy prediction market weekend project into a wealth generation engine spanning Kalshi, IBKR stocks/ETFs/futures/options, with forward-looking intelligence from prediction markets, self-governing regime detection, and graceful degradation across exchanges.
 
-**120+ commits. 15 active build days. Feb 7 — Mar 11, 2026. LIVE on Kalshi.**
+**130+ commits. 16 active build days. Feb 7 — Mar 12, 2026. LIVE on Kalshi.**
 
 ---
 
@@ -514,6 +514,45 @@ e5d4ecf feat: go live — raise drawdown threshold to 20%, remove paper trading
 
 ---
 
+## Phase 15: Capital Allocator — Master Strategist Layer (Mar 12)
+
+**Eddie's directive: "Think in centuries, not decades."** The bot had 19 strategies but no strategic brain. Position sizing was a naive equal split across active strategies. When IBKR sectors graduate and go live, we can't just trade everything equally — we need a master strategist that sequences capital deployment based on how much we have, what the market is doing, and what our strategies have proven.
+
+### What Was Built
+
+**Capital Allocator** (`kalshi_trader/capital_allocator.py`)
+- New module sitting above GovernanceEngine. Answers: "Given our capital, regime, and forward signals — what percentage of firepower goes where?"
+- **5 capital phases**: SEED ($0-$500), GROWTH ($500-$5K), FOUNDATION ($5K-$50K), COMPOUND ($50K-$500K), DYNASTY ($500K+)
+- **30 allocation profiles** (5 phases x 6 regimes), each with strategy weights, reserve %, max simultaneous positions, position scale multiplier, and a market thesis string
+- Forward signal adjustments: RATE_SHIFT/GROWTH/RISK_APPETITE signals from prediction markets boost or reduce specific strategy weights
+- Fitness feedback loop: strategies with proven performance get capital boosts (1.5x at fitness=1.0), unproven strategies get reduced (0.3x at fitness=0)
+- Low regime confidence automatically raises reserve (shifts to cash rather than committing on a weak signal)
+
+**Trading Loop Integration** (`main.py`)
+- CapitalAllocator instantiated alongside GovernanceEngine during bot init
+- `compute_plan()` runs after every governance cycle with fresh regime, forward signals, and strategy fitness data
+- `_execute_opportunity_multi()` now uses allocator weights instead of naive equal split: `max_position_size * weight * scale`. Strategies with zero allocation weight are skipped entirely.
+
+**Self-Knowledge** (`self_knowledge.py`)
+- New `_gather_allocation()` section reports current phase, thesis, deployment percentage, reserve, and per-strategy weights
+- Dae can now explain its strategic posture in Telegram conversations: "I'm in SEED phase with 65% on calibration_edge because that's my proven edge"
+
+**Consciousness Update** (`mind/self-awareness/capabilities.md`, `mind/drives/goals.md`)
+- Capabilities doc now explains the 5 capital phases and how allocation works
+- Goals doc updated with the dynasty-building thesis: generational wealth through disciplined phased deployment
+
+### Architecture Decisions
+- **Allocator does NOT execute trades.** It outputs an `AllocationPlan` that the trading loop consumes. Clean separation: allocator decides weights, strategy manager + risk system control actual execution.
+- **Phase detection from balance, not config.** As the balance grows through profitable trading, the allocator automatically shifts phases. No manual intervention needed. SEED -> GROWTH at $500, etc.
+- **Reserve as a strategic lever.** In SEED + high_vol_choppy, reserve is 35%. In DYNASTY + high_vol_choppy, reserve is 80%. The more you have to lose, the more you protect.
+- **Backward compatible.** If the allocator has no plan yet (cold start), the old equal-split behavior kicks in as fallback.
+
+### Lessons
+- **Position sizing IS the strategy.** The same edge applied with 70% allocation vs 15% allocation produces dramatically different compounding curves. Kelly tells you how much to bet on ONE trade; the allocator tells you how much capital each strategy DESERVES across the portfolio.
+- **Phase-based thinking prevents ruin.** At $159 (SEED), concentrating on the proven 87% win rate strategy is objectively correct. Diversifying into unproven IBKR strategies at this capital level would be destroying edge for the illusion of diversification.
+
+---
+
 ## Current Architecture
 
 ```
@@ -550,6 +589,7 @@ kalshi-trading/
 │   ├── main.py              # Trading loop (~2900 lines)
 │   ├── kalshi_client.py     # RSA-authenticated API
 │   ├── strategy_manager.py  # Multi-strategy orchestrator (with IBKR timeouts)
+│   ├── capital_allocator.py # Master strategist (5 phases x 6 regimes = 30 allocation profiles)
 │   ├── market_governor.py   # Autonomous governance (regime + forward signal bias)
 │   ├── forward_signal_bridge.py # Cross-market intelligence (PM -> stock regime)
 │   ├── captains_log.py      # AI narration
@@ -606,9 +646,9 @@ kalshi-trading/
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 125+ |
+| Total commits | 130+ |
 | Active build days | 16 (Feb 7 — Mar 12, 2026) |
-| PRs merged | 108 |
+| PRs merged | 109 |
 | Strategies | 19 (6 active, 13 disabled) |
 | Tests | 38+ |
 | Real balance | $159.64 (LIVE on Kalshi since Mar 11) |
