@@ -1660,12 +1660,21 @@ class KalshiTradingBot:
 
                 # Update watermark to avoid reprocessing
                 if settlements:
-                    timestamps = [
-                        s.get("settled_time") for s in settlements
-                        if s.get("settled_time")
-                    ]
-                    if timestamps:
-                        self._last_settlement_ts = max(timestamps)
+                    epoch_timestamps = []
+                    for s in settlements:
+                        st = s.get("settled_time")
+                        if not st:
+                            continue
+                        if isinstance(st, (int, float)):
+                            epoch_timestamps.append(int(st))
+                        elif isinstance(st, str):
+                            try:
+                                dt = datetime.fromisoformat(st.replace("Z", "+00:00"))
+                                epoch_timestamps.append(int(dt.timestamp()))
+                            except (ValueError, TypeError):
+                                pass
+                    if epoch_timestamps:
+                        self._last_settlement_ts = max(epoch_timestamps)
 
                 # Bridge: close local SQLite trades that settled on exchange
                 if self.journal and settlements:
