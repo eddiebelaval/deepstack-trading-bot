@@ -479,6 +479,41 @@ e5d4ecf feat: go live — raise drawdown threshold to 20%, remove paper trading
 
 ---
 
+## Phase 14: Governance Priors, Bleed Detection, Self-Awareness (Mar 12)
+
+**Dae misdiagnosed itself.** When asked "what's happening with your strategies?" via Telegram, Dae catastrophized — claiming strategies were broken, regime detection was failing, APIs were disconnected. An audit of all 9 subsystems revealed the bot was operating correctly. The real issues were subtler.
+
+### What Was Built
+
+**Governance Priors for Missing Strategies** (PR #106)
+- `crisis_alpha` and `options_directional` had no explicit priors in `DEFAULT_PRIORS`. Both defaulted to 0.5 for all 5 regimes — effectively random routing. Added regime-specific priors:
+  - crisis_alpha: high affinity for trending_down (0.85), high_vol_choppy (0.8), low for calm/trending_up
+  - options_directional: high affinity for trending_up/down (0.85/0.8), low for choppy/calm
+
+**Short-Window Bleed Detection** (PR #106)
+- Added `detect_short_window_ev()` to BleedDetector — checks if a strategy's last 7 trades have negative cumulative P&L (threshold: -25c). Fires before the slope-based BleedDetector catches it. Wired as `bleed_alert` governance decision in the governance cycle.
+
+**Self-Awareness Upgrade** (PR #106)
+- `self_knowledge.py` now reports execution mode per strategy (PAPER vs LIVE) and governance prior status at runtime. Dae can now answer "what mode are my strategies in?" accurately.
+- `capabilities.md` documents the full strategy lifecycle: paper -> graduation gate -> live promotion -> governance demotion. Explains what "enabled but not trading" means (paper mode, governance disabled, circuit breaker, no opportunities).
+- `self.md` updated with paper/live distinction in Strategy Engine section.
+
+**Dashboard Accessibility Polish** (PR #107)
+- Bumped 6 stat labels from `text-[8px]` to `text-[9px]` for WCAG readability.
+- Added footer terminator ("DAE v3.0") to layout to eliminate dead black void at page bottom.
+
+**Graduation Auto-Promotion** (PR #108)
+- When a sector passes all graduation gates, the heartbeat now **automatically flips `paper_trade=false`** on all strategies in that sector — both at runtime (strategy instance) and on disk (config.yaml).
+- Telegram alert changes from "Ready for go-live review" to "AUTO-PROMOTED to LIVE: [strategies]. Strategies now placing REAL orders."
+- Config.yaml gets annotated with `# AUTO-PROMOTED by graduation gate` comment on the changed line.
+
+### Lessons
+- **Self-misdiagnosis is worse than no diagnosis.** Dae's consciousness files described capabilities in absolute terms ("I can trade multiple strategies") but had no concept of paper/live modes. When strategies were enabled but not placing orders (paper mode), Dae concluded they were broken. The fix: structural awareness at three layers — static files (what modes exist), runtime queries (current state), system prompt (assembly).
+- **Governance priors are silent failures.** No error, no log, no alert when a strategy falls back to 0.5 default prior. The strategy just gets routed randomly across all regimes. This was caught by audit, not by monitoring.
+- **Auto-promotion closes the loop.** The graduation gate evaluated, the heartbeat alerted, but nothing changed. The gap between "ready" and "live" required manual intervention. Auto-promotion makes the system truly self-governing for the paper->live transition.
+
+---
+
 ## Current Architecture
 
 ```
@@ -571,9 +606,9 @@ kalshi-trading/
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 120+ |
-| Active build days | 15 (Feb 7 — Mar 11, 2026) |
-| PRs merged | 93 |
+| Total commits | 125+ |
+| Active build days | 16 (Feb 7 — Mar 12, 2026) |
+| PRs merged | 108 |
 | Strategies | 19 (6 active, 13 disabled) |
 | Tests | 38+ |
 | Real balance | $159.64 (LIVE on Kalshi since Mar 11) |
@@ -606,5 +641,5 @@ These are hard-won lessons from production bugs. Save yourself the debugging.
 
 ---
 
-*Last updated: 2026-03-11*
+*Last updated: 2026-03-12*
 *Private -- id8Labs LLC*

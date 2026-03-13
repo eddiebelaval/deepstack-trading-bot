@@ -1,9 +1,9 @@
 # SPEC.md -- Living Specification
 ## DeepStack
 
-> Last reconciled: 2026-03-11 | Build stage: Phase 13 (Kalshi Goes Live)
+> Last reconciled: 2026-03-12 | Build stage: Phase 14 (Governance + Self-Awareness)
 > Drift status: CURRENT
-> VISION alignment: 65% (7 of 11 pillars realized, Kalshi graduated to live trading)
+> VISION alignment: 70% (8 of 11 pillars realized, graduation auto-promotes)
 
 ---
 
@@ -49,6 +49,8 @@ What this system can do TODAY.
 - **Dual Regime:** Kalshi PM regime + IBKR stock regime (lookback=10 cycles, min_confidence=0.5).
 - **Lexicon Signal Generator:** Maps regime to strategy recommendations via investor archetype consensus (Buffett, Icahn, Dalio, Burry, etc.).
 - **Actuators:** Enable/disable strategies via strategy_manager. Log decisions with confidence and reasoning.
+- **Short-Window Bleed Detection:** Per-strategy rolling 7-trade EV check. Fires `bleed_alert` governance decision before slope-based BleedDetector catches it.
+- **Governance Priors:** All IBKR strategies have explicit regime fitness priors (crisis_alpha, options_directional added 2026-03-12).
 
 ### Risk Management
 - **Kelly Sizing:** Dynamic per-strategy from realized win rate. Capped at 0.05.
@@ -123,7 +125,7 @@ What this system can do TODAY.
 
 ## Graduation Gates
 
-Hybrid graduation: 65% backtest confidence (arena scores) + 35% paper trading readiness. Each sector evaluated independently per heartbeat cycle. On graduation, generates HTML report to `~/Development/artifacts/deepstack/` and sends Telegram notification.
+Hybrid graduation: 65% backtest confidence (arena scores) + 35% paper trading readiness. Each sector evaluated independently per heartbeat cycle. On graduation: generates HTML report to `~/Development/artifacts/deepstack/`, auto-promotes all strategies in the sector from paper to live (runtime flip + config.yaml persistence), and sends "AUTO-PROMOTED to LIVE" Telegram notification. No manual intervention required for paper-to-live transition.
 
 | Asset Class | Required Trades | Required Win Rate | Hybrid Blend | Status |
 |-------------|----------------|-------------------|-------------|--------|
@@ -173,5 +175,5 @@ kalshi-trading/
 
 ---
 
-*Last reconciled: 2026-03-11*
+*Last reconciled: 2026-03-12*
 *Private -- id8Labs LLC*
