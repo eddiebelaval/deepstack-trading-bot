@@ -14,10 +14,11 @@ Conflict Resolution Rules:
 """
 
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -300,7 +301,8 @@ class PrincipleRouter:
 
     def __init__(self):
         self._last_verdict: Optional[CouncilVerdict] = None
-        self._verdict_history: List[CouncilVerdict] = []
+        self._verdict_history: Deque[CouncilVerdict] = deque(maxlen=50)
+        self._last_context: Optional[Tuple[str, str, float]] = None
 
     @property
     def last_verdict(self) -> Optional[CouncilVerdict]:
@@ -318,7 +320,13 @@ class PrincipleRouter:
         Convene the council of masters for the current context.
 
         Returns a CouncilVerdict with active masters, thesis, and adjustments.
+        Skips recomputation if context (phase, regime, confidence) is unchanged.
         """
+        # Convergence guard: skip if context unchanged
+        context = (phase, regime, round(regime_confidence, 2))
+        if self._last_verdict and self._last_context == context:
+            return self._last_verdict
+
         # Score each master for this context
         scored: List[Tuple[str, float, float]] = []  # (name, relevance, caution)
 
@@ -393,9 +401,8 @@ class PrincipleRouter:
         # Archive
         if self._last_verdict:
             self._verdict_history.append(self._last_verdict)
-            if len(self._verdict_history) > 50:
-                self._verdict_history = self._verdict_history[-50:]
         self._last_verdict = verdict
+        self._last_context = context
 
         logger.info(
             "Council convened | Phase: %s | Regime: %s | Voices: %s | Caution: %.0f%% | Sizing: %.2fx | %s (%.0f%%) | Thesis: %s",
@@ -572,8 +579,8 @@ class PrincipleRouter:
         if not masters:
             return f"{phase.upper()} phase, {regime} regime — no council available."
 
-        # Take the top 2-3 masters' directives and weave them
-        top = sorted(masters, key=lambda m: m.weight, reverse=True)[:3]
+        # Masters are already sorted by relevance (weight) from convene_council
+        top = masters[:3]
         parts = []
         for m in top:
             # Shorten directive for thesis

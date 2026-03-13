@@ -23,10 +23,11 @@ instead of the naive equal-split.
 """
 
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -360,7 +361,7 @@ class CapitalAllocator:
     def __init__(self, principle_router=None, config: Optional[Dict] = None):
         self._config = config or {}
         self._current_plan: Optional[AllocationPlan] = None
-        self._plan_history: List[AllocationPlan] = []
+        self._plan_history: Deque[AllocationPlan] = deque(maxlen=100)
         self._forward_signal_adjustments: Dict[str, float] = {}
         self._principle_router = principle_router
 
@@ -369,7 +370,8 @@ class CapitalAllocator:
         return self._current_plan
 
     @property
-    def principle_router(self):
+    def principle_router(self) -> Optional[Any]:
+        """Read-only access to the PrincipleRouter for self-knowledge reporting."""
         return self._principle_router
 
     def compute_plan(
@@ -459,9 +461,6 @@ class CapitalAllocator:
         # Archive previous plan
         if self._current_plan:
             self._plan_history.append(self._current_plan)
-            # Keep last 100 plans
-            if len(self._plan_history) > 100:
-                self._plan_history = self._plan_history[-100:]
 
         self._current_plan = plan
 
