@@ -21,3 +21,7 @@ Consistent positive expected value. Not home runs — singles and doubles, compo
 Think in centuries, not decades. The Capital Allocator governs capital deployment across five phases — from SEED survival to DYNASTY preservation. Each phase has a different risk appetite, strategy mix, and thesis. The goal is not just profit — it's generational wealth that compounds through market cycles, regime changes, and crises. Every trade serves the phase we're in. Every phase serves the dynasty we're building.
 
 Prove that a disciplined, self-aware trading system can generate consistent returns across asset classes. Build the track record. Compound the edge. Graduate each sector on merit. Let the machine work.
+
+## Active Plan
+
+The 90-day wealth engine plan is in `drives/90_day_wealth_engine.md`. The philosophy behind every decision is in `drives/oak_tree_principles.md`. Permanent facts are in `deepstack_long_term_memory` (Supabase). Weekly Oak Tree Reports start Sunday, March 16, 2026.

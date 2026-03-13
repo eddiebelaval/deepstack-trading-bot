@@ -195,6 +195,9 @@ class KalshiTradingBot:
         self._auto_disabled_strategies: set = set()
         self._latest_health: Dict[str, Any] = {}
 
+        # Settlement watermark — skip re-processing already-handled settlements
+        self._last_settlement_ts: Optional[int] = None
+
         # Hard circuit breakers per strategy (independent of health evaluation)
         # Structure: {strategy_name: {consecutive_losses, peak_pnl_cents, total_pnl_cents}}
         self._strategy_circuit_breakers: Dict[str, Dict[str, Any]] = {}
@@ -1499,12 +1502,12 @@ class KalshiTradingBot:
         balance = await self.client.get_balance()
         effective_balance = balance["available"]
         if self.paper_balance is not None:
-            # Paper mode: use simulated balance, adjusted by paper P&L
-            paper_pnl = sum(
-                p.get("pnl_cents", 0) for p in self.open_positions.values()
-                if p.get("is_paper")
-            ) / 100
-            effective_balance = self.paper_balance + paper_pnl
+            # Paper mode: use journal's realized P&L to track simulated balance
+            if self.journal:
+                realized_pnl = self.journal.get_daily_pnl() / 100
+                effective_balance = self.paper_balance + realized_pnl
+            else:
+                effective_balance = self.paper_balance
         self.risk.update_balance(effective_balance)
 
         # Sync positions with exchange
@@ -1650,23 +1653,64 @@ class KalshiTradingBot:
                 logger.debug(f"Failed to push fills: {e}")
 
             try:
-                settlements = await self.client.get_settlements(limit=100)
+                settlements = await self.client.get_settlements(
+                    limit=200, min_ts=self._last_settlement_ts,
+                )
                 await self.dashboard.push_settlements(settlements)
+
+                # Update watermark to avoid reprocessing
+                if settlements:
+                    timestamps = [
+                        s.get("settled_time") for s in settlements
+                        if s.get("settled_time")
+                    ]
+                    if timestamps:
+                        self._last_settlement_ts = max(timestamps)
 
                 # Bridge: close local SQLite trades that settled on exchange
                 if self.journal and settlements:
                     for s in settlements:
                         ticker = s.get("ticker")
                         result = s.get("market_result")
-                        if ticker and result:
-                            closed = self.journal.close_trades_by_settlement(ticker, result)
-                            if closed > 0:
-                                logger.info(
-                                    f"Settlement bridge: closed {closed} local trade(s) "
-                                    f"for {ticker} (result={result})"
-                                )
-                                # Recompute adaptive thresholds with new data
-                                self._apply_adaptive_thresholds()
+                        if not ticker or not result:
+                            continue
+
+                        # Get strategy name before closing (for downstream state)
+                        strategy_name = "calibration_edge"
+                        for t in self.journal.get_open_trades():
+                            if t.get("market_ticker") == ticker:
+                                strategy_name = t.get("strategy", strategy_name)
+                                break
+
+                        closed, total_pnl, total_contracts = self.journal.close_trades_by_settlement(ticker, result)
+                        if closed > 0:
+                            mode = "PAPER" if self.paper_trade else "LIVE"
+                            logger.info(
+                                f"Settlement bridge: closed {closed} trade(s) "
+                                f"for {ticker} (result={result}) | "
+                                f"P&L={total_pnl:+d}c ({total_contracts} contracts) | {strategy_name}"
+                            )
+
+                            # Update all downstream state (was missing before)
+                            self._update_circuit_breaker_state(strategy_name, total_pnl)
+                            if not self.paper_trade:
+                                self.risk.record_trade_result(ticker, total_pnl, total_contracts)
+                            if self.market_governor:
+                                self.market_governor.record_trade_outcome(strategy_name, total_pnl)
+                            self._apply_adaptive_thresholds()
+
+                            # Remove from open_positions if present
+                            if ticker in self.open_positions:
+                                del self.open_positions[ticker]
+                                if self.strategy_manager:
+                                    self.strategy_manager.record_position_close(ticker)
+
+                            # Notify via Telegram
+                            pnl_sign = "+" if total_pnl >= 0 else ""
+                            await self._notify(
+                                f"[{mode} BRIDGE SETTLE] {ticker} -> {result}\n"
+                                f"P&L: {pnl_sign}${total_pnl / 100:.2f} | {strategy_name}"
+                            )
             except Exception as e:
                 logger.debug(f"Failed to push settlements: {e}")
 
@@ -2456,6 +2500,14 @@ class KalshiTradingBot:
                         "side": side,
                         "synced_from_exchange": True,
                     }
+                    # Restore trade_id from journal so exits are properly recorded
+                    if self.journal:
+                        for jt in self.journal.get_open_trades():
+                            if jt.get("market_ticker") == ticker:
+                                self.open_positions[ticker]["trade_id"] = jt["id"]
+                                self.open_positions[ticker]["strategy"] = jt.get("strategy", "calibration_edge")
+                                self.open_positions[ticker]["entry_price"] = jt.get("entry_price_cents", 0)
+                                break
 
                 # Always update enriched fields from exchange
                 self.open_positions[ticker].update({
@@ -2512,29 +2564,22 @@ class KalshiTradingBot:
                 else:
                     # Kalshi: check market status and settlement
                     if market.get("status") not in ("open", "active"):
-                        if self.paper_trade and market.get("result"):
-                            result = market["result"]
-                            closed = self.journal.close_trades_by_settlement(ticker, result)
+                        result = market.get("result")
+                        if result and self.journal:
+                            closed, pnl, contracts = self.journal.close_trades_by_settlement(ticker, result)
 
-                            side = position.get("side", "yes")
-                            entry = position.get("entry_price", 0)
-                            contracts = position.get("contracts", 1)
-                            if result == "yes":
-                                settle_price = 100 if side == "yes" else 0
-                            else:
-                                settle_price = 0 if side == "yes" else 100
-                            pnl = (settle_price - entry) * contracts
-
+                            mode = "PAPER" if self.paper_trade else "LIVE"
                             logger.info(
-                                f"[PAPER] Settlement: {ticker} -> {result} | "
-                                f"side={side} entry={entry}c settle={settle_price}c "
-                                f"P&L={pnl:+d}c | closed {closed} journal entries"
+                                f"[{mode}] Settlement: {ticker} -> {result} | "
+                                f"P&L={pnl:+d}c ({contracts} contracts) | "
+                                f"closed {closed} journal entries"
                             )
 
                             if closed > 0:
                                 strategy_name = position.get("strategy", "calibration_edge")
                                 self._update_circuit_breaker_state(strategy_name, pnl)
-                                self.risk.record_trade_result(ticker, pnl, contracts)
+                                if not self.paper_trade:
+                                    self.risk.record_trade_result(ticker, pnl, contracts)
                                 if self.market_governor:
                                     self.market_governor.record_trade_outcome(strategy_name, pnl)
                                     await self._sync_fitness_to_supabase(strategy_name)
@@ -2542,14 +2587,13 @@ class KalshiTradingBot:
                                 self._check_lab_milestones()
 
                                 # Telegram notification — settlement
-                                mode = "PAPER" if self.paper_trade else "LIVE"
                                 pnl_sign = "+" if pnl >= 0 else ""
                                 await self._notify(
                                     f"[{mode} SETTLE] {ticker} -> {result}\n"
                                     f"P&L: {pnl_sign}${pnl / 100:.2f} | {strategy_name}"
                                 )
                         else:
-                            logger.info(f"Market {ticker} no longer open, removing from tracking")
+                            logger.info(f"Market {ticker} no longer open (no result yet), removing from tracking")
                         del self.open_positions[ticker]
                         if self.strategy_manager:
                             self.strategy_manager.record_position_close(ticker)

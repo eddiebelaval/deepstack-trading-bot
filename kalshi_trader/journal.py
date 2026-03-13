@@ -540,7 +540,7 @@ class TradeJournal:
         self,
         ticker: str,
         market_result: str,
-    ) -> int:
+    ) -> tuple:
         """
         Close all open trades for a settled market ticker.
 
@@ -549,7 +549,7 @@ class TradeJournal:
           - NO result:  YES contracts pay 0c, NO contracts pay 100c
 
         Returns:
-            Number of trades closed
+            Tuple of (trades_closed, total_pnl_cents, total_contracts)
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -560,9 +560,11 @@ class TradeJournal:
             open_trades = cursor.fetchall()
 
             if not open_trades:
-                return 0
+                return (0, 0, 0)
 
             closed = 0
+            total_pnl = 0
+            total_contracts = 0
             for trade in open_trades:
                 entry = trade["fill_price_cents"] or trade["entry_price_cents"]
                 contracts = trade["contracts"]
@@ -577,10 +579,12 @@ class TradeJournal:
                 else:
                     settle_price = 0  # void
 
+                # Entry commission: 2c/side per contract (Kalshi standard)
+                entry_commission = 2 * contracts
                 if action == "buy":
-                    pnl = (settle_price - entry) * contracts
+                    pnl = (settle_price - entry) * contracts - entry_commission
                 else:
-                    pnl = (entry - settle_price) * contracts
+                    pnl = (entry - settle_price) * contracts - entry_commission
 
                 cursor.execute(
                     """
@@ -595,6 +599,8 @@ class TradeJournal:
                     (settle_price, f"settlement:{market_result}", pnl, trade["id"]),
                 )
                 closed += 1
+                total_pnl += pnl
+                total_contracts += contracts
                 logger.info(
                     f"Settlement closed trade {trade['id']}: "
                     f"{ticker} {side} {action} {contracts}x @ {entry}c -> "
@@ -602,7 +608,7 @@ class TradeJournal:
                 )
 
             conn.commit()
-            return closed
+            return (closed, total_pnl, total_contracts)
 
     def get_open_trades(self) -> List[Dict]:
         """Get all open trades."""

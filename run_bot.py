@@ -32,6 +32,8 @@ Optional Environment Variables:
 
 import argparse
 import asyncio
+import os
+import signal
 import sys
 from pathlib import Path
 
@@ -209,6 +211,40 @@ def build_strategy_configs(args, base_configs):
     return filtered
 
 
+def _acquire_pidlock() -> bool:
+    """Prevent duplicate bot instances. Returns True if lock acquired."""
+    pidfile = Path(__file__).parent / ".bot.pid"
+    if pidfile.exists():
+        try:
+            old_pid = int(pidfile.read_text().strip())
+            # Check if process is actually running
+            os.kill(old_pid, 0)
+            # Process exists — refuse to start
+            print(f"ERROR: Bot already running (PID {old_pid}). Kill it first or delete {pidfile}")
+            return False
+        except (ProcessLookupError, ValueError):
+            # Stale PID file — clean up and continue
+            pass
+        except PermissionError:
+            # Process exists but we can't signal it — still refuse
+            print(f"ERROR: Bot already running (PID {pidfile.read_text().strip()}).")
+            return False
+
+    pidfile.write_text(str(os.getpid()))
+
+    # Clean up PID file on exit
+    def _cleanup(*_):
+        try:
+            pidfile.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    import atexit
+    atexit.register(_cleanup)
+    signal.signal(signal.SIGTERM, lambda *_: (_cleanup(), sys.exit(0)))
+    return True
+
+
 def main():
     """Main entry point."""
     args = parse_args()
@@ -317,6 +353,10 @@ def main():
         if args.paper_balance:
             print(f"  Balance: SIMULATED (${args.paper_balance:.2f})")
         print()
+
+    # Acquire PID lock — prevents double-instance (causes duplicate Telegram replies)
+    if not _acquire_pidlock():
+        sys.exit(1)
 
     print("Starting bot... (Ctrl+C to stop)")
     print("-" * 60)
