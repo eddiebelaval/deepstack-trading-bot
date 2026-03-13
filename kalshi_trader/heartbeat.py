@@ -25,8 +25,10 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+import yaml
+
 from . import consciousness
-from .graduation_gate import GraduationGate
+from .graduation_gate import GraduationGate, STRATEGY_ASSET_CLASS
 from .graduation_report import generate_graduation_report
 
 logger = logging.getLogger(__name__)
@@ -122,6 +124,78 @@ class HeartbeatEngine:
         self._graduation_gate = gate
         logger.debug("Heartbeat: graduation gate connected")
 
+    def _promote_sector_to_live(self, sector_key: str) -> List[str]:
+        """
+        Flip paper_trade=false on all strategies in a graduated sector.
+
+        Updates runtime strategy config AND persists to config.yaml.
+        Returns list of strategy names that were promoted.
+        """
+        promoted: List[str] = []
+
+        # Find strategies belonging to this sector
+        strategies_in_sector = [
+            name for name, ac in STRATEGY_ASSET_CLASS.items()
+            if ac == sector_key
+        ]
+        if not strategies_in_sector:
+            return promoted
+
+        # 1. Runtime flip — update strategy instances in the bot's strategy_manager
+        strategy_manager = getattr(self._bot, "strategy_manager", None)
+        if strategy_manager:
+            for strat_name in strategies_in_sector:
+                state = strategy_manager._strategies.get(strat_name)
+                if state and hasattr(state.strategy, "paper_trade"):
+                    if state.strategy.paper_trade:
+                        state.strategy.paper_trade = False
+                        promoted.append(strat_name)
+                        logger.info(
+                            "AUTO-PROMOTE: %s paper_trade=False (sector %s graduated)",
+                            strat_name, sector_key,
+                        )
+
+        # 2. Persist to config.yaml so it survives restart
+        if promoted:
+            self._persist_promotion_to_yaml(promoted)
+
+        return promoted
+
+    def _persist_promotion_to_yaml(self, strategy_names: List[str]) -> None:
+        """Update config.yaml to set paper_trade: false for promoted strategies."""
+        config_path = Path(self._bot.config.journal_db_path).parent / "config.yaml"
+        if not config_path.exists():
+            logger.warning("Cannot persist promotion — config.yaml not found at %s", config_path)
+            return
+
+        try:
+            raw = config_path.read_text()
+            for name in strategy_names:
+                # Replace paper_trade: true in the strategy's config block.
+                # Pattern: find "- name: {name}" then the next "paper_trade: true" after it.
+                # Use line-by-line replacement scoped to the right strategy block.
+                lines = raw.split("\n")
+                in_strategy = False
+                for i, line in enumerate(lines):
+                    stripped = line.strip()
+                    if stripped == f"- name: {name}":
+                        in_strategy = True
+                    elif in_strategy and stripped.startswith("- name:"):
+                        break  # Next strategy block
+                    elif in_strategy and "paper_trade: true" in stripped:
+                        lines[i] = line.replace(
+                            "paper_trade: true",
+                            "paper_trade: false        # AUTO-PROMOTED by graduation gate",
+                        )
+                        in_strategy = False
+                        break
+                raw = "\n".join(lines)
+
+            config_path.write_text(raw)
+            logger.info("Persisted promotion to %s for: %s", config_path, strategy_names)
+        except Exception as e:
+            logger.warning("Failed to persist promotion to config.yaml: %s", e)
+
     async def close(self) -> None:
         """Clean up HTTP client."""
         if self._claude_client:
@@ -187,6 +261,9 @@ class HeartbeatEngine:
                             db_path=self._graduation_gate._db_path,
                         )
 
+                        # Auto-promote strategies in this sector from paper to live
+                        promoted = self._promote_sector_to_live(sector_key)
+
                         alert_lines = [
                             f"GRADUATION: {sector_label} — All thresholds passed.",
                             f"Trades: {report.paper_trades_closed}",
@@ -195,7 +272,13 @@ class HeartbeatEngine:
                         ]
                         if report_path:
                             alert_lines.append(f"Report: {report_path}")
-                        alert_lines.append("Ready for go-live review.")
+                        if promoted:
+                            alert_lines.append(
+                                f"AUTO-PROMOTED to LIVE: {', '.join(promoted)}"
+                            )
+                            alert_lines.append("Strategies now placing REAL orders.")
+                        else:
+                            alert_lines.append("No strategies to promote (already live or not loaded).")
 
                         await self._send_telegram_alert(
                             alert_lines,

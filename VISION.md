@@ -1,8 +1,8 @@
 # VISION.md -- Living North Star
 ## DeepStack
 
-> Last evolved: 2026-03-11 | Confidence: HIGH
-> Distance from SPEC: 65% (7 of 11 pillars realized, Kalshi LIVE)
+> Last evolved: 2026-03-12 | Confidence: HIGH
+> Distance from SPEC: 70% (8 of 11 pillars realized, Kalshi LIVE, graduation auto-promotes)
 
 ---
 
@@ -39,8 +39,8 @@ DeepStack exists because the market is a conversation between fear and greed, an
 9. **News Triangulation** -- UNREALIZED
    news_sentiment_fade strategy exists but disabled. Vision: synthesize prediction market signals + recent news + capital markets into forward-looking intelligence. News API integration not built.
 
-10. **Graduation Gates** -- PARTIAL (75%)
-    Per-asset-class graduation fully implemented across all 4 sectors. Kalshi GRADUATED 2026-03-11 (145 trades, 87% WR, 17.5% DD, $683.60 PnL). Bot now live-trading Kalshi with real money. IBKR sectors (stocks/futures/options) remain in paper mode — each graduates independently when gate checks pass. Hybrid graduation blends backtest confidence (65%) with paper trading readiness (35%). On graduation, generates terminal-themed HTML report and Telegram notification. Remaining: IBKR strategies need live market data to accumulate trades.
+10. **Graduation Gates** -- REALIZED
+    Per-asset-class graduation fully implemented across all 4 sectors with AUTO-PROMOTION. Kalshi GRADUATED 2026-03-11 (145 trades, 87% WR, 17.5% DD, $683.60 PnL). When any IBKR sector passes all gates, the heartbeat automatically flips paper_trade=false on all strategies in that sector — both at runtime and in config.yaml. No manual intervention required. Generates HTML report and sends "AUTO-PROMOTED to LIVE" Telegram alert. IBKR sectors still accumulating paper trades (blocked by IBKR connectivity).
 
 11. **Dashboard Intelligence** -- REALIZED
     v3 multi-page dashboard live at milo.deepstack.trade. 5 dedicated pages (Command Center, Operations, Intelligence, Graduation, Research). WeatherMap NOAA-style radar visualization. AnalyticsPanel with 6 chart views. Security-hardened API layer (PostgREST filter injection fixed, whitelist validation). 34 orphaned v2 components cleaned up. Terminal green-on-black aesthetic. Real-time Supabase sync. Telegram bridge for mobile alerts.
