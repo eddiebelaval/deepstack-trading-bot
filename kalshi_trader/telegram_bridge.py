@@ -69,6 +69,8 @@ class TelegramBridge:
         self._client: Optional[httpx.AsyncClient] = None
         self._claude_client: Optional[httpx.AsyncClient] = None
         self._last_update_id: int = 0
+        self._processed_message_ids: deque = deque(maxlen=50)  # Dedup by message_id
+        self._recent_message_hashes: deque = deque(maxlen=20)  # Dedup by content+time
         self._last_response_time: float = 0
         self._running: bool = False
         self._chat_history: deque = deque(maxlen=_MAX_HISTORY_MESSAGES)
@@ -488,6 +490,7 @@ class TelegramBridge:
         message = update.get("message", {})
         chat_id = str(message.get("chat", {}).get("id", ""))
         text = message.get("text", "").strip()
+        message_id = message.get("message_id")
 
         # Security: only respond to Eddie's chat
         if chat_id != self._chat_id:
@@ -497,7 +500,22 @@ class TelegramBridge:
         if not text:
             return
 
-        logger.info(f"Telegram Bridge: received: {text[:80]}")
+        # Dedup layer 1: exact message_id (Telegram redelivery)
+        if message_id and message_id in self._processed_message_ids:
+            logger.debug(f"Telegram Bridge: skipping duplicate message_id={message_id}")
+            return
+        if message_id:
+            self._processed_message_ids.append(message_id)
+
+        # Dedup layer 2: same content within 10s window (client-side retransmit)
+        msg_date = message.get("date", 0)
+        content_key = f"{text}:{msg_date // 10}"  # 10-second bucket
+        if content_key in self._recent_message_hashes:
+            logger.debug(f"Telegram Bridge: skipping near-duplicate content (msg_id={message_id})")
+            return
+        self._recent_message_hashes.append(content_key)
+
+        logger.info(f"Telegram Bridge: received (msg_id={message_id}): {text[:80]}")
 
         # Rate limit
         now = time.time()
