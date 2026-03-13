@@ -369,6 +369,21 @@ def _gather_allocation(bot) -> str:
     for name, weight in sorted(plan.weights.items(), key=lambda x: -x[1]):
         lines.append(f"  - {name}: {weight:.0%}")
 
+    # Council of Masters verdict (Principle Router)
+    router = getattr(allocator, 'principle_router', None)
+    if router:
+        verdict = getattr(router, 'last_verdict', None)
+        if verdict:
+            lines.append("")
+            lines.append("### Council of Masters")
+            lines.append(f"- Signal: {verdict.signal_label} ({verdict.convergence_score:.0%})")
+            lines.append(f"- Caution level: {verdict.caution_level:.0%}")
+            lines.append(f"- Sizing bias: {verdict.position_sizing_bias:.2f}x")
+            lines.append(f"- Active voices: {', '.join(m.master for m in verdict.active_masters)}")
+            # Top 3 directives
+            for m in sorted(verdict.active_masters, key=lambda x: -x.weight)[:3]:
+                lines.append(f"  - {m.master} ({m.weight:.0%}): {m.directive[:80]}")
+
     return "\n".join(lines)
 
 

@@ -4,6 +4,10 @@ Capital Allocator — Master Strategist Layer for DeepStack
 Sits above GovernanceEngine. Answers: "Given our capital, regime, and
 forward signals — what percentage of firepower goes where?"
 
+Integrates the Principle Router (Council of Masters) for convergence/
+divergence confirmation signals. When masters converge, conviction rises.
+When they diverge, caution rises and reserve increases.
+
 Thinks in centuries. Acts in cycles.
 
 Capital Phases:
@@ -345,18 +349,28 @@ class CapitalAllocator:
     Master strategist layer. Reads regime, forward signals, and capital phase
     to produce allocation plans that the trading loop follows.
 
+    Integrates PrincipleRouter for convergence/divergence confirmation.
+    When the council converges, sizing bias amplifies. When it diverges,
+    reserve increases and sizing dampens — same confirmation shape as
+    every other signal layer in DeepStack.
+
     Does NOT execute trades. Outputs AllocationPlan that StrategyManager consumes.
     """
 
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(self, principle_router=None, config: Optional[Dict] = None):
         self._config = config or {}
         self._current_plan: Optional[AllocationPlan] = None
         self._plan_history: List[AllocationPlan] = []
         self._forward_signal_adjustments: Dict[str, float] = {}
+        self._principle_router = principle_router
 
     @property
     def current_plan(self) -> Optional[AllocationPlan]:
         return self._current_plan
+
+    @property
+    def principle_router(self):
+        return self._principle_router
 
     def compute_plan(
         self,
@@ -404,6 +418,23 @@ class CapitalAllocator:
         # Adjust weights based on live strategy fitness
         if strategy_fitness:
             base_weights = self._apply_fitness_adjustment(base_weights, strategy_fitness)
+
+        # Convene council of masters for convergence/divergence confirmation
+        if self._principle_router:
+            verdict = self._principle_router.convene_council(
+                phase=phase_key,
+                regime=regime,
+                regime_confidence=regime_confidence,
+                forward_signals=forward_signals,
+                strategy_fitness=strategy_fitness,
+            )
+            # Apply council adjustments:
+            # 1. Sizing bias modulates position scale
+            scale *= verdict.position_sizing_bias
+            # 2. Reserve adjustment adds to cash reserve
+            reserve = min(reserve + verdict.reserve_adjustment, 0.80)
+            # 3. Enrich thesis with council wisdom
+            thesis += f" | Council: {verdict.signal_label} — {verdict.thesis}"
 
         # Normalize weights so they don't exceed (1 - reserve)
         total_weight = sum(base_weights.values())

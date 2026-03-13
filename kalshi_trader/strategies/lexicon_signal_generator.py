@@ -330,7 +330,7 @@ class LexiconSignalGenerator:
         Parse Titan Alignment section from playbook markdown.
 
         Expected format:
-            - **Primary:** Musk/Jobs (...), Dalio (...)
+            - **Primary:** Musk, Jobs (...), Dalio (...)
             - **Secondary:** Burry (...)
             - **Avoid:** Buffett (...), Icahn (...)
 

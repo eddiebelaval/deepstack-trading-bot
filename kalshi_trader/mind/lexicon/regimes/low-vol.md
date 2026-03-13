@@ -11,7 +11,7 @@ This is the patience regime. Edge exists but is small. The best strategy is capi
 ## Titan Alignment
 
 - **Primary:** Buffett/Munger (patience is the position — wait for fat pitches), Dalio (all-weather allocation, collect small edges across many positions)
-- **Secondary:** Musk/Jobs (use downtime to build better systems, not more trades)
+- **Secondary:** Musk, Jobs (use downtime to build better systems, not more trades)
 - **Avoid:** Icahn (no dislocations to exploit), Burry (contrarian plays need volatility to create entry points)
 
 ## Strategy Recommendations

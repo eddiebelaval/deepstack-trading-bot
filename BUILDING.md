@@ -2,7 +2,7 @@
 
 This document tells the build story of DeepStack, an autonomous multi-asset trading bot. It evolved from a two-strategy prediction market weekend project into a wealth generation engine spanning Kalshi, IBKR stocks/ETFs/futures/options, with forward-looking intelligence from prediction markets, self-governing regime detection, and graceful degradation across exchanges.
 
-**130+ commits. 16 active build days. Feb 7 — Mar 12, 2026. LIVE on Kalshi.**
+**135+ commits. 16 active build days. Feb 7 — Mar 12, 2026. LIVE on Kalshi.**
 
 ---
 
@@ -553,6 +553,47 @@ e5d4ecf feat: go live — raise drawdown threshold to 20%, remove paper trading
 
 ---
 
+## Phase 16: Deep Wisdom + Principle Router — Council of Masters (Mar 12)
+
+**Eddie's directive: "How do we enlighten Dae with the accumulated knowledge of our north star traders?"** The strategy lexicon had 6 shallow titan files (~38 lines each) with surface-level advice. The Capital Allocator made strategic decisions without consulting the masters' wisdom in any meaningful way. Two problems to solve: deepen the knowledge, then make it runtime.
+
+### What Was Built
+
+**Deep Wisdom Expansion** (14 titan files, synthesis framework)
+- Rewrote all existing titan files from ~38 lines to ~80-120 lines of abyss-level strategic DNA
+- Split grouped titans for fidelity: Cohen/Gill → individual files, Musk/Jobs → individual files
+- Added 8 new masters: Livermore, Soros, Druckenmiller, Thorp, Simons, Marks, Taleb, Templeton
+- Each file now has: Core Principles, Mental Models, Prediction Market Translation, Regime Alignment (with Signal/Anti-signal), Capital Phase Alignment, Key Quotes
+- **Synthesis framework** (`titans/synthesis.md`): Cross-master decision protocols for Before Every Trade, During Drawdown, During Euphoria, Building New Strategies. Regime-Master Alignment Matrix. Capital Phase-Master Alignment (5 councils from Survival to Preservation). Anti-Patterns table.
+- Updated INDEX.md with full 14-master catalog organized by functional role
+
+**Principle Router** (`kalshi_trader/principle_router.py`)
+- Runtime module that dynamically selects which masters' principles apply to each decision context
+- **16 master profiles** with regime scores (5 regimes), phase scores (5 phases), caution_base, and contextual directive templates
+- **Scoring:** 60% phase fit + 40% regime fit, with confidence adjustments. Low regime confidence boosts cautious masters, penalizes aggressive ones.
+- **Role diversity:** Max 2 masters per functional role (Position Sizer, Regime Reader, Edge Finder, Risk Manager, System Builder). Max 7 total active voices.
+- **Convergence/divergence** as confirmation signal — same fractal shape as every other signal layer. Measured by inverse standard deviation of caution levels. High convergence amplifies sizing bias. Divergence dampens sizing and raises reserve.
+- **Conflict resolution rules:** (1) Phase trumps regime, (2) Evidence trumps philosophy, (3) Caution trumps aggression
+- **CouncilVerdict** output: active masters, synthesized thesis, caution level, sizing bias, reserve adjustment, convergence score
+
+**Capital Allocator Integration**
+- PrincipleRouter instantiated in main.py, passed to CapitalAllocator
+- Council convened every governance cycle inside `compute_plan()`
+- Verdict modulates: position_scale (via sizing_bias), reserve_pct (via reserve_adjustment), thesis (enriched with council wisdom)
+
+**Self-Knowledge** — Council verdict reported: active voices, convergence signal label, top directives. Dae can explain why it's listening to Thorp and Jobs at SEED but would listen to Druckenmiller and Soros at GROWTH.
+
+### Architecture Decisions
+- **Router is pure computation, no I/O.** It reads profiles, computes scores, outputs a verdict. No file reads, no API calls, no state mutation beyond history archival. This makes it fast enough to run every 60-second governance cycle.
+- **Convergence as confirmation, not override.** The council verdict modulates the allocation plan, it doesn't replace it. If convergence is high, sizing bias amplifies (up to +10%). If divergence is high, sizing dampens (up to -50%) and reserve increases (+8%). The allocator's phase/regime matrices remain the structural foundation.
+- **Phase trumps regime.** At SEED, even aggressive masters like Druckenmiller get their caution floor raised to 0.6. This prevents the council from recommending aggressive plays when the bankroll can't survive drawdowns.
+
+### Lessons
+- **Convergence is the universal confirmation shape.** Forward signals converge/diverge. Regime indicators converge/diverge. TradingView indicators converge/diverge. Now masters converge/diverge. The same fractal pattern at every layer of the system.
+- **14 masters need conflict resolution.** Without the router, loading Druckenmiller ("go for the jugular") alongside Livermore ("go fishing") in high_vol_choppy would produce contradictory guidance. The router resolves this by scoring each master's relevance and only giving voice to the most contextually appropriate ones.
+
+---
+
 ## Current Architecture
 
 ```
@@ -589,7 +630,8 @@ kalshi-trading/
 │   ├── main.py              # Trading loop (~2900 lines)
 │   ├── kalshi_client.py     # RSA-authenticated API
 │   ├── strategy_manager.py  # Multi-strategy orchestrator (with IBKR timeouts)
-│   ├── capital_allocator.py # Master strategist (5 phases x 6 regimes = 30 allocation profiles)
+│   ├── capital_allocator.py # Master strategist (5 phases x 6 regimes = 30 profiles + council)
+│   ├── principle_router.py  # Council of Masters (16 profiles, convergence/divergence confirmation)
 │   ├── market_governor.py   # Autonomous governance (regime + forward signal bias)
 │   ├── forward_signal_bridge.py # Cross-market intelligence (PM -> stock regime)
 │   ├── captains_log.py      # AI narration
@@ -646,7 +688,7 @@ kalshi-trading/
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 130+ |
+| Total commits | 135+ |
 | Active build days | 16 (Feb 7 — Mar 12, 2026) |
 | PRs merged | 109 |
 | Strategies | 19 (6 active, 13 disabled) |
