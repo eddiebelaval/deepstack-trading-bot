@@ -12,7 +12,7 @@ This is the most dangerous regime for systematic traders — strategies designed
 
 - **Primary:** Icahn (buy the panic, contrarian into forced selling), Burry (structural breaks create Burry-style dislocations)
 - **Secondary:** Dalio (risk parity — reduce size, spread across uncorrelated events)
-- **Avoid:** Buffett (patience doesn't help when stops keep firing), Cohen/Gill (conviction holds get destroyed by whipsaws)
+- **Avoid:** Buffett (patience doesn't help when stops keep firing), Cohen, Gill (conviction holds get destroyed by whipsaws)
 
 ## Strategy Recommendations
 

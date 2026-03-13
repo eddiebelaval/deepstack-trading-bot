@@ -10,7 +10,7 @@ In prediction markets, trends often accelerate near expiry — the "resolution g
 
 ## Titan Alignment
 
-- **Primary:** Musk/Jobs (skate to where the puck is going), Dalio (ride the macro wave)
+- **Primary:** Musk, Jobs (skate to where the puck is going), Dalio (ride the macro wave)
 - **Secondary:** Burry (ONLY in trending_down — contrarian macro shorts align with downtrends)
 - **Avoid:** Buffett (patience underperforms when momentum pays), Icahn (fighting the tape is expensive)
 

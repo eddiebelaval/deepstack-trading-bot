@@ -11,7 +11,7 @@ This is the purest form of prediction market trading. The event WILL happen. The
 ## Titan Alignment
 
 - **Primary:** Burry (read the primary sources — the actual data methodology, the survey design, the seasonal adjustments), Buffett/Munger (margin of safety on high-conviction events)
-- **Secondary:** Cohen/Gill (asymmetric bets on underpriced outcomes), Icahn (contrarian if consensus is extreme)
+- **Secondary:** Cohen, Gill (asymmetric bets on underpriced outcomes), Icahn (contrarian if consensus is extreme)
 - **Avoid:** Pure momentum approaches (event resolution is discontinuous, not trending)
 
 ## Strategy Recommendations

@@ -10,9 +10,9 @@ Binary contracts in mean-reverting regimes tend to cluster in the 30-70c range, 
 
 ## Titan Alignment
 
-- **Primary:** Buffett/Munger (buy the dip, margin of safety on reversion), Cohen/Gill (turnaround plays as prices revert from extremes)
+- **Primary:** Buffett/Munger (buy the dip, margin of safety on reversion), Cohen, Gill (turnaround plays as prices revert from extremes)
 - **Secondary:** Dalio (balanced allocation works when nothing trends)
-- **Avoid:** Musk/Jobs (visionary plays need trends to validate), momentum strategies in general
+- **Avoid:** Musk, Jobs (visionary plays need trends to validate), momentum strategies in general
 
 ## Strategy Recommendations
 
