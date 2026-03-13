@@ -1,9 +1,9 @@
 # SPEC.md -- Living Specification
 ## DeepStack
 
-> Last reconciled: 2026-03-12 | Build stage: Phase 15 (Capital Allocator)
+> Last reconciled: 2026-03-12 | Build stage: Phase 16 (Deep Wisdom + Principle Router)
 > Drift status: CURRENT
-> VISION alignment: 73% (8 of 11 pillars realized + Capital Allocator layer)
+> VISION alignment: 80% (10 of 13 pillars realized)
 
 ---
 
@@ -58,6 +58,12 @@ What this system can do TODAY.
 - **Integration:** Runs after every governance cycle. Replaces naive equal-split position sizing with weight-based allocation.
 - **Forward Signal Adjustment:** PM-derived signals (rate shifts, growth, risk appetite) modify allocation weights in real-time.
 - **Fitness Feedback:** Strategies with proven fitness get capital boosts (up to 1.5x); unproven strategies get reduced (down to 0.3x).
+- **Council of Masters:** PrincipleRouter convenes 5-7 masters per cycle. Verdict modulates position_scale (sizing_bias) and reserve_pct. Convergence/divergence confirmation signal shapes allocation.
+
+### Strategy Lexicon (Deep Wisdom)
+- **14 Master Profiles:** Thorp, Druckenmiller, Buffett/Munger, Dalio, Marks, Templeton, Simons, Burry, Gill, Cohen, Taleb, Livermore, Soros, Musk, Jobs, Icahn. Each ~80-120 lines with Core Principles, Mental Models, Prediction Market Translation, Capital Phase Alignment.
+- **Synthesis Framework:** Cross-master decision protocols (Before Trade, During Drawdown, During Euphoria, Building Strategies). Regime-Master Alignment Matrix. Capital Phase councils.
+- **Principle Router:** Runtime master selection with scoring (60% phase + 40% regime), role diversity constraints (max 2 per role), convergence/divergence measurement (inverse σ of caution levels). Conflict resolution: phase > regime, evidence > philosophy, caution > aggression.
 - **Phase Auto-Detection:** Phase is determined by balance, not config. As capital grows, the allocator automatically shifts strategy.
 - **Status:** ACTIVE. Currently in SEED phase at $159.64 balance.
 

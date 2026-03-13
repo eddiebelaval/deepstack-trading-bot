@@ -2,7 +2,7 @@
 ## DeepStack
 
 > Last evolved: 2026-03-12 | Confidence: HIGH
-> Distance from SPEC: 75% (9 of 12 pillars realized, Capital Allocator active, graduation auto-promotes)
+> Distance from SPEC: 80% (10 of 13 pillars realized, Council of Masters active, convergence confirmation live)
 
 ---
 
@@ -45,7 +45,10 @@ DeepStack exists because the market is a conversation between fear and greed, an
 11. **Capital Allocator (Master Strategist)** -- REALIZED
     The strategic brain. Sits above GovernanceEngine and answers: "Given our capital, regime, and forward signals — what percentage of firepower goes where?" 5 capital phases (SEED through DYNASTY) with 30 allocation profiles (5 phases x 6 regimes). Replaces naive equal-split position sizing with weight-based allocation. Forward signal adjustments modify weights in real-time. Fitness feedback loop rewards proven strategies with more capital. Phase auto-detects from balance — as the $160 grows, the allocator automatically shifts from SEED (concentrated on proven edges) through GROWTH (diversifying into IBKR) toward DYNASTY (generational preservation). Currently SEED phase: 65% calibration_edge, 25% high_probability_bonds, 10% reserve.
 
-12. **Dashboard Intelligence** -- REALIZED
+12. **Deep Wisdom + Principle Router** -- REALIZED
+    The Council of Masters is runtime. 14 trader archetypes with deep strategic DNA — each ~80-120 lines of Core Principles, Mental Models, and Prediction Market Translation. The Principle Router scores each master's relevance (60% phase fit + 40% regime fit), enforces role diversity, and outputs a CouncilVerdict. Convergence/divergence as confirmation signal — the same fractal shape that runs through forward signals, regime detection, and TradingView indicators. When the council converges, conviction amplifies. When it diverges, reserve increases and sizing dampens. The router resolves conflicts: phase trumps regime, evidence trumps philosophy, caution trumps aggression.
+
+13. **Dashboard Intelligence** -- REALIZED
     v3 multi-page dashboard live at milo.deepstack.trade. 5 dedicated pages (Command Center, Operations, Intelligence, Graduation, Research). WeatherMap NOAA-style radar visualization. AnalyticsPanel with 6 chart views. Security-hardened API layer (PostgREST filter injection fixed, whitelist validation). 34 orphaned v2 components cleaned up. Terminal green-on-black aesthetic. Real-time Supabase sync. Telegram bridge for mobile alerts.
 
 ## User Truth
@@ -56,7 +59,7 @@ DeepStack exists because the market is a conversation between fear and greed, an
 
 **Now:** "145 trades, 87% win rate, $683.60 paper P&L. The system proved itself. We graduated. Real money on the line now."
 
-**After (vision):** "The bot thinks in centuries. It reads the market, makes a plan, and sticks to it. In SEED phase, it concentrates on the proven 87% win rate edge. As capital grows, the allocator automatically diversifies into IBKR — stocks, options, futures — each graduating on merit. When crisis hits, crisis_alpha leads. When markets are calm, it stacks premium. The Capital Allocator sequences everything: short-term survival, medium-term growth, long-term dynasty. The $160 becomes generational."
+**After (vision):** "The bot thinks in centuries. It reads the market, convenes its council of masters, and acts with conviction when they converge. In SEED phase, Thorp, Jobs, and Buffett speak loudest — fractional Kelly, focus, don't lose money. As capital grows, the allocator automatically diversifies into IBKR — stocks, options, futures — each graduating on merit. When crisis hits, Taleb and Soros take the lead. When markets are calm, Livermore and Templeton say 'sit tight.' Every decision carries the synthesized wisdom of 14 traders who collectively managed trillions. The $160 becomes generational."
 
 ## Edges
 
