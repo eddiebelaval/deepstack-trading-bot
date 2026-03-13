@@ -1,9 +1,9 @@
 # SPEC.md -- Living Specification
 ## DeepStack
 
-> Last reconciled: 2026-03-12 | Build stage: Phase 16 (Deep Wisdom + Principle Router)
+> Last reconciled: 2026-03-13 | Build stage: Phase 17 (Agent SDK + Wealth Engine Persistence)
 > Drift status: CURRENT
-> VISION alignment: 80% (10 of 13 pillars realized)
+> VISION alignment: 85% (11 of 14 pillars realized)
 
 ---
 
@@ -79,6 +79,25 @@ What this system can do TODAY.
 - **Captain's Log:** AI narration of bot state. Streams to dashboard COMMS panel and Supabase.
 - **Heartbeat:** Deterministic health checks + periodic AI heartbeat. Arsenal refresh. Per-sector graduation evaluation with HTML report generation on pass.
 - **Telegram Notifications:** 7 hooks — trade opened/closed, settlement, strategy auto-disable, inaction critical, daily summary, IBKR connection.
+
+### Agent SDK (Cognitive Agent)
+- **DaeAgent** (`agent.py`): Scoped autonomous agent with 10 cognitive tools. Runs Claude Sonnet tool_use loop (max 15 iterations). Returns structured AgentResult.
+- **Tools:** read_file, list_files, query_journal (SQLite, read-only URI mode), query_supabase (12-table whitelist, PostgREST param validation), read_long_term_memory, update_long_term_memory, write_report (to mind/reports/), update_lessons (mind/memory/lessons.md), web_search (DuckDuckGo), get_bot_state.
+- **Security Boundary:** CANNOT modify code, config, risk params, or execute git/shell commands. SQLite opened `?mode=ro`. PostgREST select/filter/order params regex-validated. Blocked credential paths (.env, private key).
+- **Telegram Routing:** Intent classifier identifies "agent" requests (investigate, analyze, report). Routes to `run_agent_task()` with try/finally lifecycle.
+- **Distinct from DaeEngineer:** Engineer modifies code (5 tools, git branch + PR). Agent thinks and reports (10 tools, no code modification). Separate security domains.
+
+### Long-Term Memory
+- **Supabase table:** `deepstack_long_term_memory` — key/value/category store with upsert on key.
+- **Categories:** identity, capital, strategy, risk, planning, reporting, observation.
+- **Seed entries (7):** owner, mission, phase, primary_strategy, risk_philosophy, plan_reference, oak_tree_report.
+- **Agent tools:** read_long_term_memory (read all), update_long_term_memory (upsert).
+
+### Wealth Engine Plan
+- **90-day plan:** `mind/drives/90_day_wealth_engine.md` — Phase 1 Diagnostics (Mar 13-27), Phase 2 Optimization (Mar 28 - Apr 27), Phase 3 Compounding (Apr 28 - Jun 11).
+- **Oak tree principles:** `mind/drives/oak_tree_principles.md` — 10 capital preservation rules. Anti-principles (never chase losses, never martingale, never override circuit breaker).
+- **Oak Tree Reports:** Weekly on Sundays, starting March 16, 2026. Written by DaeAgent to mind/reports/.
+- **Standing orders:** HEARTBEAT.md references plan and principles every cycle.
 
 ### Observability
 - **Dashboard v3:** Live at milo.deepstack.trade (Vercel, deepstack-control project). Multi-page architecture:
@@ -165,7 +184,9 @@ kalshi-trading/
 │   ├── graduation_gate.py       # Per-asset-class graduation evaluation
 │   ├── graduation_report.py     # HTML report generator on graduation
 │   ├── consciousness.py         # CaF self-awareness
-│   ├── telegram_bridge.py       # Two-way Telegram
+│   ├── agent.py                 # DaeAgent — cognitive tools (10 tools, no code mod)
+│   ├── engineer.py              # DaeEngineer — code modification (5 tools, git + PR)
+│   ├── telegram_bridge.py       # Two-way Telegram + agent/engineer routing
 │   ├── dashboard_sync.py        # Supabase real-time sync
 │   ├── kalshi_client.py         # RSA-authenticated API
 │   └── journal.py               # Trade journal (SQLite)
@@ -191,5 +212,5 @@ kalshi-trading/
 
 ---
 
-*Last reconciled: 2026-03-12*
+*Last reconciled: 2026-03-13*
 *Private -- id8Labs LLC*
