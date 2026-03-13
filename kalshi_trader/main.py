@@ -488,7 +488,7 @@ class KalshiTradingBot:
                 self.market_governor.set_lexicon_signal_generator(sig_gen)
                 logger.info("Lexicon signal generator attached to governance engine")
         else:
-            logger.info("Market governor disabled (governance.enabled=false)")
+            logger.warning("Market governor disabled (governance.enabled=false) — Capital Allocator and Principle Router also inactive")
 
         # 5e. Initialize Captain's Log narration engine (optional)
         self.config_yaml = yaml_cfg  # Store for later use

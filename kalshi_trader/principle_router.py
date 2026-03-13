@@ -547,11 +547,13 @@ class PrincipleRouter:
         phase_caps = {"seed": 0.9, "dynasty": 0.95, "growth": 1.15, "compound": 1.1}
         cap = phase_caps.get(phase, 1.2)
         bias = min(bias, cap)
-        bias = max(bias, 0.5)  # Never less than 50% of default
 
         # Low confidence reduces further
         if regime_confidence < 0.4:
             bias *= 0.85
+
+        # Floor applied AFTER all adjustments — never less than 50% of default
+        bias = max(bias, 0.5)
 
         return bias
 
