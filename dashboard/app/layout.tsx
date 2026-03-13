@@ -19,6 +19,9 @@ export default function RootLayout({
           <Nav />
           <main className="flex-1 overflow-auto">
             {children}
+            <footer className="text-center text-[9px] text-terminal-dim/20 py-4 tracking-widest select-none">
+              DAE v3.0 — DeepStack Autonomous Engine
+            </footer>
           </main>
         </div>
       </body>
