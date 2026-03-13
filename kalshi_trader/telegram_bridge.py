@@ -256,7 +256,9 @@ class TelegramBridge:
 
             logger.info(f"Dashboard Chat: classified as '{intent}'")
 
-            if intent == "engineer":
+            if intent == "agent":
+                response = await self._handle_agent(classified)
+            elif intent == "engineer":
                 response = await self._handle_engineer(classified)
             elif intent == "command":
                 command_name = classified.get("command", "")
@@ -539,7 +541,9 @@ class TelegramBridge:
 
             logger.info(f"Telegram Bridge: classified as '{intent}' (confidence: {classified.get('confidence', '?')})")
 
-            if intent == "engineer":
+            if intent == "agent":
+                response = await self._handle_agent(classified)
+            elif intent == "engineer":
                 response = await self._handle_engineer(classified)
             elif intent == "command":
                 # Check for Phase 2 read commands first
@@ -617,6 +621,15 @@ Parse the user's message into one of these categories:
   - "write a lesson about today's losses" -> {"type": "engineer", "task": "write a lesson about today's losses"}
   - "refactor the arena scoring" -> {"type": "engineer", "task": "refactor the arena scoring"}
 
+- agent: Requests for Dae to THINK — investigate, research, analyze, write reports, or reason through complex questions. NOT code changes. Examples:
+  - "write the oak tree report" -> {"type": "agent", "task": "Write the weekly Oak Tree Report"}
+  - "investigate why we lost 3 trades in KXBTC" -> {"type": "agent", "task": "Investigate why we lost 3 consecutive trades in KXBTC"}
+  - "what's happening in the market right now?" -> {"type": "agent", "task": "Research current market conditions and how they affect our positions"}
+  - "analyze our performance this week" -> {"type": "agent", "task": "Analyze trading performance for this week"}
+  - "check the plan" / "how's the plan?" -> {"type": "agent", "task": "Review progress against the 90-day wealth engine plan"}
+  - "research fed rate decision" -> {"type": "agent", "task": "Research the upcoming Fed rate decision and its impact on our positions"}
+  - "deep dive on calibration_edge" -> {"type": "agent", "task": "Deep analysis of calibration_edge strategy performance by series, regime, and time"}
+
 - query: Questions about bot state, performance, strategy, reasoning, or markets. Examples:
   - "what's the scoop?" / "how are we doing?" / "status" / "give me a rundown"
   - "why is momentum disabled?" / "what happened today?"
@@ -638,9 +651,10 @@ Parse the user's message into one of these categories:
   - "markets are wild today huh"
 
 Respond with ONLY valid JSON. No explanation.
-{"type": "command|query|strategy_query|engineer|chat", "confidence": "high|medium|low", ...}
+{"type": "command|query|strategy_query|engineer|agent|chat", "confidence": "high|medium|low", ...}
 For commands, include "command" and "args" fields.
-For engineer, include "task" field with the full task description.
+For engineer, include "task" field with the full task description (CODE changes only).
+For agent, include "task" field with the full task description (research, analysis, reports — NOT code).
 For strategy_query, include "topic" field (one of: buffett, munger, dalio, icahn, cohen, gill, burry, musk, jobs, contrarian, playbook, trending, mean_reverting, high_vol, low_vol, event, arsenal, regime).
 For query/chat, just type and confidence."""
 
@@ -829,6 +843,45 @@ Only tag genuinely important facts. Don't tag routine questions or status checks
         except Exception as e:
             logger.error(f"Telegram Bridge: engineer failed: {e}", exc_info=True)
             return f"Engineering failed: {str(e)[:200]}"
+
+    async def _handle_agent(self, classified: dict) -> str:
+        """
+        Handle an agent request — Dae thinks, researches, reports.
+
+        Uses DaeAgent with cognitive tools (query journal, web search,
+        write reports, update memory). No code modification.
+        """
+        task = classified.get("task", "")
+        if not task:
+            return "I need a task. What should I investigate or report on?"
+
+        await self._send_message(f"Agent mode. Thinking about: {task}")
+        await self._send_chat_action("typing")
+
+        try:
+            from .agent import run_agent_task
+
+            result = await run_agent_task(task, bot=self.bot)
+
+            if result.success:
+                lines = ["Agent task complete."]
+                if result.reports_written:
+                    lines.append(f"Reports: {', '.join(result.reports_written)}")
+                if result.memories_updated:
+                    lines.append(f"Memory updated: {', '.join(result.memories_updated)}")
+                if result.tools_used:
+                    lines.append(f"Tools: {', '.join(result.tools_used)}")
+                if result.summary:
+                    summary = result.summary[:800]
+                    lines.append(f"\n{summary}")
+                lines.append(f"\n({result.iterations} iterations)")
+                return "\n".join(lines)
+            else:
+                return f"Agent failed: {result.error or result.summary}"
+
+        except Exception as e:
+            logger.error(f"Telegram Bridge: agent failed: {e}", exc_info=True)
+            return f"Agent failed: {str(e)[:200]}"
 
     async def _handle_phase2_command(self, command_name: str, classified: Optional[dict] = None) -> str:
         """
