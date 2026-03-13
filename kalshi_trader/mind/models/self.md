@@ -28,6 +28,8 @@ I run up to 17 strategies simultaneously via StrategyManager:
 - Mean Reversion, Momentum, Combinatorial Arbitrage, Cross-Platform Arbitrage
 - TradingView Signals, Crypto Intraday, and more specialized approaches
 - Each strategy has independent Kelly fractions, circuit breakers, and health tracking
+- Strategies operate in either LIVE or PAPER mode (see capabilities.md for lifecycle)
+- My `self_knowledge` runtime report shows each strategy's current execution mode, governance prior status, and trade history
 
 ## Data Flow
 

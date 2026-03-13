@@ -436,6 +436,16 @@ class StrategyRouter:
             "trending_up": 0.8, "trending_down": 0.1,
             "mean_reverting": 0.7, "high_vol_choppy": 0.15, "low_vol_calm": 0.85,
         },
+        # Crisis alpha — thrives in downturns and high volatility
+        "crisis_alpha": {
+            "trending_up": 0.2, "trending_down": 0.85,
+            "mean_reverting": 0.3, "high_vol_choppy": 0.8, "low_vol_calm": 0.15,
+        },
+        # Directional options — needs clear trend, avoid choppy/calm
+        "options_directional": {
+            "trending_up": 0.85, "trending_down": 0.8,
+            "mean_reverting": 0.3, "high_vol_choppy": 0.4, "low_vol_calm": 0.25,
+        },
     }
 
     def __init__(
@@ -604,6 +614,32 @@ class BleedDetector:
     def detect_strategy_bleed(self, strategy_name: str) -> Optional[BleedSignal]:
         """Check for slow bleed in a specific strategy."""
         return self._detect_bleed(strategy_name=strategy_name)
+
+    def detect_short_window_ev(
+        self, strategy_name: str, n_trades: int = 7, ev_threshold_cents: float = -25.0
+    ) -> Optional[BleedSignal]:
+        """Check if a strategy's last N trades have negative EV (catches bleeds faster than slope)."""
+        recent = [
+            t for t in self._trade_history if t[1] == strategy_name
+        ]
+        recent.sort(key=lambda t: t[0])
+        window = recent[-n_trades:] if len(recent) >= n_trades else None
+        if not window:
+            return None
+
+        total_pnl = sum(t[2] for t in window)
+        avg_ev = total_pnl / len(window)
+
+        if avg_ev >= ev_threshold_cents / n_trades:
+            return None
+
+        return BleedSignal(
+            strategy_name=strategy_name,
+            classification="short_window_bleed",
+            cumulative_pnl_cents=total_pnl,
+            slope_cents_per_hour=avg_ev,
+            window_hours=0,
+        )
 
     def _detect_bleed(self, strategy_name: Optional[str]) -> Optional[BleedSignal]:
         """Core bleed detection via linear regression of cumulative P&L."""
@@ -1283,6 +1319,27 @@ class GovernanceEngine:
                 if self.mode == "autonomous" and strategy_manager:
                     strategy_manager.enable_strategy(name)
                     logger.info("Governance ENABLED strategy '%s' (regime=%s)", name, snapshot.regime.value)
+
+        # Per-strategy short-window EV check (catches bleeds before slope detection)
+        for strat_name in (active_strategies or []):
+            short_bleed = self.bleed_detector.detect_short_window_ev(strat_name)
+            if short_bleed:
+                self._record_decision(GovernanceDecision(
+                    timestamp=snapshot.timestamp,
+                    regime=snapshot.regime,
+                    regime_confidence=snapshot.confidence,
+                    action="bleed_alert",
+                    strategy_name=strat_name,
+                    reason=(
+                        f"Short-window EV alert: last 7 trades pnl={short_bleed.cumulative_pnl_cents:.1f}c "
+                        f"avg={short_bleed.slope_cents_per_hour:.1f}c/trade"
+                    ),
+                    mode=self.mode,
+                ))
+                logger.warning(
+                    "Governance SHORT-WINDOW BLEED | %s | last 7 trades pnl=%.1fc",
+                    strat_name, short_bleed.cumulative_pnl_cents,
+                )
 
         # Bleed detection
         bleed = self.bleed_detector.detect_portfolio_bleed()

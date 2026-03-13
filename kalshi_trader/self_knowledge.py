@@ -137,6 +137,27 @@ def _gather_strategy_health(bot) -> str:
         except Exception:
             pass
 
+    # Structural awareness: paper vs live, governance priors, API requirements
+    lines.append("")
+    lines.append("### Execution Mode Per Strategy")
+    config = getattr(bot, 'config', None)
+    governor = getattr(bot, 'market_governor', None)
+    if config and hasattr(config, 'strategies'):
+        from kalshi_trader.market_governor import StrategyRegimeFitnessTracker
+        has_priors = set()
+        if governor and hasattr(governor, 'strategy_router'):
+            has_priors = set(governor.strategy_router.DEFAULT_PRIORS.keys())
+
+        for strat_cfg in config.strategies:
+            name = getattr(strat_cfg, 'name', str(strat_cfg))
+            enabled = getattr(strat_cfg, 'enabled', False)
+            paper = getattr(strat_cfg, 'paper_trade', False)
+            if not enabled:
+                continue
+            mode = "PAPER (simulated fills, no real orders)" if paper else "LIVE (real orders)"
+            prior_status = "has governance priors" if name in has_priors else "NO governance priors (defaults to 0.5)"
+            lines.append(f"- {name}: {mode} | {prior_status}")
+
     # Auto-disabled strategies
     auto_disabled = getattr(bot, '_auto_disabled_strategies', set())
     if auto_disabled:
@@ -205,8 +226,17 @@ def _gather_regime(bot) -> str:
             if regime_snapshot:
                 lines.append(f"- Current regime: {regime_snapshot.regime.value}")
                 lines.append(f"- Confidence: {regime_snapshot.confidence:.1%}")
+                lines.append(f"- Volatility: {regime_snapshot.volatility:.2f}")
+                lines.append(f"- Trend: {regime_snapshot.trend_strength:.3f}")
             else:
-                lines.append("- Current regime: unknown (no snapshots yet)")
+                lines.append("- Current regime: not yet detected (cold start, need 5+ snapshots)")
+            lines.append(f"- Governance mode: {getattr(governor, 'mode', 'unknown')}")
+            lines.append(f"- Min confidence for routing: {getattr(governor, 'min_confidence', '?')}")
+
+            # Governance-disabled strategies
+            gov_disabled = getattr(governor, '_governance_disabled', {})
+            if gov_disabled:
+                lines.append(f"- Governance-disabled strategies: {', '.join(gov_disabled.keys())}")
         except Exception:
             lines.append("- Regime detection error")
     else:
