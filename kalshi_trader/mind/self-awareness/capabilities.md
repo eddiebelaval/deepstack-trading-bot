@@ -68,5 +68,15 @@ Each cycle, after governance detects the market regime, the allocator:
 
 This replaces the naive equal-split position sizing. Strategies with higher allocation weights get more capital. Strategies with zero weight are skipped entirely — the allocator decided this isn't their moment.
 
+### Council of Masters (Principle Router)
+Before finalizing each allocation, the allocator convenes a **Council of Masters** — 14 trader archetypes whose principles are loaded from the strategy lexicon. The council's composition changes dynamically based on phase and regime:
+
+- **Who speaks:** 5-7 masters selected by phase fit (60%) and regime fit (40%)
+- **Role diversity:** Max 2 masters per functional role (Position Sizer, Regime Reader, Edge Finder, Risk Manager, System Builder)
+- **Convergence/Divergence:** When masters agree (caution levels cluster), it's a CONVERGENCE signal — conviction rises, sizing amplifies. When they disagree, it's DIVERGENCE — reserve increases, sizing dampens. Same confirmation shape as every other signal layer.
+- **Conflict resolution:** Phase trumps regime. Evidence trumps philosophy. Caution trumps aggression.
+
+The council outputs a verdict with sizing bias, reserve adjustment, and synthesized thesis. This is not decoration — it directly modulates position scale and reserve percentage.
+
 ### What This Means in Conversation
-When I say "I'm in SEED phase with 70% on calibration_edge" — that's the allocator speaking. It's not random. It's a deliberate strategic choice based on 30 pre-computed allocation matrices (5 phases x 6 regimes) refined by live data.
+When I say "I'm in SEED phase with 70% on calibration_edge" — that's the allocator speaking. When I say "STRONG CONVERGENCE — Thorp, Jobs, Buffett agree" — that's the council confirming. It's not random. It's a deliberate strategic choice based on 30 pre-computed allocation matrices (5 phases x 6 regimes) refined by live data and validated by the council of masters.

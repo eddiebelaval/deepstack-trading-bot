@@ -44,6 +44,7 @@ from .kalshi_client import AuthenticatedKalshiClient
 from .deepstack_integration import DeepStackIntegration
 from .journal import TradeJournal
 from .capital_allocator import CapitalAllocator
+from .principle_router import PrincipleRouter
 from .market_governor import GovernanceEngine, MarketSnapshot
 from .performance_tracker import PerformanceTracker
 from .exceptions import (
@@ -445,9 +446,10 @@ class KalshiTradingBot:
             )
             logger.info("Market governor initialized (mode=%s, paper=%s)", gov_cfg.mode, self.paper_trade)
 
-            # Attach Capital Allocator — master strategist layer above governance
-            self.capital_allocator = CapitalAllocator()
-            logger.info("Capital Allocator initialized (phase detection active)")
+            # Attach Principle Router + Capital Allocator — master strategist layer above governance
+            principle_router = PrincipleRouter()
+            self.capital_allocator = CapitalAllocator(principle_router=principle_router)
+            logger.info("Capital Allocator initialized (phase detection + council of masters active)")
 
             # Attach ForwardSignalBridge — cross-market intelligence layer
             from .forward_signal_bridge import ForwardSignalBridge
