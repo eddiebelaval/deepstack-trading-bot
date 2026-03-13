@@ -758,7 +758,7 @@ Only tag genuinely important facts. Don't tag routine questions or status checks
                 "https://api.anthropic.com/v1/messages",
                 json={
                     "model": SONNET,
-                    "max_tokens": 1024,
+                    "max_tokens": 4096,
                     "system": system_prompt,
                     "messages": messages,
                 },

@@ -171,39 +171,39 @@ def _gather_strategy_health(bot) -> str:
     journal = getattr(bot, 'journal', None)
     if journal:
         try:
-            conn = journal._get_conn()
-            # Total trade count
-            total = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
-            lines.append(f"- Total trades (all time): {total}")
-            # Per-strategy trade counts
-            rows = conn.execute(
-                "SELECT strategy, COUNT(*) as cnt FROM trades "
-                "GROUP BY strategy ORDER BY cnt DESC"
-            ).fetchall()
-            if rows:
-                for row in rows:
-                    lines.append(f"  - {row['strategy']}: {row['cnt']} trades")
-            # Last trade time
-            last_row = conn.execute(
-                "SELECT created_at FROM trades ORDER BY created_at DESC LIMIT 1"
-            ).fetchone()
-            if last_row:
-                last_trade = last_row["created_at"]
-                lines.append(f"- Last trade: {last_trade}")
-                try:
-                    last_dt = datetime.fromisoformat(str(last_trade).replace("Z", "+00:00"))
-                    now = datetime.now(timezone.utc)
-                    delta = now - last_dt
-                    days = delta.days
-                    hours = delta.seconds // 3600
-                    if days > 0:
-                        lines.append(f"- Time since last trade: {days}d {hours}h")
-                    else:
-                        lines.append(f"- Time since last trade: {hours}h")
-                except Exception:
-                    pass
-            else:
-                lines.append("- Last trade: NEVER — zero trades executed")
+            with journal._get_connection() as conn:
+                # Total trade count
+                total = conn.execute("SELECT COUNT(*) FROM trades").fetchone()[0]
+                lines.append(f"- Total trades (all time): {total}")
+                # Per-strategy trade counts
+                rows = conn.execute(
+                    "SELECT strategy, COUNT(*) as cnt FROM trades "
+                    "GROUP BY strategy ORDER BY cnt DESC"
+                ).fetchall()
+                if rows:
+                    for row in rows:
+                        lines.append(f"  - {row['strategy']}: {row['cnt']} trades")
+                # Last trade time
+                last_row = conn.execute(
+                    "SELECT created_at FROM trades ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+                if last_row:
+                    last_trade = last_row["created_at"]
+                    lines.append(f"- Last trade: {last_trade}")
+                    try:
+                        last_dt = datetime.fromisoformat(str(last_trade).replace("Z", "+00:00"))
+                        now = datetime.now(timezone.utc)
+                        delta = now - last_dt
+                        days = delta.days
+                        hours = delta.seconds // 3600
+                        if days > 0:
+                            lines.append(f"- Time since last trade: {days}d {hours}h")
+                        else:
+                            lines.append(f"- Time since last trade: {hours}h")
+                    except Exception:
+                        pass
+                else:
+                    lines.append("- Last trade: NEVER — zero trades executed")
         except Exception:
             pass
 
