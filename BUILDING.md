@@ -4,6 +4,8 @@ This document tells the build story of DeepStack, an autonomous multi-asset trad
 
 **140+ commits. 17 active build days. Feb 7 — Mar 13, 2026. LIVE on Kalshi.**
 
+Last updated: 2026-03-13
+
 ---
 
 ## How to Read This Document
