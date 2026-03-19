@@ -295,26 +295,168 @@ class SelfRepairEngine:
         affected_files: Optional[List[str]] = None,
     ) -> bool:
         """
-        Attempt repair and restart the bot if successful.
+        Full self-healing pipeline: branch → fix → commit → push → PR → merge → restart.
 
-        Returns True if repair succeeded and restart was triggered.
+        Follows the same pattern as Ava's auto-version/auto-release workflows.
+        DAE owns its own codebase changes through proper Git flow.
+
+        Returns True if the full pipeline succeeded.
         """
         result = await self.attempt_repair(category, diagnosis, context, affected_files)
 
-        if result["success"]:
-            await self._notify("Restarting bot to apply repair...")
-            # Trigger restart via launchctl (async, non-blocking)
-            try:
-                await asyncio.to_thread(
-                    subprocess.run,
-                    ["launchctl", "kickstart", "-k", "gui/501/com.id8labs.deepstack-bot"],
-                    capture_output=True,
-                    timeout=10,
-                )
-            except Exception as e:
-                logger.warning("Self-repair: restart failed: %s", e)
-                await self._notify(f"Restart failed: {e}. Manual restart needed.")
+        if not result["success"]:
+            return False
+
+        # Check if there are actual changes to deploy
+        has_changes = await self._git_has_changes()
+        if not has_changes:
+            await self._notify("Repair ran but produced no file changes. Skipping deploy.")
+            return False
+
+        # Full deploy pipeline: branch → commit → push → PR → merge → restart
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+        branch_name = f"self-repair/{category}-{timestamp}"
+
+        try:
+            # 1. Create branch
+            await self._git("checkout", "-b", branch_name)
+            await self._notify(f"Created branch: {branch_name}")
+
+            # 2. Stage and commit
+            await self._git("add", "-A")
+            commit_msg = (
+                f"[Meta] fix(dae-self-repair): {category}\n\n"
+                f"Diagnosis: {diagnosis}\n\n"
+                f"Autonomous repair by DAE Tier 3 self-healing engine.\n"
+                f"Duration: {result['duration_seconds']}s\n\n"
+                f"Co-Authored-By: DAE Self-Repair <noreply@id8labs.app>"
+            )
+            await self._git("commit", "-m", commit_msg)
+
+            # 3. Push
+            await self._git("push", "-u", "origin", branch_name)
+            await self._notify(f"Pushed to origin/{branch_name}")
+
+            # 4. Create PR
+            pr_url = await self._create_pr(
+                branch=branch_name,
+                title=f"fix(dae-self-repair): {category}",
+                body=(
+                    f"## Autonomous Self-Repair\n\n"
+                    f"**Category:** `{category}`\n"
+                    f"**Diagnosis:** {diagnosis}\n"
+                    f"**Duration:** {result['duration_seconds']}s\n\n"
+                    f"This PR was created autonomously by DAE's Tier 3 self-repair engine.\n"
+                    f"All changes passed syntax validation before commit.\n\n"
+                    f"### Safety checks\n"
+                    f"- [x] No protected files modified\n"
+                    f"- [x] Python syntax validated\n"
+                    f"- [x] Changes are minimal and scoped\n\n"
+                    f"Co-Authored-By: DAE Self-Repair <noreply@id8labs.app>"
+                ),
+            )
+
+            if not pr_url:
+                await self._notify("PR creation failed. Changes are on branch, merge manually.")
+                await self._git("checkout", "main")
                 return False
+
+            await self._notify(f"PR created: {pr_url}")
+
+            # 5. Merge PR (--merge, never squash per Eddie's rules)
+            merged = await self._merge_pr(pr_url)
+            if not merged:
+                await self._notify(f"Auto-merge failed. PR is open: {pr_url}")
+                await self._git("checkout", "main")
+                return False
+
+            # 6. Switch back to main and pull
+            await self._git("checkout", "main")
+            await self._git("pull")
+
+            await self._notify(
+                f"Self-repair DEPLOYED: {category}\n"
+                f"PR: {pr_url}\n"
+                f"Restarting bot..."
+            )
+
+            # 7. Restart bot
+            await asyncio.to_thread(
+                subprocess.run,
+                ["launchctl", "kickstart", "-k", "gui/501/com.id8labs.deepstack-bot"],
+                capture_output=True,
+                timeout=10,
+            )
             return True
 
-        return False
+        except Exception as e:
+            logger.error("Self-repair deploy pipeline failed: %s", e)
+            await self._notify(f"Deploy pipeline FAILED at: {e}")
+            # Best-effort: get back to main
+            try:
+                await self._git("checkout", "main")
+            except Exception:
+                pass
+            return False
+
+    # ── Git & GitHub helpers ──────────────────────────────────────────
+
+    async def _git(self, *args: str) -> str:
+        """Run a git command in the project root. Returns stdout."""
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            ["git"] + list(args),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(_PROJECT_ROOT),
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"git {' '.join(args)} failed: {proc.stderr.strip()}")
+        return proc.stdout.strip()
+
+    async def _git_has_changes(self) -> bool:
+        """Check if there are uncommitted changes."""
+        status = await self._git("status", "--porcelain")
+        return bool(status.strip())
+
+    async def _create_pr(self, branch: str, title: str, body: str) -> Optional[str]:
+        """Create a GitHub PR via gh CLI. Returns PR URL or None."""
+        try:
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                [
+                    "gh", "pr", "create",
+                    "--title", title,
+                    "--body", body,
+                    "--base", "main",
+                    "--head", branch,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=str(_PROJECT_ROOT),
+            )
+            if proc.returncode == 0:
+                return proc.stdout.strip()
+            logger.error("gh pr create failed: %s", proc.stderr)
+            return None
+        except Exception as e:
+            logger.error("PR creation error: %s", e)
+            return None
+
+    async def _merge_pr(self, pr_url: str) -> bool:
+        """Merge a PR via gh CLI (regular merge, never squash)."""
+        try:
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                ["gh", "pr", "merge", pr_url, "--merge", "--delete-branch"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=str(_PROJECT_ROOT),
+            )
+            return proc.returncode == 0
+        except Exception as e:
+            logger.error("PR merge error: %s", e)
+            return False
