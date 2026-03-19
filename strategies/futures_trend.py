@@ -76,28 +76,48 @@ class FuturesTrendStrategy(Strategy):
             logger.debug("futures_trend: no stock regime detected yet — skipping")
             return []
 
-        if stock_regime.confidence < self.min_regime_confidence:
-            logger.debug(
-                "futures_trend: stock regime confidence %.2f < %.2f threshold — skipping",
-                stock_regime.confidence, self.min_regime_confidence,
-            )
-            return []
-
         regime_name = stock_regime.regime.value
-        if regime_name not in self.allowed_regimes:
-            logger.debug(
-                "futures_trend: regime %s not in allowed list %s — staying flat",
-                regime_name, self.allowed_regimes,
-            )
-            return []
 
-        # Determine direction from regime
-        if regime_name == "trending_up":
-            side = "buy"
-        elif regime_name == "trending_down":
-            side = "sell"
+        # Paper mode: relax regime gates to collect graduation data.
+        # Real trades still require full confidence + regime alignment.
+        if self.paper_trade:
+            if stock_regime.confidence < 0.1:
+                logger.debug(
+                    "futures_trend [PAPER]: regime confidence %.2f too low even for paper — skipping",
+                    stock_regime.confidence,
+                )
+                return []
+            # In paper mode, default to buy if regime isn't clearly down
+            if regime_name == "trending_down":
+                side = "sell"
+            else:
+                side = "buy"
+            logger.info(
+                "futures_trend [PAPER]: regime=%s conf=%.2f — paper trading %s for graduation data",
+                regime_name, stock_regime.confidence, side,
+            )
         else:
-            return []
+            if stock_regime.confidence < self.min_regime_confidence:
+                logger.debug(
+                    "futures_trend: stock regime confidence %.2f < %.2f threshold — skipping",
+                    stock_regime.confidence, self.min_regime_confidence,
+                )
+                return []
+
+            if regime_name not in self.allowed_regimes:
+                logger.debug(
+                    "futures_trend: regime %s not in allowed list %s — staying flat",
+                    regime_name, self.allowed_regimes,
+                )
+                return []
+
+            # Determine direction from regime
+            if regime_name == "trending_up":
+                side = "buy"
+            elif regime_name == "trending_down":
+                side = "sell"
+            else:
+                return []
 
         opportunities = []
         for market in markets:

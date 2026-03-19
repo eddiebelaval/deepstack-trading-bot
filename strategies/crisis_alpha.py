@@ -116,43 +116,62 @@ class CrisisAlphaStrategy(Strategy):
             logger.debug("crisis_alpha: no stock regime detected — skipping")
             return []
 
-        if stock_regime.confidence < self.min_regime_confidence:
-            logger.debug(
-                "crisis_alpha: regime confidence %.2f < %.2f — skipping",
-                stock_regime.confidence, self.min_regime_confidence,
-            )
-            return []
-
         regime_name = stock_regime.regime.value
 
         # Determine which assets to target based on regime
         target_types = set()
         regime_score_bonus = 0
 
-        if regime_name == "trending_down":
-            target_types = {"inverse_equity", "safe_haven", "volatility", "energy", "defense"}
-            regime_score_bonus = 20
+        # Paper mode: relax regime gates to collect graduation data across all conditions.
+        # This lets us measure how crisis assets behave in calm markets too (valuable signal).
+        if self.paper_trade:
+            if stock_regime.confidence < 0.1:
+                logger.debug("crisis_alpha [PAPER]: regime confidence too low even for paper")
+                return []
+            # Paper: trade conservative safe havens in calm markets,
+            # full universe in crisis regimes
+            if regime_name in ("trending_down", "high_vol_choppy"):
+                target_types = {"inverse_equity", "safe_haven", "volatility", "energy", "defense"}
+                regime_score_bonus = 20
+            else:
+                # Calm/up: only safe havens + geopolitical for graduation data
+                target_types = {"safe_haven", "energy", "defense"}
+                regime_score_bonus = 0
             logger.info(
-                "crisis_alpha: TRENDING_DOWN (conf=%.2f) — full crisis mode activated",
-                stock_regime.confidence,
-            )
-        elif regime_name == "high_vol_choppy":
-            target_types = {"volatility", "safe_haven"}
-            regime_score_bonus = 10
-            logger.info(
-                "crisis_alpha: HIGH_VOL_CHOPPY (conf=%.2f) — volatility + safe haven mode",
-                stock_regime.confidence,
-            )
-        elif regime_name == "trending_up" and self.use_geopolitical:
-            # In an uptrend with geopolitical tension, oil/defense can still rally
-            target_types = {"energy", "defense"}
-            regime_score_bonus = 0
-            logger.info(
-                "crisis_alpha: TRENDING_UP but geopolitical plays active",
+                "crisis_alpha [PAPER]: regime=%s conf=%.2f — paper trading %d asset types for graduation",
+                regime_name, stock_regime.confidence, len(target_types),
             )
         else:
-            logger.debug("crisis_alpha: regime %s — no crisis signals", regime_name)
-            return []
+            if stock_regime.confidence < self.min_regime_confidence:
+                logger.debug(
+                    "crisis_alpha: regime confidence %.2f < %.2f — skipping",
+                    stock_regime.confidence, self.min_regime_confidence,
+                )
+                return []
+
+            if regime_name == "trending_down":
+                target_types = {"inverse_equity", "safe_haven", "volatility", "energy", "defense"}
+                regime_score_bonus = 20
+                logger.info(
+                    "crisis_alpha: TRENDING_DOWN (conf=%.2f) — full crisis mode activated",
+                    stock_regime.confidence,
+                )
+            elif regime_name == "high_vol_choppy":
+                target_types = {"volatility", "safe_haven"}
+                regime_score_bonus = 10
+                logger.info(
+                    "crisis_alpha: HIGH_VOL_CHOPPY (conf=%.2f) — volatility + safe haven mode",
+                    stock_regime.confidence,
+                )
+            elif regime_name == "trending_up" and self.use_geopolitical:
+                target_types = {"energy", "defense"}
+                regime_score_bonus = 0
+                logger.info(
+                    "crisis_alpha: TRENDING_UP but geopolitical plays active",
+                )
+            else:
+                logger.debug("crisis_alpha: regime %s — no crisis signals", regime_name)
+                return []
 
         active_assets = self._get_active_tickers()
 

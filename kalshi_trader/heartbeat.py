@@ -91,6 +91,16 @@ class HeartbeatEngine:
         # Graduation gate (optional, set via set_graduation_gate())
         self._graduation_gate: Optional[GraduationGate] = None
 
+        # Tier 3: Self-repair engine (optional, invokes Claude Code CLI)
+        self._self_repair = None
+        if config.get("self_repair_enabled", True):
+            try:
+                from .self_repair import SelfRepairEngine
+                self._self_repair = SelfRepairEngine()
+                logger.info("Self-repair engine initialized (Tier 3)")
+            except Exception as e:
+                logger.warning("Self-repair init failed (non-fatal): %s", e)
+
         # Load persisted state
         self._state: dict = self._load_state()
         self._today: str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -117,6 +127,8 @@ class HeartbeatEngine:
     def set_telegram(self, telegram_bridge: Any) -> None:
         """Set the Telegram bridge reference for sending alerts."""
         self._telegram = telegram_bridge
+        if self._self_repair:
+            self._self_repair._telegram = telegram_bridge
         logger.debug("Heartbeat: Telegram bridge connected")
 
     def set_graduation_gate(self, gate: GraduationGate) -> None:
@@ -234,6 +246,14 @@ class HeartbeatEngine:
         # Check 3: Strategy win rate degradation
         winrate_alerts = self._check_win_rates()
         alerts.extend(winrate_alerts)
+
+        # Check 4: Strategy error rate monitor (auto-disable broken data feeds)
+        error_alerts = self._check_strategy_error_rates()
+        alerts.extend(error_alerts)
+
+        # Check 5: Position sizing invariant (catch oversized positions)
+        sizing_alerts = self._check_position_sizing_invariants(bot_state)
+        alerts.extend(sizing_alerts)
 
         # Send alerts via Telegram
         if alerts and self._telegram_alerts:
@@ -376,6 +396,153 @@ class HeartbeatEngine:
             self._state["pnl_alert_sent"] = False
             self._state["consec_loss_alerted"] = {}
             self._state["winrate_alerted"] = {}
+            self._state["error_rate_disabled"] = []
+            self._state["consecutive_parse_errors"] = 0
+
+    # ── Tier 1.5: Self-Healing Checks ───────────────────────────────
+
+    def _check_strategy_error_rates(self) -> List[str]:
+        """
+        Auto-disable strategies with high error rates and zero successful trades.
+
+        Checks per-strategy error counters (populated by the trading loop).
+        If a strategy has >50 errors and 0 trades in the current session,
+        auto-disable it and alert via Telegram.
+
+        This would have caught the 2,409 IBKR subscription error firehose.
+        """
+        alerts = []
+        strategy_manager = getattr(self._bot, "strategy_manager", None)
+        if not strategy_manager:
+            return alerts
+        error_counts = getattr(strategy_manager, "_error_counts", {})
+        trade_counts = getattr(strategy_manager, "_trade_counts", {})
+
+        already_disabled = self._state.get("error_rate_disabled", [])
+
+        for name, error_count in error_counts.items():
+            if name in already_disabled:
+                continue
+            trades = trade_counts.get(name, 0)
+            if error_count >= 50 and trades == 0:
+                # Auto-disable the strategy
+                state = strategy_manager._strategies.get(name)
+                if state and state.enabled:
+                    state.enabled = False
+                    already_disabled.append(name)
+                    alert_msg = (
+                        f"AUTO-DISABLED '{name}': {error_count} errors, "
+                        f"0 trades this session. Data feed likely unavailable."
+                    )
+                    alerts.append(alert_msg)
+                    logger.warning(f"Heartbeat: {alert_msg}")
+
+        self._state["error_rate_disabled"] = already_disabled
+        return alerts
+
+    def _check_position_sizing_invariants(self, bot_state: dict) -> List[str]:
+        """
+        Hard invariant check: no single open position should exceed
+        50% of the relevant account balance. If violated, alert immediately.
+
+        This would have caught the SPY $670 position on $230 account.
+        """
+        alerts = []
+        strategy_manager = getattr(self._bot, "strategy_manager", None)
+        if not strategy_manager:
+            return alerts
+
+        balance = bot_state.get("balance", 0)
+        if balance <= 0:
+            return alerts
+
+        # Check live positions from the trade journal
+        journal = getattr(self._bot, "trade_journal", None)
+        if not journal:
+            return alerts
+
+        try:
+            import sqlite3
+            db_path = getattr(self._bot.config, "journal_db_path", None)
+            if not db_path:
+                return alerts
+            conn = sqlite3.connect(db_path)
+            cursor = conn.execute(
+                "SELECT strategy, market_ticker, entry_price_cents, contracts "
+                "FROM trades WHERE status='open' AND is_paper=0"
+            )
+            for strategy, ticker, entry_cents, contracts in cursor:
+                position_value = (entry_cents * contracts) / 100.0
+                if position_value > balance * 0.50:
+                    alert_msg = (
+                        f"POSITION SIZING VIOLATION: {ticker} [{strategy}] "
+                        f"${position_value:.2f} > 50% of ${balance:.2f} balance"
+                    )
+                    alerts.append(alert_msg)
+                    logger.warning(f"Heartbeat: {alert_msg}")
+            conn.close()
+        except Exception as e:
+            logger.debug(f"Heartbeat: position invariant check failed: {e}")
+
+        return alerts
+
+    async def startup_self_test(self) -> List[str]:
+        """
+        Run on boot. Validates DAE's own state before entering the trading loop.
+
+        Checks:
+        1. Enabled strategies have working data feeds
+        2. Config vs dashboard alignment
+        3. Open exposure within limits
+        4. AI heartbeat layer is functional
+
+        Returns list of issues found (empty = healthy).
+        """
+        issues = []
+        strategy_manager = getattr(self._bot, "strategy_manager", None)
+
+        # Check 1: Config-disabled strategies should not be enabled
+        config_disabled = getattr(self._bot, "_config_disabled_strategies", set())
+        if strategy_manager:
+            for name in config_disabled:
+                state = strategy_manager._strategies.get(name)
+                if state and state.enabled:
+                    issues.append(
+                        f"CONFIG VIOLATION: '{name}' is config-disabled but running. Forcing off."
+                    )
+                    state.enabled = False
+
+        # Check 2: Open exposure vs limit
+        risk = getattr(self._bot, "risk", None)
+        if risk:
+            current_exposure = sum(risk.open_positions.values())
+            max_exposure = getattr(risk.config, "max_open_exposure", 25)
+            if current_exposure > max_exposure * 1.5:
+                issues.append(
+                    f"EXPOSURE WARNING: ${current_exposure:.2f} open > "
+                    f"${max_exposure:.2f} limit (150% threshold)"
+                )
+
+        # Check 3: AI heartbeat layer
+        if not self._claude_client:
+            issues.append("AI HEARTBEAT DEGRADED: No ANTHROPIC_API_KEY — running deterministic-only")
+        elif self._state.get("last_ai_summary") == "Parse error":
+            consecutive_parse_errors = self._state.get("consecutive_parse_errors", 0)
+            if consecutive_parse_errors >= 3:
+                issues.append(
+                    f"AI HEARTBEAT FAILING: {consecutive_parse_errors} consecutive parse errors"
+                )
+
+        if issues:
+            logger.warning("Startup self-test found %d issue(s):", len(issues))
+            for issue in issues:
+                logger.warning("  - %s", issue)
+            if self._telegram_alerts:
+                await self._send_telegram_alert(issues, header="[Startup Self-Test]")
+        else:
+            logger.info("Startup self-test: all checks passed")
+
+        return issues
 
     # ── Tier 2: AI Heartbeat (every 30 min) ──────────────────────────
 
@@ -408,7 +575,41 @@ class HeartbeatEngine:
 
         # Process structured response
         self._state["last_ai_heartbeat"] = datetime.now(timezone.utc).isoformat()
-        self._state["last_ai_summary"] = response.get("summary", "")
+        summary = response.get("summary", "")
+        if summary == "Parse error":
+            self._state["consecutive_parse_errors"] = self._state.get("consecutive_parse_errors", 0) + 1
+            logger.warning(
+                "Heartbeat AI parse failure #%d — retrying with stripped prompt",
+                self._state["consecutive_parse_errors"],
+            )
+            # Retry once with a minimal prompt that's harder for Haiku to mess up
+            try:
+                retry_resp = await self._call_claude_minimal(bot_state)
+                if retry_resp.get("summary", "") != "Parse error":
+                    response = retry_resp
+                    summary = response.get("summary", "")
+                    self._state["consecutive_parse_errors"] = 0
+                    logger.info("Heartbeat AI retry succeeded: %s", summary)
+            except Exception as e:
+                logger.warning("Heartbeat AI retry also failed: %s", e)
+
+            # Tier 3 escalation: if 3+ consecutive parse failures, invoke self-repair
+            if self._state.get("consecutive_parse_errors", 0) >= 3 and self._self_repair:
+                from .self_repair import RepairCategory
+                asyncio.create_task(self._self_repair.repair_and_restart(
+                    category=RepairCategory.HEARTBEAT_PARSE,
+                    diagnosis=(
+                        "AI heartbeat Haiku responses are not parsing as JSON. "
+                        "The _call_claude method in heartbeat.py returns 'Parse error' "
+                        "even after the JSON extraction fix. The model may be returning "
+                        "a new response format that the parser doesn't handle."
+                    ),
+                    context=f"Last raw response was not parseable. Error count: {self._state['consecutive_parse_errors']}",
+                    affected_files=["kalshi_trader/heartbeat.py"],
+                ))
+        else:
+            self._state["consecutive_parse_errors"] = 0
+        self._state["last_ai_summary"] = summary
 
         # Send Telegram alerts if any
         ai_alerts = response.get("alerts", [])
@@ -663,15 +864,22 @@ Rules:
         data = resp.json()
         response_text = data.get("content", [{}])[0].get("text", "").strip()
 
-        # Parse JSON — handle markdown fences if Haiku wraps them
+        # Parse JSON — handle markdown fences and preamble text from Haiku
         clean = response_text
-        if clean.startswith("```"):
-            # Strip ```json ... ```
+
+        # Strip markdown code fences (```json ... ```)
+        if "```" in clean:
             lines = clean.splitlines()
             clean = "\n".join(
                 line for line in lines
                 if not line.strip().startswith("```")
             )
+
+        # Extract JSON object if Haiku added preamble/postscript text
+        brace_start = clean.find("{")
+        brace_end = clean.rfind("}")
+        if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
+            clean = clean[brace_start:brace_end + 1]
 
         try:
             result = json.loads(clean)
@@ -686,6 +894,57 @@ Rules:
         result.setdefault("recommendations", [])
         result.setdefault("telegram", False)
 
+        return result
+
+    async def _call_claude_minimal(self, bot_state: dict) -> dict:
+        """
+        Stripped-down AI heartbeat call for retry after parse failure.
+        Uses a much simpler prompt to maximize JSON parsing success.
+        """
+        if not self._claude_client:
+            return {"summary": "AI client not available"}
+
+        balance = bot_state.get("balance", 0)
+        daily_pnl = bot_state.get("daily_pnl", 0)
+        positions = bot_state.get("open_positions", 0)
+        regime = bot_state.get("regime", "unknown")
+
+        simple_prompt = (
+            f"Balance: ${balance:.2f}, Daily P&L: ${daily_pnl:.2f}, "
+            f"Open positions: {positions}, Regime: {regime}. "
+            f"Return ONLY a JSON object: "
+            f'{{"summary": "one line status", "alerts": [], "lessons": [], '
+            f'"recommendations": [], "telegram": false}}'
+        )
+
+        resp = await self._claude_client.post(
+            "https://api.anthropic.com/v1/messages",
+            json={
+                "model": HAIKU,
+                "max_tokens": 200,
+                "messages": [{"role": "user", "content": simple_prompt}],
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = data.get("content", [{}])[0].get("text", "").strip()
+
+        # Extract JSON
+        brace_start = text.find("{")
+        brace_end = text.rfind("}")
+        if brace_start != -1 and brace_end != -1:
+            text = text[brace_start:brace_end + 1]
+
+        try:
+            result = json.loads(text)
+        except json.JSONDecodeError:
+            result = {"summary": "Parse error", "alerts": [], "lessons": [], "recommendations": [], "telegram": False}
+
+        result.setdefault("summary", "")
+        result.setdefault("alerts", [])
+        result.setdefault("lessons", [])
+        result.setdefault("recommendations", [])
+        result.setdefault("telegram", False)
         return result
 
     # ── Telegram ─────────────────────────────────────────────────────

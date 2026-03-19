@@ -24,17 +24,6 @@
 
 ## AI-Learned
 
-- Lessons.md compressed to 4 core patterns. Archive repetition on next update cycle.
-- Calibration_edge at 32/50 trades (64% to graduation). Regime gate 0/2 remains critical blocker—do not scale beyond 13 positions until validated in ≥1 additional regime.
-- Cross_platform_arbitrage and tv_signals idle at n=0 trades for 48h+. Auto-disable to reduce monitoring overhead and false confidence.
-- Mean_reversion disabled correctly at EV=-13.3c (n=3). Monitor for positive EV reversal; re-enable only after EV>0 + n≥10 trades confirmed.
-- Momentum at n=2 insufficient for regime inference. Require n≥5 before scaling allocations.
-- Low_vol_calm regime confidence 0.30 is weak signal. Calibration_edge success concentrated in unmeasured regime(s)—systematic blind spot.
-- Calibration_edge graduating slowly (74% to trade milestone) but regime gate is the real blocker: 0/2 regimes validated. High_vol_choppy success doesn't guarantee transferability. Require ≥1 additional regime before scaling.
-- Idle strategies (n=0 trades, 48h+) should auto-disable. Cross_platform_arbitrage and tv_signals add cognitive load with zero signal. Enable on-demand, not by default.
-- Mean_reversion at n=3 is sample noise, not signal. EV=-13.3c is a disable condition, not a warning. Require EV>0 + n≥10 to re-enable.
-- Low_vol_calm regime confidence collapsed to 0.10—weaker than yesterday's 0.30. Calibration_edge success may be noise, not signal. Require regime stability >0.50 before trusting regime-gate progress.
-- 17 open positions with single-strategy dominance (calibration_edge) and weak regime signal = concentration risk masked by positive daily P&L. Graduation gate stalled (1/2 regimes) is the real blocker, not trade count.
 - Five enabled strategies with n=0 trades (cross_platform_arbitrage, high_probability_bonds, tv_signals, stock_momentum, futures_trend, options_income) are pure overhead. Auto-disable idle strategies after 48h—Eddie built lessons.md to say this. Execute it.
 - Regime confidence for low_vol_calm collapsed (0.10 vs 0.30 yesterday). Calibration_edge success may be regime-specific noise, not generalizable signal. Require regime stability >0.50 before trusting graduation gate progress.
 - Idle strategies with n=0 trades add cognitive load and false confidence. Implement auto-disable after 48h inactivity—Eddie documented this in lessons.md. Execute standing order.
@@ -49,3 +38,14 @@
 - Idle strategies (enabled=true, n=0 trades, 48h+ inactivity) are cognitive load masquerading as optionality. Auto-disable per standing order to reduce false confidence.
 - Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (0.30 confidence) is unreliable signal until regime stability improves.
 - Capital constraint at $149.57 forces fractional Kelly to zero across non-Kalshi strategies. Graduation readiness is theoretical until balance supports minimum 1-contract positions.
+- Idle strategies (enabled=true, n=0 trades, 48h+ inactivity) masquerade as optionality; implement auto-disable to reduce false confidence.
+- Regime confidence <0.50 invalidates graduation gate progress; require regime stability >0.50 before trusting regime-gated scaling decisions.
+- Capital floor ($150+) is hard constraint on fractional Kelly. Strategies requiring minimum 1-contract positions cannot execute until balance supports it.
+- Balance below Phase 1 floor ($150). Fractional Kelly rounds to zero on most strategies. Graduation readiness is theoretical until balance recovers.
+- Regime confidence 0.80 (high_vol_choppy) is your only reliable signal. Calibration_edge 86% win rate is regime-specific—test portability before scaling.
+- 5 enabled strategies with zero trades (stock_momentum, correlated_event_arbitrage, etc.) add false confidence. Auto-disable after 48h inactivity per standing order.
+- Mean_reversion EV=-12.3c (n=3) stays disabled. Re-enable only at EV>0 + n≥10 confirmed.
+- Balance dropped below Phase 1 floor ($150). Fractional Kelly now rounds to zero on most strategies. Growth stalled until balance recovers to $150+.
+- High_vol_choppy regime (0.80 confidence) is only reliable signal. All profitable strategies are regime-specific—portability untested.
+- Calibration_edge dominates portfolio (157/159 total trades). Concentration risk masked by positive strategy performance. Diversification blocked by capital constraint and zero idle-strategy execution.
+- Five enabled strategies with zero trades (correlated_event_arbitrage, high_probability_bonds, etc.) are dead weight. Auto-disable idle strategies after 48h per standing order.

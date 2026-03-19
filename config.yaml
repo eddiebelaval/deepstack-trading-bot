@@ -251,7 +251,7 @@ strategies:
   # === Stock Trading Strategies (IBKR) ===
 
   - name: stock_momentum
-    enabled: true               # ACTIVE: Paper trading via IB Gateway (port 4001)
+    enabled: false              # DISABLED: 0/3 WR, -$149.52, position sizing bug fixed (2026-03-19 triage)
     markets:
       - platform: ibkr
         series: "*"             # Uses IBKR watchlist from ibkr.watchlist config
@@ -269,7 +269,7 @@ strategies:
   # === Futures Trading Strategies (IBKR) ===
 
   - name: futures_trend
-    enabled: true               # ACTIVE: Paper trading micro futures via IB Gateway
+    enabled: false              # DISABLED: No futures data subscription on IBKR paper (2026-03-19 triage)
     markets:
       - platform: ibkr
         series: "futures"       # Uses IBKR futures_watchlist
@@ -287,7 +287,7 @@ strategies:
   # === Options Trading Strategies (IBKR) ===
 
   - name: options_income
-    enabled: true               # ACTIVE: Paper trading options via IB Gateway
+    enabled: false              # DISABLED: No options data subscription on IBKR paper (2026-03-19 triage)
     markets:
       - platform: ibkr
         series: "options"       # Uses IBKR watchlist for option chain fetching
@@ -307,7 +307,7 @@ strategies:
   # === Crisis Alpha Strategy (IBKR) ===
 
   - name: crisis_alpha
-    enabled: true               # ACTIVE: Paper trading inverse ETFs + safe havens
+    enabled: false              # DISABLED: No market data subscription on IBKR paper (2026-03-19 triage)
     markets:
       - platform: ibkr
         series: "*"             # Uses IBKR watchlist (crisis tickers added)
@@ -324,7 +324,7 @@ strategies:
   # === Options Directional Strategy (IBKR) ===
 
   - name: options_directional
-    enabled: true               # ACTIVE: Paper trading bought puts/calls
+    enabled: false              # DISABLED: No options data subscription on IBKR paper (2026-03-19 triage)
     markets:
       - platform: ibkr
         series: "options"       # Uses IBKR watchlist for option chains
