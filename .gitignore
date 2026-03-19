@@ -97,3 +97,7 @@ workspace/scratch/
 .AppleDouble
 .LSOverride
 ._*
+.bot.pid
+.remediation_state.json
+repair-log.json
+repair-state.json
