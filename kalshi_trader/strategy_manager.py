@@ -98,6 +98,11 @@ class StrategyManager:
         # CryExc bridge (injected by main.py after initialization)
         self._cryexc_bridge = None
 
+        # Per-strategy error counters (reset on restart).
+        # Used by heartbeat error rate monitor to auto-disable broken strategies.
+        self._error_counts: Dict[str, int] = {}
+        self._trade_counts: Dict[str, int] = {}
+
         # Market data cache to reduce API calls
         # TTL of 30 seconds balances freshness with API rate limits
         self._market_cache = get_market_cache(default_ttl=30.0, max_size=1000)
@@ -115,6 +120,14 @@ class StrategyManager:
     def total_positions(self) -> int:
         """Get total open positions across all strategies."""
         return len(self._position_to_strategy)
+
+    def _increment_error_count(self, strategy_name: str) -> None:
+        """Increment per-strategy error counter."""
+        self._error_counts[strategy_name] = self._error_counts.get(strategy_name, 0) + 1
+
+    def _increment_trade_count(self, strategy_name: str) -> None:
+        """Increment per-strategy trade counter."""
+        self._trade_counts[strategy_name] = self._trade_counts.get(strategy_name, 0) + 1
 
     async def initialize(self) -> None:
         """
@@ -339,10 +352,12 @@ class StrategyManager:
                         logger.warning(
                             f"Strategy '{name}' series '{series}' fetch timed out — skipping"
                         )
+                        self._increment_error_count(name)
                     except Exception as e:
                         logger.error(
                             f"Error scanning strategy '{name}' series '{series}': {e}"
                         )
+                        self._increment_error_count(name)
 
                 state.last_scan_time = datetime.now()
                 state.scan_count += 1

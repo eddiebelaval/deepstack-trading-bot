@@ -202,6 +202,7 @@ class KalshiTradingBot:
         # Structure: {strategy_name: {consecutive_losses, peak_pnl_cents, total_pnl_cents}}
         self._strategy_circuit_breakers: Dict[str, Dict[str, Any]] = {}
 
+
         # Strategies explicitly disabled in config.yaml — Supabase overrides
         # cannot re-enable these (config is authoritative on startup).
         # Built from strategy_configs; empty set if no configs provided.
@@ -414,6 +415,7 @@ class KalshiTradingBot:
 
         # 5c. Initialize Claude analysis (optional, enabled via config)
         yaml_cfg = load_yaml_config()
+        self.config_yaml = yaml_cfg  # Store early — needed by _has_paper_strategies()
         if yaml_cfg and yaml_cfg.analysis.enabled:
             analysis_dict = yaml_cfg.analysis.model_dump()
             self.trade_analyzer = TradeAnalyzer({"analysis": analysis_dict})
@@ -445,9 +447,10 @@ class KalshiTradingBot:
                 bleed_slope_threshold=gov_cfg.bleed_slope_threshold,
                 max_strategies_disabled_pct=gov_cfg.max_strategies_disabled_pct,
                 reenable_cooldown_hours=gov_cfg.reenable_cooldown_hours,
-                paper_trade=self.paper_trade,
+                paper_trade=self.paper_trade or self._has_paper_strategies(),
             )
-            logger.info("Market governor initialized (mode=%s, paper=%s)", gov_cfg.mode, self.paper_trade)
+            _gov_paper = self.paper_trade or self._has_paper_strategies()
+            logger.info("Market governor initialized (mode=%s, paper=%s)", gov_cfg.mode, _gov_paper)
 
             # Attach Principle Router + Capital Allocator — master strategist layer above governance
             principle_router = PrincipleRouter()
@@ -494,7 +497,6 @@ class KalshiTradingBot:
             logger.warning("Market governor disabled (governance.enabled=false) — Capital Allocator and Principle Router also inactive")
 
         # 5e. Initialize Captain's Log narration engine (optional)
-        self.config_yaml = yaml_cfg  # Store for later use
         if yaml_cfg and yaml_cfg.captains_log.enabled:
             self.captains_log = CaptainsLog(
                 config=yaml_cfg.captains_log.model_dump(),
@@ -563,6 +565,16 @@ class KalshiTradingBot:
                             f"Config is authoritative on startup."
                         )
                         continue
+                    if enabled and name in self._config_disabled_strategies:
+                        # Strategy is config-disabled but Supabase says enabled.
+                        # Config.yaml wins — do not re-enable disabled strategies.
+                        ignored_stale += 1
+                        logger.warning(
+                            f"Ignoring stale Supabase override for '{name}' "
+                            f"(enabled=True) — config.yaml says disabled. "
+                            f"Config is authoritative on startup."
+                        )
+                        continue
                     if state.enabled != enabled:
                         state.enabled = enabled
                         restored += 1
@@ -628,6 +640,10 @@ class KalshiTradingBot:
         # 11. Update bot config to running
         await self.command_processor.update_mode("running")
         await self.dashboard.push_log("Bot initialized — connected to Kalshi API", strategy="system")
+
+        # 12. Startup self-test — validate DAE's own state before trading
+        if self.heartbeat:
+            await self.heartbeat.startup_self_test()
 
         logger.info("All components initialized successfully")
 
@@ -785,6 +801,16 @@ class KalshiTradingBot:
         except Exception as e:
             logger.warning(f"CryExc initialization failed: {e}")
             self._cryexc_bridge = None
+
+    def _has_paper_strategies(self) -> bool:
+        """Check if any enabled strategy has paper_trade=true in its config."""
+        yaml_cfg = getattr(self, 'config_yaml', None)
+        if not yaml_cfg or not hasattr(yaml_cfg, 'strategies'):
+            return False
+        for strat in yaml_cfg.strategies:
+            if strat.enabled and strat.config.get("paper_trade", False):
+                return True
+        return False
 
     def _register_strategy_priors(self) -> None:
         """Register priors and attach tracker to all active strategies."""
@@ -1439,42 +1465,50 @@ class KalshiTradingBot:
                     "high_water_mark_balance", current_balance
                 )
 
+        # Determine if live Kalshi trading should be halted.
+        # Paper-trade strategies (IBKR) always scan — they are not subject
+        # to the live portfolio drawdown circuit breaker.
+        live_trading_halted = False
+
         if current_balance <= self.config.min_balance_floor:
             if not self._portfolio_halted:
                 logger.critical(
-                    f"PORTFOLIO HALT: Balance ${current_balance:.2f} below "
-                    f"floor ${self.config.min_balance_floor:.2f}. All trading stopped."
+                    f"PORTFOLIO HALT (live): Balance ${current_balance:.2f} below "
+                    f"floor ${self.config.min_balance_floor:.2f}. Live trading stopped."
                 )
                 self._portfolio_halted = True
-            return
+            live_trading_halted = True
 
-        if self._initial_balance > 0:
+        if not live_trading_halted and self._initial_balance > 0:
             drawdown_pct = (self._initial_balance - current_balance) / self._initial_balance
             if drawdown_pct >= self.config.max_portfolio_drawdown_pct:
                 if not self._portfolio_halted:
                     logger.critical(
-                        f"PORTFOLIO HALT: Drawdown {drawdown_pct:.1%} exceeds "
+                        f"PORTFOLIO HALT (live): Drawdown {drawdown_pct:.1%} exceeds "
                         f"limit {self.config.max_portfolio_drawdown_pct:.0%}. "
                         f"Balance: ${current_balance:.2f} (started: ${self._initial_balance:.2f}). "
-                        f"All trading stopped."
+                        f"Live trading stopped. Paper strategies continue."
                     )
                     self._portfolio_halted = True
-                return
+                live_trading_halted = True
 
-        # 2b. Check risk limits
-        risk_check = self.risk.check_trade_allowed("", None)
-        if not risk_check["allowed"]:
-            logger.info(f"Trading blocked: {risk_check['reasons']}")
-            return
+        if not live_trading_halted:
+            # 2b. Check risk limits (only for live trading)
+            risk_check = self.risk.check_trade_allowed("", None)
+            if not risk_check["allowed"]:
+                logger.info(f"Trading blocked: {risk_check['reasons']}")
+                live_trading_halted = True
 
         # 3. Manage existing positions
         await self._manage_positions()
 
-        # 4. Scan for opportunities
+        # 4. Scan for opportunities — always scan (paper strategies need data).
+        # The execution path (_execute_opportunity_multi) handles paper vs live routing.
         if self.use_strategy_manager:
-            await self._scan_and_trade_multi()
+            await self._scan_and_trade_multi(live_halted=live_trading_halted)
         else:
-            await self._scan_and_trade_legacy()
+            if not live_trading_halted:
+                await self._scan_and_trade_legacy()
 
         # 5. Captain's Log — narrate if conditions met
         _regime_snap = getattr(self.market_governor, 'current_regime', None) if self.market_governor else None
@@ -2455,42 +2489,17 @@ class KalshiTradingBot:
         This ensures position continuity across bot restarts.
         """
         if self.paper_trade:
-            # Load paper positions from journal (survives restarts)
+            # Full paper mode: load all positions from journal (survives restarts)
             if not self.open_positions:
-                open_trades = self.journal.get_open_trades()
-                for trade in open_trades:
-                    order_id = trade.get("order_id", "")
-                    if not order_id.startswith("paper-"):
-                        continue
-                    ticker = trade.get("market_ticker")
-                    if not ticker or ticker in self.open_positions:
-                        continue  # Skip duplicates (keep first = oldest)
-                    # Infer asset class from strategy name for routing
-                    strategy = trade.get("strategy", "unknown")
-                    if strategy in ("stock_momentum", "crisis_alpha"):
-                        asset_class = "stock"
-                    elif strategy == "futures_trend":
-                        asset_class = "future"
-                    elif strategy in ("options_income", "options_directional"):
-                        asset_class = "option"
-                    else:
-                        asset_class = "prediction_market"
-
-                    self.open_positions[ticker] = {
-                        "trade_id": trade.get("id"),
-                        "order_id": order_id,
-                        "side": trade.get("side", "yes"),
-                        "contracts": trade.get("contracts", 1),
-                        "entry_price": trade.get("entry_price_cents", 0),
-                        "strategy": strategy,
-                        "asset_class": asset_class,
-                    }
-                if self.open_positions:
-                    logger.info(
-                        f"[PAPER] Loaded {len(self.open_positions)} positions from journal: "
-                        f"{list(self.open_positions.keys())}"
-                    )
+                self._load_paper_positions_from_journal()
             return
+
+        # Hybrid mode (live Kalshi + paper IBKR strategies):
+        # Load paper strategy positions from journal so they aren't
+        # orphaned between cycles. Only load tickers not already tracked.
+        if self._has_paper_strategies() and self.journal:
+            self._load_paper_positions_from_journal(only_missing=True)
+
         positions = await self.client.get_positions()
 
         # Update local tracking with full Kalshi fields
@@ -2530,13 +2539,73 @@ class KalshiTradingBot:
                     "last_updated_ts": pos.get("last_updated_ts"),
                 })
 
-        # Remove closed positions
-        closed = [t for t in self.open_positions if t not in exchange_tickers]
+        # Remove closed Kalshi positions — preserve non-Kalshi positions
+        # (stock/future/option) which are tracked via journal, not Kalshi exchange.
+        closed = [
+            t for t in self.open_positions
+            if t not in exchange_tickers
+            and self.open_positions[t].get("asset_class", "prediction_market") == "prediction_market"
+        ]
         for ticker in closed:
             del self.open_positions[ticker]
             # Notify strategy manager if using it
             if self.strategy_manager:
                 self.strategy_manager.record_position_close(ticker)
+
+    def _load_paper_positions_from_journal(self, only_missing: bool = False) -> None:
+        """Load paper trade positions from the journal into open_positions.
+
+        Args:
+            only_missing: If True, only load IBKR paper positions (stock/future/option)
+                          not already tracked. Kalshi paper positions are skipped because
+                          they're synced from the exchange in hybrid mode.
+                          If False, load all paper positions (used in full paper mode).
+        """
+        if not self.journal:
+            return
+
+        loaded = 0
+        open_trades = self.journal.get_open_trades()
+        for trade in open_trades:
+            order_id = trade.get("order_id", "")
+            if not order_id.startswith("paper-"):
+                continue
+            ticker = trade.get("market_ticker")
+            if not ticker or ticker in self.open_positions:
+                continue  # Skip duplicates (keep first = oldest)
+
+            # Infer asset class from strategy name for routing
+            strategy = trade.get("strategy", "unknown")
+            if strategy in ("stock_momentum", "crisis_alpha"):
+                asset_class = "stock"
+            elif strategy == "futures_trend":
+                asset_class = "future"
+            elif strategy in ("options_income", "options_directional"):
+                asset_class = "option"
+            else:
+                asset_class = "prediction_market"
+
+            # In hybrid mode (only_missing=True), skip Kalshi paper positions —
+            # they're synced from the exchange and would just churn every cycle.
+            if only_missing and asset_class == "prediction_market":
+                continue
+
+            self.open_positions[ticker] = {
+                "trade_id": trade.get("id"),
+                "order_id": order_id,
+                "side": trade.get("side", "yes"),
+                "contracts": trade.get("contracts", 1),
+                "entry_price": trade.get("entry_price_cents", 0),
+                "strategy": strategy,
+                "asset_class": asset_class,
+            }
+            loaded += 1
+
+        if loaded:
+            logger.info(
+                f"[PAPER] Loaded {loaded} paper positions from journal: "
+                f"{[t for t in self.open_positions if self.open_positions[t].get('asset_class') != 'prediction_market']}"
+            )
 
     async def _manage_positions(self) -> None:
         """Check exit conditions for open positions."""
@@ -2596,10 +2665,18 @@ class KalshiTradingBot:
                                 self._check_lab_milestones()
 
                                 # Telegram notification — settlement
+                                _settle_ac = position.get("asset_class", "prediction_market")
+                                _settle_ac_label = {
+                                    "prediction_market": "KALSHI",
+                                    "stock": "STOCK",
+                                    "future": "FUTURES",
+                                    "option": "OPTIONS",
+                                }.get(_settle_ac, _settle_ac.upper())
                                 pnl_sign = "+" if pnl >= 0 else ""
                                 await self._notify(
-                                    f"[{mode} SETTLE] {ticker} -> {result}\n"
-                                    f"P&L: {pnl_sign}${pnl / 100:.2f} | {strategy_name}"
+                                    f"{'[PAPER]' if self.paper_trade else '[LIVE]'} {_settle_ac_label} SETTLED\n"
+                                    f"{ticker} -> {result} | {pnl_sign}${pnl / 100:.2f}\n"
+                                    f"{strategy_name} | {contracts} contracts"
                                 )
                         else:
                             logger.info(f"Market {ticker} no longer open (no result yet), removing from tracking")
@@ -2668,7 +2745,10 @@ class KalshiTradingBot:
             side = position["side"]
             contracts = position["contracts"]
 
-            if self.paper_trade:
+            # Check both bot-level AND per-strategy paper_trade
+            pos_paper = position.get("metadata", {}).get("paper_trade", False) if isinstance(position.get("metadata"), dict) else False
+            is_paper_exit = self.paper_trade or pos_paper
+            if is_paper_exit:
                 # Paper trade: simulate instant sell, no API call
                 order = {"order_id": f"paper-exit-{str(uuid.uuid4())[:8]}"}
                 logger.info(
@@ -2747,7 +2827,7 @@ class KalshiTradingBot:
 
                 # Record in risk management (skip for paper trades —
                 # paper P&L must not contaminate daily_pnl / dashboard balance)
-                if not self.paper_trade:
+                if not is_paper_exit:
                     self.risk.record_trade_result(
                         ticker=ticker,
                         profit_loss_cents=pnl,
@@ -2797,7 +2877,7 @@ class KalshiTradingBot:
 
             # Captain's Log: trade closed
             if self.captains_log and trade_id:
-                mode_tag = "[PAPER] " if self.paper_trade else ""
+                mode_tag = "[PAPER] " if is_paper_exit else ""
                 self.captains_log.record_event(NarrationEvent(
                     event_type="trade",
                     priority=EventPriority.SIGNIFICANT,
@@ -2807,15 +2887,25 @@ class KalshiTradingBot:
                         f"P&L: {pnl:+d}c (${pnl / 100:+.2f})."
                     ),
                     strategy=position.get("strategy", "mean_reversion"),
-                    metadata={"ticker": ticker, "pnl_cents": pnl, "exit_type": exit_signal.exit_type, "paper_trade": self.paper_trade},
+                    metadata={"ticker": ticker, "pnl_cents": pnl, "exit_type": exit_signal.exit_type, "paper_trade": is_paper_exit},
                 ))
 
             # Telegram notification — trade closed
-            mode = "PAPER" if self.paper_trade else "LIVE"
-            pnl_emoji = "+" if pnl >= 0 else ""
+            _exit_ac = position.get("asset_class", "prediction_market")
+            _exit_ac_label = {
+                "prediction_market": "KALSHI",
+                "stock": "STOCK",
+                "future": "FUTURES",
+                "option": "OPTIONS",
+            }.get(_exit_ac, _exit_ac.upper())
+            mode = "PAPER" if is_paper_exit else "LIVE"
+            pnl_sign = "+" if pnl >= 0 else ""
+            entry_usd = position.get("entry_price", 0) / 100
+            exit_usd = exit_signal.current_price_cents / 100
             await self._notify(
-                f"[{mode} EXIT] {ticker} closed ({exit_signal.exit_type})\n"
-                f"P&L: {pnl_emoji}${pnl / 100:.2f} | {position.get('strategy', 'unknown')}"
+                f"{'[PAPER]' if is_paper_exit else '[LIVE]'} {_exit_ac_label} EXIT ({exit_signal.exit_type})\n"
+                f"{ticker} | {pnl_sign}${pnl / 100:.2f}\n"
+                f"Entry ${entry_usd:.2f} -> Exit ${exit_usd:.2f} | {position.get('strategy', 'unknown')}"
             )
 
             # Remove from tracking
@@ -2885,8 +2975,14 @@ class KalshiTradingBot:
             if await self._execute_opportunity_legacy(opp):
                 break  # One trade per cycle
 
-    async def _scan_and_trade_multi(self) -> None:
-        """Scan for opportunities using strategy manager."""
+    async def _scan_and_trade_multi(self, live_halted: bool = False) -> None:
+        """Scan for opportunities using strategy manager.
+
+        Args:
+            live_halted: If True, skip execution of live (non-paper) trades.
+                Paper-trade strategies always scan and execute to collect
+                graduation data regardless of live portfolio drawdown state.
+        """
         # Scan all strategies
         opportunities = await self.strategy_manager.scan_all_opportunities(
             existing_positions=self.open_positions,
@@ -3025,10 +3121,30 @@ class KalshiTradingBot:
         # Rank and filter
         ranked = self.strategy_manager.rank_opportunities(opportunities)
 
-        # Try to execute best opportunity
-        for opp in ranked[:3]:  # Check top 3
-            if await self._execute_opportunity_multi(opp):
-                break  # One trade per cycle
+        # Execute opportunities — paper strategies get their own trades independent
+        # of the live one-per-cycle limit. This lets all sectors collect graduation
+        # data simultaneously instead of competing for a single slot.
+        live_traded = False
+        paper_strategies_traded = set()
+        for opp in ranked:
+            opp_metadata = getattr(opp, 'metadata', None) or {}
+            is_paper_opp = opp_metadata.get("paper_trade", False)
+
+            if live_halted and not is_paper_opp:
+                continue
+
+            if is_paper_opp:
+                # Allow one paper trade per strategy per cycle
+                if opp.strategy_name in paper_strategies_traded:
+                    continue
+                if await self._execute_opportunity_multi(opp):
+                    paper_strategies_traded.add(opp.strategy_name)
+            else:
+                # Live: one trade per cycle
+                if live_traded:
+                    break
+                if await self._execute_opportunity_multi(opp):
+                    live_traded = True
 
     async def _execute_opportunity_legacy(self, opp) -> bool:
         """Execute opportunity using legacy strategy."""
@@ -3071,8 +3187,16 @@ class KalshiTradingBot:
         strategy_name = opp.strategy_name
 
         # Get allocated position size — Capital Allocator weight-based if available,
-        # otherwise falls back to naive equal split
-        if self.capital_allocator and self.capital_allocator.current_plan:
+        # otherwise falls back to naive equal split.
+        # Paper-trade strategies bypass the capital allocator — they use their own
+        # sizing to collect unbiased graduation data.
+        opp_meta_alloc = getattr(opp, 'metadata', None) or {}
+        is_paper_alloc = opp_meta_alloc.get("paper_trade", False)
+
+        if is_paper_alloc:
+            # Paper strategies: use strategy manager's equal split (not real capital)
+            max_size = self.strategy_manager.get_position_size_for_strategy(strategy_name)
+        elif self.capital_allocator and self.capital_allocator.current_plan:
             weight = self.capital_allocator.get_position_weight(strategy_name)
             if weight <= 0.0:
                 logger.debug(
@@ -3084,15 +3208,16 @@ class KalshiTradingBot:
         else:
             max_size = self.strategy_manager.get_position_size_for_strategy(strategy_name)
 
-        # Final risk check
-        risk_check = self.risk.check_trade_allowed(
-            ticker=ticker,
-            position_size=max_size,
-        )
+        # Final risk check — paper strategies bypass live risk limits
+        if not is_paper_alloc:
+            risk_check = self.risk.check_trade_allowed(
+                ticker=ticker,
+                position_size=max_size,
+            )
 
-        if not risk_check["allowed"]:
-            logger.debug(f"Opportunity {ticker} blocked: {risk_check['reasons']}")
-            return False
+            if not risk_check["allowed"]:
+                logger.debug(f"Opportunity {ticker} blocked: {risk_check['reasons']}")
+                return False
 
         # Get strategy for stats
         state = self.strategy_manager._strategies.get(strategy_name)
@@ -3100,9 +3225,11 @@ class KalshiTradingBot:
             return False
 
         # Round 2 P0: Pre-trade EV gate — reject trades with negative net EV
-        # Paper trade mode: skip EV gate — we need unbiased signal data
+        # Paper trade mode: skip EV gate — we need unbiased signal data.
+        # Check both bot-level AND per-strategy paper_trade flag.
+        is_paper_strategy = is_paper_alloc
         edge = state.strategy.calculate_edge(commission_cents=2.0)
-        if edge["expected_value_net_cents"] <= 0 and not self.paper_trade:
+        if edge["expected_value_net_cents"] <= 0 and not self.paper_trade and not is_paper_strategy:
             logger.info(
                 f"Trade BLOCKED {ticker} [{strategy_name}]: negative net EV "
                 f"({edge['expected_value_net_cents']:+.2f}c/trade, "
@@ -3145,7 +3272,33 @@ class KalshiTradingBot:
         )
 
         contracts = size_result["contracts"]
-        if contracts < 1:
+        if contracts < 1 and is_paper_alloc:
+            # Paper-trade stock/futures/options: force minimum 1 unit for graduation data.
+            # BUT cap exposure: reject if a single unit exceeds 50% of paper balance.
+            # This prevents paper-trading $670 SPY shares on a $230 account (291% position).
+            asset_class = getattr(opp, 'asset_class', 'prediction_market')
+            if asset_class in ("stock", "future", "option"):
+                entry_price_dollars = opp.entry_price_cents / 100.0
+                grad_attr = {
+                    "stock": "graduation_stocks",
+                    "future": "graduation_futures",
+                    "option": "graduation_options",
+                }.get(asset_class, "graduation_stocks")
+                grad_config = getattr(self.config_yaml, grad_attr, None) if self.config_yaml else None
+                paper_balance = (getattr(grad_config, "paper_balance_cents", 23000) if grad_config else 23000) / 100.0
+                max_single_position_pct = 0.50  # Never risk more than 50% of paper balance
+                if entry_price_dollars > paper_balance * max_single_position_pct:
+                    logger.warning(
+                        f"Paper sizing BLOCKED: {ticker} [{strategy_name}] — "
+                        f"${entry_price_dollars:.2f}/share > 50% of ${paper_balance:.2f} paper balance"
+                    )
+                    return False
+            contracts = 1
+            logger.info(
+                f"Paper sizing override: {ticker} [{strategy_name}] — "
+                f"Kelly gave 0 contracts, forcing 1 for graduation data"
+            )
+        elif contracts < 1:
             logger.debug(f"Position size too small for {ticker}: {contracts}")
             return False
 
@@ -3247,8 +3400,12 @@ class KalshiTradingBot:
                 )
                 return True
 
-            # Paper trade mode: simulate instant fill, write real journal entries
-            if self.paper_trade:
+            # Paper trade mode: simulate instant fill, write real journal entries.
+            # Check BOTH bot-level flag AND per-strategy config flag.
+            opp_metadata = getattr(opp, 'metadata', None) or {}
+            strategy_paper = opp_metadata.get("paper_trade", False)
+            is_paper = self.paper_trade or strategy_paper
+            if is_paper:
                 order_id = f"paper-{str(uuid.uuid4())[:8]}"
                 actual_contracts = contracts
 
@@ -3413,7 +3570,7 @@ class KalshiTradingBot:
                         "reasoning": opp.reasoning,
                         "metadata": {
                             "asset_class": trade_asset_class,
-                            "paper_trade": self.paper_trade,
+                            "paper_trade": is_paper,
                             "score": opp.score,
                         },
                     })
@@ -3431,7 +3588,7 @@ class KalshiTradingBot:
 
             # Captain's Log: trade opened
             if self.captains_log:
-                mode_tag = "[PAPER] " if self.paper_trade else ""
+                mode_tag = "[PAPER] " if is_paper else ""
                 self.captains_log.record_event(NarrationEvent(
                     event_type="trade",
                     priority=EventPriority.SIGNIFICANT,
@@ -3441,12 +3598,16 @@ class KalshiTradingBot:
                         f"Score: {opp.score:.1f}. {opp.reasoning[:100]}"
                     ),
                     strategy=strategy_name,
-                    metadata={"ticker": ticker, "side": opp.side, "price": opp.entry_price_cents, "paper_trade": self.paper_trade},
+                    metadata={"ticker": ticker, "side": opp.side, "price": opp.entry_price_cents, "paper_trade": is_paper},
                 ))
 
             # Record trade for health monitor (resets zero-opp counter, reverts threshold widening)
             if self.health_monitor:
                 self.health_monitor.record_trade()
+
+            # Increment strategy trade counter (for heartbeat error rate monitor)
+            if self.strategy_manager:
+                self.strategy_manager._increment_trade_count(strategy_name)
 
             fill_note = "" if actual_contracts == contracts else f" (requested {contracts}, filled {actual_contracts})"
             logger.info(
@@ -3456,12 +3617,18 @@ class KalshiTradingBot:
 
             # Telegram notification — trade opened
             asset_class = getattr(opp, 'asset_class', 'prediction_market')
-            mode = "PAPER" if self.paper_trade else "LIVE"
+            _ac_label = {
+                "prediction_market": "KALSHI",
+                "stock": "STOCK",
+                "future": "FUTURES",
+                "option": "OPTIONS",
+            }.get(asset_class, asset_class.upper())
+            mode = "PAPER" if is_paper else "LIVE"
             price_usd = opp.entry_price_cents / 100
             await self._notify(
-                f"[{mode} TRADE] {opp.side.upper()} {actual_contracts}x {ticker}\n"
-                f"@ ${price_usd:.2f} | {asset_class} | {strategy_name}\n"
-                f"Score: {opp.score:.0f}/100{fill_note}"
+                f"{'[PAPER]' if is_paper else '[LIVE]'} {_ac_label} OPEN\n"
+                f"{opp.side.upper()} {actual_contracts}x {ticker} @ ${price_usd:.2f}\n"
+                f"{strategy_name} | Score: {opp.score:.0f}/100{fill_note}"
             )
 
             return True
