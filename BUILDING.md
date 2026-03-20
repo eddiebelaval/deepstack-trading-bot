@@ -800,6 +800,31 @@ eff6d2b [Meta] feat(dae): full deploy pipeline for self-repair
 
 ---
 
+## Heal Session: Blocker Assessment (Mar 20)
+
+**Two partial pillars were under-documented relative to what was actually built.** This heal session audited Multi-Asset Coverage and Forward Signal Intelligence against the codebase and corrected the VISION/SPEC status assessments.
+
+### What Changed
+
+**Multi-Asset Coverage: 50% -> 80%**
+- All 6 IBKR strategies are fully coded and regime-gated (stock_momentum, crisis_alpha, futures_trend, options_income, options_directional, plus inverse ETF support in stock_momentum v2)
+- Position routing, graceful degradation, and the 20-ticker watchlist are all production-ready
+- The remaining 20% is external: IBKR market data subscriptions (~$15-30/mo per asset class) and paper trade accumulation to pass graduation gates
+- No code work needed — this pillar advances when subscriptions are purchased
+
+**Forward Signal Intelligence: 30% -> 60%**
+- ForwardSignalBridge is 615 lines of production code, not a prototype
+- Full detection pipeline: price velocity over rolling windows, acceleration confirmation, volume/spread quality scoring, threshold-based triggering with signal decay
+- Regime bias injection fully wired: bearish composite biases TRENDING_DOWN/HIGH_VOL_CHOPPY, bullish biases TRENDING_UP/LOW_VOL_CALM
+- Per-strategy adjustments route intelligence to stock_momentum, crisis_alpha, futures_trend
+- News signal ingestion path built (`ingest_news_signal()`) — accepts pre-scored signals from keyword engine
+- Remaining 40%: (1) volatile markets needed to trigger price signals (external), (2) news API integration for GEOPOLITICAL signals (moderate code work), (3) live validation of regime bias improvement
+
+### Why This Matters
+The VISION showed 87% alignment but Multi-Asset and Forward Signal were assessed at 50% and 30% respectively — numbers from when the code was first scaffolded. The actual codebase has advanced significantly. Correcting the assessments to 80% and 60% reflects what's shipped and clarifies that the blockers are external (subscriptions, market conditions) not code gaps. Updated alignment: 90%.
+
+---
+
 ## The Numbers
 
 | Metric | Value |
@@ -837,5 +862,5 @@ These are hard-won lessons from production bugs. Save yourself the debugging.
 
 ---
 
-*Last updated: 2026-03-13*
+*Last updated: 2026-03-20*
 *Private -- id8Labs LLC*

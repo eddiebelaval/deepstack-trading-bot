@@ -2,7 +2,7 @@
 ## DeepStack
 
 > Last evolved: 2026-03-20 | Confidence: HIGH
-> Distance from SPEC: 87% (12 of 14 pillars realized, self-healing operational, stock_momentum v2 deployed)
+> Distance from SPEC: 90% (12 of 14 pillars realized + 2 partial pillars upgraded: Multi-Asset 80%, Forward Signal 60%)
 
 ---
 
@@ -15,11 +15,13 @@ DeepStack exists because the market is a conversation between fear and greed, an
 1. **Prediction Market Alpha** -- REALIZED + LIVE
    Calibration edge strategy exploits favorite-longshot bias on Kalshi. 85.5% win rate on 159 live trades, +$355.06 lifetime live P&L. Graduated to live trading 2026-03-11. Balance: $115.71 (HWM $146.05, 20.8% drawdown). This is the foundational edge, proven and compounding. The drawdown is from stock_momentum v1 losses (-$149.52), not calibration_edge.
 
-2. **Multi-Asset Coverage** -- PARTIAL (50%)
-   IBKR adapter connects to stocks, futures, options. stock_momentum v2 rebuilt (Mar 20): dual-direction, MACD+RSI+VWAP signals, ATR stops, inverse ETF support. Paper trading active. Four other IBKR strategies (crisis_alpha, futures_trend, options_income, options_directional) disabled pending market data subscriptions. Watchlist: 20 tickers including inverse ETFs, volatility products, safe havens, defense, oil.
+2. **Multi-Asset Coverage** -- PARTIAL (80%)
+   All multi-asset infrastructure is built and deployed. IBKR adapter connects to stocks, futures, options with full position routing by asset_class. stock_momentum v2 rebuilt (Mar 20): dual-direction, MACD+RSI+VWAP signals, ATR stops, inverse ETF support — paper trading active. Four other IBKR strategies (crisis_alpha, futures_trend, options_income, options_directional) are fully coded and regime-gated but disabled pending IBKR market data subscriptions ($15-30/mo each). Watchlist: 20 tickers including inverse ETFs, volatility products, safe havens, defense, oil. Graceful degradation ensures Kalshi runs unimpeded when IBKR is down.
+   **Remaining to REALIZED:** (1) Purchase IBKR market data subscriptions for stocks, futures, options. (2) Accumulate paper trades to pass graduation gates per asset class. Both are external dependencies, not code gaps.
 
-3. **Forward Signal Intelligence** -- PARTIAL (30%)
-   ForwardSignalBridge reads Kalshi PM price velocity as leading indicators. Signal taxonomy: RATE_SHIFT (KXFED), INFLATION (KXCPI), GROWTH (KXGDP), RISK_APPETITE (KXBTC/KXETH). Wired into governance engine for regime bias injection. Ingesting data every cycle. Not yet triggered -- needs volatile market conditions to exceed thresholds.
+3. **Forward Signal Intelligence** -- PARTIAL (60%)
+   ForwardSignalBridge (615 lines) is fully built and wired into the governance engine. Signal taxonomy: RATE_SHIFT (KXFED), INFLATION (KXCPI), GROWTH (KXGDP), RISK_APPETITE (KXBTC/KXETH), GEOPOLITICAL (future). Detection: price velocity analysis over rolling windows with threshold-based triggering, acceleration confirmation, volume/spread quality scoring, and signal decay. Regime bias injection: confirming signals boost stock regime confidence +30%, conflicting dampen -15%. Per-strategy adjustments route signal intelligence to stock_momentum, crisis_alpha, and futures_trend. News signal ingestion path built (ingest_news_signal). Composite signal computation aggregates across all active signals with decay weighting. Ingesting data every cycle. Not yet triggered — needs volatile market conditions to exceed thresholds.
+   **Remaining to REALIZED:** (1) Signals fire in volatile conditions (market-dependent, not code-dependent). (2) GEOPOLITICAL signal type needs a live data source (news API not yet connected). (3) Validate that regime bias injection improves strategy performance in backtests or live conditions.
 
 4. **Self-Governance** -- REALIZED
    MarketGovernor in autonomous mode. Regime detection (5 regimes). Lexicon signal generator. Strategy enable/disable actuators. Forward signal bias injection. Governance runs every cycle with fresh market data.

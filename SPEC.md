@@ -3,7 +3,7 @@
 
 > Last reconciled: 2026-03-20 | Build stage: Phase 18 (Triage + Self-Healing + stock_momentum v2)
 > Drift status: CURRENT
-> VISION alignment: 87% (12 of 14 pillars realized, self-healing operational)
+> VISION alignment: 90% (12 of 14 pillars realized + Multi-Asset 80%, Forward Signal 60%)
 
 ---
 
@@ -38,9 +38,13 @@ What this system can do TODAY.
 
 ### Forward Signal Bridge
 - **Signal Taxonomy:** RATE_SHIFT (KXFED), INFLATION (KXCPI), GROWTH (KXGDP), RISK_APPETITE (KXBTC/KXETH), GEOPOLITICAL (future).
-- **Detection:** Price velocity analysis over rolling window. Needs 3+ data points per series. Threshold: 2-4 cents/cycle depending on signal type.
-- **Regime Bias:** Detected signals boost or dampen stock regime confidence in GovernanceEngine. Confirming signals boost by 30%, conflicting signals dampen by 15%.
-- **Status:** Ingesting data every cycle. No signals triggered yet (markets calm, below threshold).
+- **Detection:** Price velocity analysis over rolling window. Needs 3+ data points per series. Threshold: 2-4 cents/cycle depending on signal type. Acceleration confirmation (last 3 cycles vs full window). Volume and spread quality scoring boost confidence.
+- **Regime Bias:** Detected signals bias regime prediction via `get_regime_bias()`. Bearish composite biases toward TRENDING_DOWN (0.6x) + HIGH_VOL_CHOPPY (0.3x). Bullish composite biases toward TRENDING_UP (0.6x) + LOW_VOL_CALM (0.2x).
+- **Per-Strategy Adjustments:** `get_strategy_adjustments()` routes signal intelligence to specific strategies — rate shifts penalize stock_momentum and boost crisis_alpha, growth signals bias futures_trend direction, risk appetite signals from crypto modulate momentum scoring.
+- **News Ingestion:** `ingest_news_signal()` accepts pre-scored news signals (keyword engine output) and injects them directly into the active signal pool, bypassing price-history detection. Supports both general sentiment and geopolitical signals.
+- **Composite Signal:** Weighted aggregation across all active signals with time-based decay. Exposed via `get_composite_signal()` for governance and `get_status_summary()` for Captain's Log / Telegram.
+- **Status:** Fully built (615 lines). Ingesting Kalshi price data every cycle. No price-velocity signals triggered yet (markets calm, below thresholds). News ingestion path built but no news API connected yet. Testing mode available (halved thresholds) for validation.
+- **Blocking:** (1) Volatile market conditions needed to trigger price signals (external). (2) News API integration for GEOPOLITICAL signals (code work, moderate effort). (3) Live validation that regime bias injection improves outcomes.
 
 ### Governance Engine
 - **Mode:** Autonomous (actuating, not advisory).
