@@ -745,6 +745,79 @@ kalshi-trading/
 
 ---
 
+## Phase 18: Triage + Three-Tier Self-Healing + stock_momentum v2 (Mar 19-20)
+
+**The bot was bleeding and nobody was watching.** A week offline revealed 2,409 IBKR subscription errors, a $149.52 stock_momentum loss from broken position sizing, and a Supabase dashboard overriding config-disabled strategies. This phase built the immune system that prevents it from happening again.
+
+### What Was Built
+
+**Triage Fixes (Mar 19)**
+- Disabled 5 IBKR strategies with no data subscription (2,409 errors silenced to 0)
+- Fixed stock_momentum position sizing: paper trades were buying $670 SPY shares on a $230 account (291% position). Root cause: Kelly said 0 contracts, force-1-contract bypass ignored share price
+- Fixed Supabase dashboard overriding config-disabled strategies on restart (one-directional protection bug)
+- Fixed heartbeat AI parser for non-JSON Haiku responses (brace extraction + preamble stripping)
+
+**Tier 1.5: Hardening (Mar 19)**
+- **Strategy error rate monitor**: auto-disables strategies with 50+ errors and 0 trades per session
+- **Position sizing invariant**: alerts on any position exceeding 50% of account balance
+- **Startup self-test**: validates config/dashboard alignment, exposure limits, AI layer on every boot
+- **Heartbeat self-repair**: retries with stripped prompt on parse failure, tracks consecutive failures
+
+**Tier 3: Self-Repair Engine (Mar 19)**
+- `kalshi_trader/self_repair.py`: DAE invokes Claude Code CLI to fix its own code
+- Full Git deploy pipeline: branch, fix, commit, push, PR, merge, restart
+- Protected files list (risk management, auth, config schema, self_repair.py itself)
+- Max 1 repair per category per day, 5-minute timeout, syntax validation, Telegram alerts
+- Audit trail in `repair-log.json`
+
+**stock_momentum v2: Complete Rewrite (Mar 20)**
+- Dual-direction: longs in uptrends, inverse ETFs (SQQQ, SH) in downtrends
+- Signal: MACD crossover + RSI confirmation + VWAP filter (live price action, not stale backtests)
+- ATR-based adaptive stops (1.5x ATR) replacing fixed 1.5% stop loss
+- 2% risk rule with $50 max position via fractional shares
+- Hard regime gate: cash in VIX>30 or choppy, no longs in downtrends
+- Time-based exit: 10 days max for longs, 5 for inverse ETFs (decay protection)
+- Arena-compatible: tested across all 5 seas, PF=1.73, trades in all regimes
+
+### Key Commits
+```
+c5b4d8c [Meta] fix: DAE triage + three-tier self-healing system
+eff6d2b [Meta] feat(dae): full deploy pipeline for self-repair
+3ccf732 [Meta] feat(dae): stock_momentum v2 — dual-direction regime-gated rebuild
+```
+
+### Architecture Decisions
+- **Self-repair with protected files**: DAE can fix its own parsers and data adapters, but CANNOT modify risk limits, auth, config schema, or the self-repair system itself. The constitution is unamendable by the AI.
+- **Inverse ETFs over shorting**: A $230 account can't short stocks (margin requirements, unlimited risk). Buying SQQQ/SH achieves bearish exposure with capped risk and no margin.
+- **ATR stops over fixed percentage**: A 1.5% stop on SPY ($670) = $10 stop distance. In low volatility that's 2x ATR (reasonable), but in high volatility it's 0.5x ATR (whipsawed immediately). ATR adapts to actual market conditions.
+- **TradingView backtests as confirmation, not signal**: v1 treated historical Sharpe as a buy signal. v2 uses them as a contrarian confirmation layer (329 inverted signals tell us when wrong strategies are losing).
+
+### Lessons
+- **Platform mismatch kills**: Risk parameters tuned for Kalshi's cent-denominated contracts don't work for IBKR's dollar-denominated stocks. The same `max_position_size: $10` meant 10 Kalshi contracts (appropriate) or 10 shares of SPY at $670 (account-destroying).
+- **Supabase state is not authoritative**: Dashboard toggle state can be stale for weeks. Config.yaml must win in both directions (can't disable config-enabled AND can't re-enable config-disabled).
+- **Zero-trade strategies are invisible**: 4 IBKR strategies generated 2,409 errors with 0 trades for weeks. Nothing counted errors per strategy. The error rate monitor now catches this in one session.
+- **The best short signal is an inverted bad long signal**: The TradingView backtest arsenal has 13 strong long signals but 329 strong inverted short signals. Strategies with -6.0 Sharpe and 33% WR are 67% accurate short indicators.
+
+---
+
+## The Numbers
+
+| Metric | Value |
+|--------|-------|
+| Total commits | 150+ |
+| Active build days | 19 (Feb 7 — Mar 20, 2026) |
+| PRs merged | 118 |
+| Strategies | 19 (calibration_edge LIVE, stock_momentum v2 PAPER, 17 disabled) |
+| Tests | 64+ (38 existing + 26 agent) |
+| Real balance | $115.71 (LIVE on Kalshi since Mar 11, down from $146 HWM) |
+| Lifetime closed P&L | +$220.96 (206 trades, 145 wins, 61 losses) |
+| Best strategy | calibration_edge: 85.5% WR, 159 live trades, +$355.06 |
+| Worst strategy | stock_momentum v1: 0% WR, 3 trades, -$149.52 |
+| Self-healing systems | 3 tiers (deterministic, AI advisory, Claude Code CLI) |
+| Arena seas tested | 5 regimes, 18 strategies, stock_momentum v2 PF=1.73 |
+
+---
+
 ## API Gotchas (Reference)
 
 These are hard-won lessons from production bugs. Save yourself the debugging.

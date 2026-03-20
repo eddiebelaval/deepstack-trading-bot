@@ -1,9 +1,9 @@
 # SPEC.md -- Living Specification
 ## DeepStack
 
-> Last reconciled: 2026-03-13 | Build stage: Phase 17 (Agent SDK + Wealth Engine Persistence)
+> Last reconciled: 2026-03-20 | Build stage: Phase 18 (Triage + Self-Healing + stock_momentum v2)
 > Drift status: CURRENT
-> VISION alignment: 85% (11 of 14 pillars realized)
+> VISION alignment: 87% (12 of 14 pillars realized, self-healing operational)
 
 ---
 
@@ -17,25 +17,24 @@ What this system can do TODAY.
 
 ### Trading Engine
 - **Core Loop:** 60-second polling cycle. Update state, manage positions, scan opportunities, execute trades.
-- **LIVE Trading (Kalshi):** Real money trades on `api.elections.kalshi.com` since 2026-03-11. Balance: $159.64. Kelly max position: ~$10 (6.3%). Daily loss limit: $5.
+- **LIVE Trading (Kalshi):** Real money trades on `api.elections.kalshi.com` since 2026-03-11. Balance: $115.71 (HWM $146.05, 20.8% drawdown). Kelly max position: ~$10. Daily loss limit: $5.
 - **Paper Trading (IBKR):** Stocks, futures, options still in paper mode. Each sector graduates independently.
 - **Multi-Asset Routing:** Positions route to correct exchange by asset_class (prediction_market -> Kalshi, stock/future/option -> IBKR).
 - **Graceful Degradation:** asyncio.wait_for timeouts (10-15s) on all IBKR calls. When IBKR is disconnected, Kalshi strategies run unimpeded. Cycles complete in ~2 minutes regardless.
 
-### Strategy Arsenal (19 strategies, 6 active)
+### Strategy Arsenal (19 strategies, 2 active)
 
 | Strategy | Platform | Status | Win Rate | Notes |
 |----------|----------|--------|----------|-------|
-| calibration_edge | Kalshi | **LIVE** | 87% (145 trades) | Favorite-longshot bias. Best performer. Graduated 2026-03-11. |
-| high_probability_bonds | Kalshi | ACTIVE | -- | Near-certainty contracts 93-98c. |
-| stock_momentum | IBKR | ACTIVE (blocked) | -- | TradingView-validated equity momentum. Needs IBKR. |
-| crisis_alpha | IBKR | ACTIVE (blocked) | -- | Inverse ETFs, volatility, safe havens, geopolitical. Needs IBKR. |
-| options_income | IBKR | ACTIVE (blocked) | -- | Sold puts for income. Needs IBKR. |
-| options_directional | IBKR | ACTIVE (blocked) | -- | Bought puts/calls directional. Needs IBKR. |
-| futures_trend | IBKR | ACTIVE (blocked) | -- | Micro futures trend-following. Needs IBKR. |
-| mean_reversion | Kalshi | DISABLED | 47.5% | Auto-disabled: critical health, negative EV. |
+| calibration_edge | Kalshi | **LIVE** | 85.5% (159 trades) | Favorite-longshot bias. Best performer. +$355.06 lifetime. |
+| stock_momentum v2 | IBKR | **PAPER** | -- | Rebuilt Mar 20: MACD+RSI+VWAP, dual-direction, ATR stops. Arena PF=1.73. |
+| crisis_alpha | IBKR | DISABLED | -- | No IBKR market data subscription. 0 trades ever. |
+| options_income | IBKR | DISABLED | -- | No IBKR options data subscription. Auto-disabled by error rate monitor. |
+| options_directional | IBKR | DISABLED | -- | No IBKR options data subscription. 0 trades ever. |
+| futures_trend | IBKR | DISABLED | -- | No IBKR futures data subscription. 0 trades ever. |
+| mean_reversion | Kalshi | DISABLED | 33.3% | Structurally invalid for binary contracts (Round 3 assessment). |
 | momentum | Kalshi | DISABLED | -- | Governance disabled in low_vol_calm regime. |
-| 10 others | Various | DISABLED | -- | settlement_betting, weather, news, arbitrage, etc. |
+| 11 others | Various | DISABLED | -- | settlement_betting (-$10.83), weather, news, arbitrage, etc. |
 
 ### Forward Signal Bridge
 - **Signal Taxonomy:** RATE_SHIFT (KXFED), INFLATION (KXCPI), GROWTH (KXGDP), RISK_APPETITE (KXBTC/KXETH), GEOPOLITICAL (future).
@@ -77,8 +76,13 @@ What this system can do TODAY.
 ### Intelligence Layer
 - **Trade Analyzer:** Claude Sonnet analysis of journal data every 30 minutes. Generates parameter_flags for strategy adaptation.
 - **Captain's Log:** AI narration of bot state. Streams to dashboard COMMS panel and Supabase.
-- **Heartbeat:** Deterministic health checks + periodic AI heartbeat. Arsenal refresh. Per-sector graduation evaluation with HTML report generation on pass.
-- **Telegram Notifications:** 7 hooks — trade opened/closed, settlement, strategy auto-disable, inaction critical, daily summary, IBKR connection.
+- **Heartbeat:** Three-tier monitoring:
+  - Tier 1 (every cycle, free): P&L breach, consecutive losses, win rate degradation, error rate monitor, position sizing invariant.
+  - Tier 1.5 (every cycle, free): Strategy error rate auto-disable (50+ errors, 0 trades = kill), startup self-test on boot.
+  - Tier 2 (every 30 min, ~$0.01): AI interpretation of HEARTBEAT.md standing orders via Haiku. Self-repair on parse failure.
+  - Tier 3 (on critical failure, ~$0.05): Self-repair via Claude Code CLI. Branch, fix, commit, push, PR, merge, restart. Protected files list prevents modification of risk/auth/safety. Max 1 repair per category per day.
+- **Self-Repair Engine** (`self_repair.py`): Autonomous code fixes with full Git deploy pipeline. Protected files: risk management, config schema, auth, self_repair.py. Audit trail in repair-log.json.
+- **Telegram Notifications:** 8 hooks — trade opened/closed, settlement, strategy auto-disable, inaction critical, daily summary, IBKR connection, self-repair alerts.
 
 ### Agent SDK (Cognitive Agent)
 - **DaeAgent** (`agent.py`): Scoped autonomous agent with 10 cognitive tools. Runs Claude Sonnet tool_use loop (max 15 iterations). Returns structured AgentResult.
@@ -186,6 +190,7 @@ kalshi-trading/
 │   ├── consciousness.py         # CaF self-awareness
 │   ├── agent.py                 # DaeAgent — cognitive tools (10 tools, no code mod)
 │   ├── engineer.py              # DaeEngineer — code modification (5 tools, git + PR)
+│   ├── self_repair.py           # Tier 3: Claude Code CLI self-healing + Git deploy pipeline
 │   ├── telegram_bridge.py       # Two-way Telegram + agent/engineer routing
 │   ├── dashboard_sync.py        # Supabase real-time sync
 │   ├── kalshi_client.py         # RSA-authenticated API
@@ -193,7 +198,7 @@ kalshi-trading/
 ├── strategies/
 │   ├── base.py                  # Abstract Strategy + Kelly
 │   ├── calibration_edge.py      # Favorite-longshot bias (BEST)
-│   ├── stock_momentum.py        # IBKR equity momentum
+│   ├── stock_momentum.py        # v2: MACD+RSI+VWAP dual-direction regime-gated
 │   ├── crisis_alpha.py          # NEW: Inverse ETFs, volatility, safe havens
 │   ├── options_income.py        # Sold puts
 │   ├── options_directional.py   # NEW: Bought puts/calls
@@ -212,5 +217,5 @@ kalshi-trading/
 
 ---
 
-*Last reconciled: 2026-03-13*
+*Last reconciled: 2026-03-20*
 *Private -- id8Labs LLC*
