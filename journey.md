@@ -169,33 +169,34 @@ The trading bot is a test of that idea at a very small scale.
 
 ## Where We Are Now
 
-**Balance: ~$152** (from $200 initial). That $48 was tuition.
+**Balance: $115.71** (from $200 initial, HWM $146.05). The $84.29 gap is tuition, and most of it came from one broken strategy.
 
-The bot is paused. Not because it's broken — because we're being honest about what works and what doesn't.
+calibration_edge is the real deal: 85.5% win rate, 159 live trades, +$355.06 lifetime. stock_momentum v1 was a $149.52 lesson in what happens when you bolt stock trading onto a prediction market bot without adapting the risk model. v2 is a ground-up rebuild.
 
 What works:
-- The strategy plugin architecture (14 strategies, zero core changes needed to add them)
-- The dashboard (real-time, trustworthy, useful)
-- The arena (empirical strategy evaluation instead of guessing)
-- The governance engine (now data-driven via arena fitness scores)
-- The safety systems (Kelly caps, circuit breakers, zombie detection)
+- **calibration_edge** (the only strategy that matters, proven across 159 live trades)
+- The strategy plugin architecture (19 strategies, zero core changes needed to add them)
+- The arena (empirical evaluation, now testing stock_momentum v2 across all 5 seas)
+- The governance engine (regime detection, forward signal bridge, capital allocation)
+- The safety systems (Kelly caps, circuit breakers, ATR stops, self-healing)
+- **Three-tier self-healing** (auto-disables broken strategies, fixes its own code, deploys via Git)
 
 What doesn't (yet):
-- Consistent profitability (17.4% win rate is not a business)
-- External data strategies (9 of 14 strategies need data we don't have in synthetic mode)
-- Regime detection on live markets (prediction markets don't show enough regime diversity)
+- IBKR market data subscriptions (4 strategies have never traded because they can't see data)
+- stock_momentum v2 (just deployed, needs paper trading validation)
+- Revenue (balance is shrinking, not growing)
 
-What we learned:
-- **Position sizing matters more than strategy selection.** A good strategy with Kelly = 0.5 at 15% win rate will lose faster than a random strategy with Kelly = 0.02.
-- **Control planes are not optional.** If you can see a problem but can't intervene, you don't have a system — you have a spectator seat.
-- **Aspirational priors kill you.** Assuming 60% win rate when you have 17% is not optimism. It's denial with a mathematical multiplier.
-- **Synthetic data reveals strategy character.** You can't test a momentum strategy with mean-reverting data. The seas system solved this and should have been built first.
-- **Zombie states are worse than crashes.** A crash is loud. A zombie is silent. Build health monitors before you need them.
+What we learned (Phase 18):
+- **Platform mismatch kills.** $10 max position makes sense for Kalshi cents. It's meaningless for $670 SPY shares. Risk parameters must be asset-class-aware.
+- **Zero-trade strategies are invisible.** 2,409 errors with 0 trades for weeks. Nothing counted errors per strategy until the error rate monitor was built.
+- **Supabase state is not authoritative.** Dashboard toggles persisted stale enabled=true flags that overrode config.yaml disabled strategies on every restart.
+- **The best short signal is an inverted bad long signal.** 329 TradingView backtest strategies with Sharpe < -1 are 65%+ accurate as short indicators when flipped.
+- **A bot that can fix itself is worth more than a bot that never breaks.** The self-repair engine with its protected files list is the constitutional separation of powers: the executive (trading loop) can modify code, but cannot amend the constitution (risk limits, auth, safety).
 
-The journey continues. But the foundation — the architecture, the safety systems, the feedback loops, the honest metrics — that foundation is solid.
+The journey continues. The foundation got an immune system.
 
 ---
 
-*100 commits. 12 build days. 14 strategies. 38 tests. 5 synthetic seas. 60 fitness scores. One honest post-mortem.*
+*150+ commits. 19 build days. 19 strategies. 64+ tests. 5 synthetic seas. 3 self-healing tiers. 4 PRs in one triage session.*
 
 *Private — id8Labs LLC. Feb-Mar 2026.*
