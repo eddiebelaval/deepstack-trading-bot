@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -881,6 +882,12 @@ Rules:
         if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
             clean = clean[brace_start:brace_end + 1]
 
+        # Normalize Python literals and trailing commas to valid JSON
+        clean = re.sub(r'\bTrue\b', 'true', clean)
+        clean = re.sub(r'\bFalse\b', 'false', clean)
+        clean = re.sub(r'\bNone\b', 'null', clean)
+        clean = re.sub(r',\s*([}\]])', r'\1', clean)
+
         try:
             result = json.loads(clean)
         except json.JSONDecodeError:
@@ -934,6 +941,12 @@ Rules:
         brace_end = text.rfind("}")
         if brace_start != -1 and brace_end != -1:
             text = text[brace_start:brace_end + 1]
+
+        # Normalize Python literals and trailing commas to valid JSON
+        text = re.sub(r'\bTrue\b', 'true', text)
+        text = re.sub(r'\bFalse\b', 'false', text)
+        text = re.sub(r'\bNone\b', 'null', text)
+        text = re.sub(r',\s*([}\]])', r'\1', text)
 
         try:
             result = json.loads(text)
