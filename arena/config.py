@@ -60,7 +60,7 @@ class ArenaConfig:
     exclude_strategies: List[str] = field(default_factory=lambda: [
         "cross_platform_arbitrage",  # Needs Polymarket data
         "tv_signals",                # Needs TradingView webhook data
-        "stock_momentum",            # Needs IB/stock data
+        # stock_momentum v2 now works with synthetic data (MACD/RSI/VWAP on any price series)
     ])
 
     # Data source (set via CLI)
