@@ -251,20 +251,27 @@ strategies:
   # === Stock Trading Strategies (IBKR) ===
 
   - name: stock_momentum
-    enabled: false              # DISABLED: 0/3 WR, -$149.52, position sizing bug fixed (2026-03-19 triage)
+    enabled: true               # v2 REBUILD: dual-direction regime-gated (2026-03-20)
     markets:
       - platform: ibkr
         series: "*"             # Uses IBKR watchlist from ibkr.watchlist config
     config:
       paper_trade: true         # HARD DEFAULT: paper only until graduation gate passes
-      min_sharpe: 1.0           # Minimum Sharpe from TradingView backtests
-      min_win_rate: 60.0        # Minimum win rate % from backtests
-      min_trades: 5             # Minimum backtest trade count (filter noise)
-      min_strategies: 2         # Minimum strategy consensus per ticker
-      take_profit_pct: 0.03     # 3% take profit
-      stop_loss_pct: 0.015      # 1.5% stop loss
-      max_positions: 5          # Max concurrent stock positions
-      min_score: 40             # Minimum consensus score from TV validation
+      max_positions: 3          # Max concurrent positions (was 5, reduced for $230 account)
+      risk_pct: 0.02            # 2% of account per trade ($4.60 max loss on $230)
+      max_position_dollars: 50.0  # Hard cap per position (fractional shares)
+      atr_stop_mult: 1.5       # Stop loss at 1.5x ATR (adaptive, not fixed %)
+      atr_trail_mult: 2.0      # Trailing stop at 2x ATR
+      atr_period: 10            # ATR lookback period
+      macd_fast: 12             # MACD fast EMA
+      macd_slow: 26             # MACD slow EMA
+      macd_signal: 9            # MACD signal line
+      rsi_period: 14            # RSI lookback
+      rsi_long_threshold: 45    # RSI must be below this for longs (not overbought)
+      rsi_short_threshold: 55   # RSI must be above this for shorts (not oversold)
+      vix_kill_threshold: 30    # VIX > 30 = go to cash
+      vix_reduce_threshold: 20  # VIX > 20 = reduce size
+      min_score: 35             # Minimum signal score
 
   # === Futures Trading Strategies (IBKR) ===
 
