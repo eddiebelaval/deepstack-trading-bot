@@ -24,20 +24,6 @@
 
 ## AI-Learned
 
-- Five enabled strategies with n=0 trades (cross_platform_arbitrage, high_probability_bonds, tv_signals, stock_momentum, futures_trend, options_income) are pure overhead. Auto-disable idle strategies after 48h—Eddie built lessons.md to say this. Execute it.
-- Regime confidence for low_vol_calm collapsed (0.10 vs 0.30 yesterday). Calibration_edge success may be regime-specific noise, not generalizable signal. Require regime stability >0.50 before trusting graduation gate progress.
-- Idle strategies with n=0 trades add cognitive load and false confidence. Implement auto-disable after 48h inactivity—Eddie documented this in lessons.md. Execute standing order.
-- Idle strategies (n=0 trades, enabled=true) are cognitive load masquerading as optionality. Auto-disable after 48h inactivity; Eddie documented this standing order. Execute it.
-- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (confidence=0.10) is unreliable signal. Require regime stability before scaling.
-- Regime confidence <0.50 invalidates graduation progress. Calibration_edge success in low_vol_calm (0.10 confidence) is unreliable signal—require regime stability before scaling.
-- Idle strategies (enabled=true, n=0 trades, 48h+) are cognitive load masquerading as optionality. Auto-disable after 48h inactivity per standing order.
-- 5 strategies enabled with zero trades add false confidence to portfolio. Implement auto-disable logic: if (enabled && n==0 && idle_hours>48) then disable.
-- Idle strategies (enabled=true, n=0 trades, 48h+) are pure overhead. Implement auto-disable after 48h inactivity per standing order.
-- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (0.57) is unreliable signal until regime stability improves.
-- Capital constraint at $153.92 forces fractional Kelly to zero. Graduation readiness is theoretical only until balance supports minimum 1-contract positions across strategies.
-- Idle strategies (enabled=true, n=0 trades, 48h+ inactivity) are cognitive load masquerading as optionality. Auto-disable per standing order to reduce false confidence.
-- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (0.30 confidence) is unreliable signal until regime stability improves.
-- Capital constraint at $149.57 forces fractional Kelly to zero across non-Kalshi strategies. Graduation readiness is theoretical until balance supports minimum 1-contract positions.
 - Idle strategies (enabled=true, n=0 trades, 48h+ inactivity) masquerade as optionality; implement auto-disable to reduce false confidence.
 - Regime confidence <0.50 invalidates graduation gate progress; require regime stability >0.50 before trusting regime-gated scaling decisions.
 - Capital floor ($150+) is hard constraint on fractional Kelly. Strategies requiring minimum 1-contract positions cannot execute until balance supports it.
@@ -49,3 +35,17 @@
 - High_vol_choppy regime (0.80 confidence) is only reliable signal. All profitable strategies are regime-specific—portability untested.
 - Calibration_edge dominates portfolio (157/159 total trades). Concentration risk masked by positive strategy performance. Diversification blocked by capital constraint and zero idle-strategy execution.
 - Five enabled strategies with zero trades (correlated_event_arbitrage, high_probability_bonds, etc.) are dead weight. Auto-disable idle strategies after 48h per standing order.
+- In choppy markets, wider stops and reduced position sizes help avoid false breakouts
+- Zero P&L with multiple positions suggests tight management or offsetting trades
+- Idle-strategy auto-disable (enabled=true, n=0, 48h+ inactivity) is a standing order—implement it to reduce false confidence in portfolio composition.
+- Regime confidence <0.50 makes graduation gate progress theoretical only. Kalshi regime diversity requirement (2 regimes) cannot be satisfied in single low-confidence regime.
+- Balance at $115.71 vs Phase 1 floor ($150) creates fractional Kelly death spiral. Minimum 1-contract positions impossible across portfolio until $150+ recovered.
+- Auto-disable idle strategies (enabled=true, n=0, 48h+ inactive) to reduce false confidence in portfolio composition.
+- Balance below $150 creates fractional Kelly death spiral — minimum viable position ($1) cannot be guaranteed across strategies.
+- Calibration_edge dominance (100% of trades) indicates portfolio is one-strategy-dependent. Diversification requires capital recovery to $150+.
+- Regime confidence <0.70 on single regime invalidates multi-regime graduation gate. Require stable regime diversity before scaling.
+- Fractional Kelly death spiral confirmed: balance at $115.71 locks minimum positions at $1, preventing diversification execution across 4 active strategies.
+- Calibration_edge is 100% of realized trades (159/159). Portfolio concentration risk masked by 85% win rate—single-strategy dependency.
+- High_vol_choppy regime (0.80 confidence) is only regime sampled. Graduation gate requires 2 profitable regimes; current data cannot satisfy multi-regime requirement.
+- Five idle strategies (enabled=true, n=0 trades, 48h+ inactivity: correlated_event_arbitrage, high_probability_bonds, weather_aggregation, news_sentiment_fade, domain_specialization) are dead weight masquerading as optionality.
+- Zero P&L on flat day with 17 open positions suggests tight risk management or offsetting trades—verify position structure to confirm active hedging vs passive holding.

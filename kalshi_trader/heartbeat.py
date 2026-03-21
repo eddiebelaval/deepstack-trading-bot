@@ -875,15 +875,18 @@ Rules:
                 if not line.strip().startswith("```")
             )
 
-        # Extract JSON object if Haiku added preamble/postscript text
-        brace_start = clean.find("{")
+        # Extract JSON object — scan all { positions in case preamble contains braces
+        result = None
         brace_end = clean.rfind("}")
-        if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
-            clean = clean[brace_start:brace_end + 1]
-
-        try:
-            result = json.loads(clean)
-        except json.JSONDecodeError:
+        if brace_end != -1:
+            for i, ch in enumerate(clean):
+                if ch == "{" and i < brace_end:
+                    try:
+                        result = json.loads(clean[i:brace_end + 1])
+                        break
+                    except json.JSONDecodeError:
+                        continue
+        if result is None:
             logger.warning(f"Heartbeat: failed to parse AI response: {response_text[:200]}")
             result = {"summary": "Parse error", "alerts": [], "lessons": [], "recommendations": [], "telegram": False}
 
