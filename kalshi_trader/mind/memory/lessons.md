@@ -24,19 +24,6 @@
 
 ## AI-Learned
 
-- Five enabled strategies with n=0 trades (cross_platform_arbitrage, high_probability_bonds, tv_signals, stock_momentum, futures_trend, options_income) are pure overhead. Auto-disable idle strategies after 48h—Eddie built lessons.md to say this. Execute it.
-- Regime confidence for low_vol_calm collapsed (0.10 vs 0.30 yesterday). Calibration_edge success may be regime-specific noise, not generalizable signal. Require regime stability >0.50 before trusting graduation gate progress.
-- Idle strategies with n=0 trades add cognitive load and false confidence. Implement auto-disable after 48h inactivity—Eddie documented this in lessons.md. Execute standing order.
-- Idle strategies (n=0 trades, enabled=true) are cognitive load masquerading as optionality. Auto-disable after 48h inactivity; Eddie documented this standing order. Execute it.
-- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (confidence=0.10) is unreliable signal. Require regime stability before scaling.
-- Regime confidence <0.50 invalidates graduation progress. Calibration_edge success in low_vol_calm (0.10 confidence) is unreliable signal—require regime stability before scaling.
-- Idle strategies (enabled=true, n=0 trades, 48h+) are cognitive load masquerading as optionality. Auto-disable after 48h inactivity per standing order.
-- 5 strategies enabled with zero trades add false confidence to portfolio. Implement auto-disable logic: if (enabled && n==0 && idle_hours>48) then disable.
-- Idle strategies (enabled=true, n=0 trades, 48h+) are pure overhead. Implement auto-disable after 48h inactivity per standing order.
-- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (0.57) is unreliable signal until regime stability improves.
-- Capital constraint at $153.92 forces fractional Kelly to zero. Graduation readiness is theoretical only until balance supports minimum 1-contract positions across strategies.
-- Idle strategies (enabled=true, n=0 trades, 48h+ inactivity) are cognitive load masquerading as optionality. Auto-disable per standing order to reduce false confidence.
-- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (0.30 confidence) is unreliable signal until regime stability improves.
 - Capital constraint at $149.57 forces fractional Kelly to zero across non-Kalshi strategies. Graduation readiness is theoretical until balance supports minimum 1-contract positions.
 - Idle strategies (enabled=true, n=0 trades, 48h+ inactivity) masquerade as optionality; implement auto-disable to reduce false confidence.
 - Regime confidence <0.50 invalidates graduation gate progress; require regime stability >0.50 before trusting regime-gated scaling decisions.
@@ -49,3 +36,16 @@
 - High_vol_choppy regime (0.80 confidence) is only reliable signal. All profitable strategies are regime-specific—portability untested.
 - Calibration_edge dominates portfolio (157/159 total trades). Concentration risk masked by positive strategy performance. Diversification blocked by capital constraint and zero idle-strategy execution.
 - Five enabled strategies with zero trades (correlated_event_arbitrage, high_probability_bonds, etc.) are dead weight. Auto-disable idle strategies after 48h per standing order.
+- In choppy regimes, fewer positions with tighter management outperform high position counts
+- In choppy markets, reduce position count to increase focus and manageability
+- High volatility requires wider stops or smaller position sizes to avoid false breakout losses
+- Choppy markets require tighter stops and smaller position sizes to avoid multiple small losses
+- High volatility with chop suggests reduced directional bias; favor mean-reversion strategies
+- In choppy markets, reduce position count or use tighter stops to avoid death-by-a-thousand-cuts losses
+- Reduce position count in choppy markets to improve manageability
+- Tighten stop losses during high volatility regimes
+- Reduce position count during choppy regimes to improve manageability
+- Tighten stops and reduce lot sizes when volatility spikes without clear direction
+- Regime confidence <0.50 invalidates graduation gate progress. Low_vol_calm (0.30) is not a testable regime for strategy portability.
+- Enabled strategies with zero trades for 48h+ are confidence illusions. Implement auto-disable to reduce false optionality.
+- Fractional Kelly at sub-$150 balance forces all non-dominant strategies to zero contracts. Growth requires balance recovery to $150+ first.

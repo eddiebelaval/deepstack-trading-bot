@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -854,7 +855,7 @@ Rules:
             "https://api.anthropic.com/v1/messages",
             json={
                 "model": HAIKU,
-                "max_tokens": 500,
+                "max_tokens": 1024,
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": context}],
             },
@@ -864,26 +865,26 @@ Rules:
         data = resp.json()
         response_text = data.get("content", [{}])[0].get("text", "").strip()
 
-        # Parse JSON — handle markdown fences and preamble text from Haiku
-        clean = response_text
-
-        # Strip markdown code fences (```json ... ```)
-        if "```" in clean:
-            lines = clean.splitlines()
-            clean = "\n".join(
-                line for line in lines
-                if not line.strip().startswith("```")
-            )
-
-        # Extract JSON object if Haiku added preamble/postscript text
-        brace_start = clean.find("{")
-        brace_end = clean.rfind("}")
-        if brace_start != -1 and brace_end != -1 and brace_end > brace_start:
-            clean = clean[brace_start:brace_end + 1]
-
+        # Try direct parse first (response may already be clean JSON)
+        result = None
         try:
-            result = json.loads(clean)
+            result = json.loads(response_text)
         except json.JSONDecodeError:
+            pass
+
+        if result is None:
+            # Strip all markdown code fence variants (```json, ```text, ``` etc.)
+            clean = re.sub(r"```[a-z]*\s*", "", response_text)
+            clean = re.sub(r"```", "", clean).strip()
+            # Extract outermost JSON object via regex (handles preamble/postscript)
+            match = re.search(r"\{.*\}", clean, re.DOTALL)
+            if match:
+                try:
+                    result = json.loads(match.group())
+                except json.JSONDecodeError:
+                    pass
+
+        if result is None:
             logger.warning(f"Heartbeat: failed to parse AI response: {response_text[:200]}")
             result = {"summary": "Parse error", "alerts": [], "lessons": [], "recommendations": [], "telegram": False}
 
@@ -929,15 +930,20 @@ Rules:
         data = resp.json()
         text = data.get("content", [{}])[0].get("text", "").strip()
 
-        # Extract JSON
-        brace_start = text.find("{")
-        brace_end = text.rfind("}")
-        if brace_start != -1 and brace_end != -1:
-            text = text[brace_start:brace_end + 1]
-
+        result = None
         try:
             result = json.loads(text)
         except json.JSONDecodeError:
+            clean = re.sub(r"```[a-z]*\s*", "", text)
+            clean = re.sub(r"```", "", clean).strip()
+            match = re.search(r"\{.*\}", clean, re.DOTALL)
+            if match:
+                try:
+                    result = json.loads(match.group())
+                except json.JSONDecodeError:
+                    pass
+
+        if result is None:
             result = {"summary": "Parse error", "alerts": [], "lessons": [], "recommendations": [], "telegram": False}
 
         result.setdefault("summary", "")
