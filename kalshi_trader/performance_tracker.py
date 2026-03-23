@@ -465,7 +465,13 @@ class PerformanceTracker:
 
         self._save_health(health)
 
-        if health_status != "healthy":
+        # Log health warnings, but throttle to avoid 29K+ identical lines.
+        # Log on first warning, every 100th, and on status transitions.
+        if health_status != "healthy" and (
+            consecutive_warnings <= 1
+            or consecutive_warnings % 100 == 0
+            or consecutive_warnings != prev_warnings + 1  # status transition
+        ):
             logger.warning(
                 f"Strategy {strategy_name} health: {health_status} | "
                 f"EV={ev:.2f}c, confidence={confidence:.1%}, "
