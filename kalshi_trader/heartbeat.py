@@ -882,8 +882,10 @@ Rules:
             clean = clean[brace_start:brace_end + 1]
 
         try:
-            result = json.loads(clean)
-        except json.JSONDecodeError:
+            decoder = json.JSONDecoder()
+            idx = clean.find("{")
+            result, _ = decoder.raw_decode(clean, idx if idx != -1 else 0)
+        except (json.JSONDecodeError, ValueError):
             logger.warning(f"Heartbeat: failed to parse AI response: {response_text[:200]}")
             result = {"summary": "Parse error", "alerts": [], "lessons": [], "recommendations": [], "telegram": False}
 
@@ -936,8 +938,10 @@ Rules:
             text = text[brace_start:brace_end + 1]
 
         try:
-            result = json.loads(text)
-        except json.JSONDecodeError:
+            decoder = json.JSONDecoder()
+            idx = text.find("{")
+            result, _ = decoder.raw_decode(text, idx if idx != -1 else 0)
+        except (json.JSONDecodeError, ValueError):
             result = {"summary": "Parse error", "alerts": [], "lessons": [], "recommendations": [], "telegram": False}
 
         result.setdefault("summary", "")
