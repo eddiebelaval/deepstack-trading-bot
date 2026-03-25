@@ -356,6 +356,7 @@ class KalshiTradingBot:
         # 2b. Portfolio drawdown protection — high-water mark loaded after
         # performance_tracker init (see step 5d below). Temporarily set from API.
         self._initial_balance = account_balance
+        self._total_balance = account_balance  # cash + portfolio value (updated each cycle)
         self._portfolio_halted = False
 
         # 3. Initialize risk management
@@ -1207,7 +1208,8 @@ class KalshiTradingBot:
                 ))
                 # Force narrate the shutdown event
                 bot_state = {
-                    "balance": self.risk.account_balance if self.risk else 0,
+                    "balance": self._total_balance if hasattr(self, '_total_balance') else (self.risk.account_balance if self.risk else 0),
+                    "cash_balance": self.risk.account_balance if self.risk else 0,
                     "daily_pnl": self.risk.get_daily_stats()["daily_pnl"] if self.risk else 0,
                     "open_positions": len(self.open_positions),
                     "regime": "shutdown",
@@ -1456,8 +1458,9 @@ class KalshiTradingBot:
             return
 
         # 2a. Portfolio-level drawdown check (P0-2: prevents account destruction)
+        # Uses total balance (cash + portfolio value) to match Kalshi app display.
         # Round 2 P0: Update high-water mark if balance has increased
-        current_balance = self.risk.account_balance
+        current_balance = self._total_balance
         if current_balance > self._initial_balance:
             self._initial_balance = current_balance
             if self.performance_tracker:
@@ -1513,7 +1516,8 @@ class KalshiTradingBot:
         # 5. Captain's Log — narrate if conditions met
         _regime_snap = getattr(self.market_governor, 'current_regime', None) if self.market_governor else None
         bot_state = {
-            "balance": self.risk.account_balance,
+            "balance": self._total_balance,
+            "cash_balance": self.risk.account_balance,
             "daily_pnl": self.risk.get_daily_stats()["daily_pnl"],
             "open_positions": len(self.open_positions),
             "regime": _regime_snap.regime.value if _regime_snap else 'unknown',
@@ -1543,6 +1547,9 @@ class KalshiTradingBot:
             else:
                 effective_balance = self.paper_balance
         self.risk.update_balance(effective_balance)
+
+        # Total balance = cash + portfolio value (what Kalshi app shows)
+        self._total_balance = balance["available"] + balance.get("portfolio_value", 0)
 
         # Sync positions with exchange
         await self._sync_positions()
