@@ -18,6 +18,7 @@ v2 design:
     - Hard regime gate: cash in VIX>30, no longs in downtrends, no shorts in uptrends
     - Time-based exit: 10 days max for longs, 5 days for inverse ETFs (decay)
     - Arena-compatible: works with synthetic prediction market data for backtesting
+    - TV signal overlay: top TradingView indicators boost/penalize conviction score
 
 Signal logic:
     LONG mode (trending_up + VIX < 20):
@@ -35,6 +36,7 @@ from datetime import datetime, timezone
 from typing import Any, Deque, Dict, List, Optional
 
 from .base import Strategy, TradingOpportunity, ExitSignal
+from .data_providers.tradingview import TradingViewDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,14 @@ class StockMomentumStrategy(Strategy):
 
         # ATR period
         self.atr_period = config.get("atr_period", 10)
+
+        # TV signal overlay: boost score when top TradingView indicators agree
+        self.tv_overlay_enabled = config.get("tv_overlay_enabled", True)
+        self.tv_boost = config.get("tv_boost", 15)       # Score boost when TV agrees
+        self.tv_penalty = config.get("tv_penalty", 10)    # Score penalty when TV disagrees
+        self.tv_min_sharpe = config.get("tv_min_sharpe", 1.0)
+        self._tv_provider = TradingViewDataProvider(cache_ttl_seconds=300)
+        self._tv_cache: Optional[Dict[str, Any]] = None
 
         # Price history per ticker (for indicator calculation)
         self._price_history: Dict[str, Deque[float]] = {}
@@ -224,6 +234,70 @@ class StockMomentumStrategy(Strategy):
             true_ranges.append(tr)
 
         return sum(true_ranges) / len(true_ranges)
+
+    async def _get_tv_consensus(self, ticker: str) -> Dict[str, Any]:
+        """
+        Query top TradingView indicators for directional consensus on a ticker.
+
+        Returns dict with:
+            direction: "bullish" | "bearish" | "neutral"
+            strength: 0.0-1.0 consensus strength
+            num_indicators: how many qualified
+            best_indicator: top performer name
+            avg_sharpe: average Sharpe across top indicators
+        """
+        try:
+            top = await self._tv_provider.get_top_indicators(
+                min_sharpe=self.tv_min_sharpe, limit=20,
+            )
+        except Exception as e:
+            logger.debug("TV overlay: fetch failed (%s), returning neutral", e)
+            return {"direction": "neutral", "strength": 0.0, "num_indicators": 0}
+
+        if not top:
+            return {"direction": "neutral", "strength": 0.0, "num_indicators": 0}
+
+        # Check which indicators have positive ROI for this specific ticker
+        bullish = 0
+        bearish = 0
+        best_name = top[0].get("script_name", "unknown")
+        sharpes = []
+
+        for ind in top:
+            avg_roi = ind.get("avg_roi") or 0
+            best_ticker = ind.get("best_ticker", "")
+            avg_sharpe = ind.get("avg_sharpe") or 0
+            sharpes.append(avg_sharpe)
+
+            # If this indicator's best ticker matches ours, weight it higher
+            weight = 2 if best_ticker == ticker else 1
+
+            if avg_roi > 0:
+                bullish += weight
+            else:
+                bearish += weight
+
+        total = bullish + bearish
+        if total == 0:
+            return {"direction": "neutral", "strength": 0.0, "num_indicators": 0}
+
+        if bullish > bearish:
+            direction = "bullish"
+            strength = (bullish - bearish) / total
+        elif bearish > bullish:
+            direction = "bearish"
+            strength = (bearish - bullish) / total
+        else:
+            direction = "neutral"
+            strength = 0.0
+
+        return {
+            "direction": direction,
+            "strength": round(strength, 3),
+            "num_indicators": len(top),
+            "best_indicator": best_name,
+            "avg_sharpe": round(sum(sharpes) / len(sharpes), 2) if sharpes else 0,
+        }
 
     def _get_regime_mode(self, governance_engine: Optional[Any]) -> str:
         """
@@ -383,6 +457,32 @@ class StockMomentumStrategy(Strategy):
                 min(volume, 10000) / 200  # Volume bonus (capped)
             )))
 
+            # TV signal overlay: boost or penalize based on TradingView indicator consensus
+            tv_consensus = {"direction": "neutral", "strength": 0.0, "num_indicators": 0}
+            if self.tv_overlay_enabled:
+                tv_consensus = await self._get_tv_consensus(ticker)
+                signal_is_bullish = (mode == "long")
+                tv_is_bullish = (tv_consensus["direction"] == "bullish")
+                tv_is_bearish = (tv_consensus["direction"] == "bearish")
+
+                if tv_consensus["direction"] != "neutral" and tv_consensus["strength"] > 0:
+                    if signal_is_bullish == tv_is_bullish or (not signal_is_bullish and tv_is_bearish):
+                        # TV agrees with our signal direction
+                        boost = self.tv_boost * tv_consensus["strength"]
+                        score = min(100, score + boost)
+                        reasoning_parts.append(
+                            f"TV +{boost:.0f} ({tv_consensus['num_indicators']} indicators "
+                            f"{tv_consensus['direction']}, str={tv_consensus['strength']:.0%})"
+                        )
+                    else:
+                        # TV disagrees
+                        penalty = self.tv_penalty * tv_consensus["strength"]
+                        score = max(0, score - penalty)
+                        reasoning_parts.append(
+                            f"TV -{penalty:.0f} ({tv_consensus['num_indicators']} indicators "
+                            f"{tv_consensus['direction']}, str={tv_consensus['strength']:.0%})"
+                        )
+
             if score < self.min_score:
                 continue
 
@@ -390,8 +490,9 @@ class StockMomentumStrategy(Strategy):
             max_loss = int(stop_distance)
 
             logger.info(
-                "stock_momentum: %s OPPORTUNITY %s — score=%.1f, price=$%.2f, ATR=$%.2f, mode=%s",
+                "stock_momentum: %s OPPORTUNITY %s — score=%.1f, price=$%.2f, ATR=$%.2f, mode=%s, tv=%s",
                 mode.upper(), ticker, score, price / 100, atr / 100, mode,
+                tv_consensus["direction"],
             )
 
             opportunities.append(TradingOpportunity(
@@ -418,6 +519,11 @@ class StockMomentumStrategy(Strategy):
                     "paper_trade": self.paper_trade,
                     "is_inverse_etf": ticker in ("SQQQ", "SH", "SDOW", "SPXS"),
                     "max_hold_days": MAX_HOLD_DAYS_INVERSE if ticker in ("SQQQ", "SH", "SDOW", "SPXS") else MAX_HOLD_DAYS_LONG,
+                    "tv_direction": tv_consensus["direction"],
+                    "tv_strength": tv_consensus["strength"],
+                    "tv_num_indicators": tv_consensus["num_indicators"],
+                    "tv_best_indicator": tv_consensus.get("best_indicator", ""),
+                    "tv_avg_sharpe": tv_consensus.get("avg_sharpe", 0),
                 },
             ))
 

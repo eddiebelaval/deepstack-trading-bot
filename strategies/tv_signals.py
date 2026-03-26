@@ -114,7 +114,7 @@ class TvSignalsStrategy(Strategy):
         # Determine overall signal direction from indicator consensus
         # Positive avg_return = bullish consensus, negative = bearish
         bullish_count = sum(
-            1 for ind in top_indicators if (ind.get("avg_return_pct") or 0) > 0
+            1 for ind in top_indicators if (ind.get("avg_roi") or 0) > 0
         )
         bearish_count = len(top_indicators) - bullish_count
         signal_direction = "yes" if bullish_count >= bearish_count else "no"
