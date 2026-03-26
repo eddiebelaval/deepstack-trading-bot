@@ -2,9 +2,9 @@
 
 This document tells the build story of DeepStack, an autonomous multi-asset trading bot. It evolved from a two-strategy prediction market weekend project into a wealth generation engine spanning Kalshi, IBKR stocks/ETFs/futures/options, with forward-looking intelligence from prediction markets, self-governing regime detection, and graceful degradation across exchanges.
 
-**140+ commits. 17 active build days. Feb 7 — Mar 13, 2026. LIVE on Kalshi.**
+**160+ commits. 22 active build days. Feb 7 — Mar 25, 2026. LIVE on Kalshi.**
 
-Last updated: 2026-03-13
+Last updated: 2026-03-25
 
 ---
 
@@ -800,19 +800,76 @@ eff6d2b [Meta] feat(dae): full deploy pipeline for self-repair
 
 ---
 
+## Phase 19: Heartbeat Parse Fix + Log Hygiene (Mar 23)
+
+**The AI heartbeat had been returning "Parse error" for 3+ consecutive days.** The self-repair engine diagnosed the problem correctly but couldn't fix it. Meanwhile, the performance tracker was generating 29K+ identical warning lines per day for critical strategies.
+
+### What Was Built
+
+**Heartbeat JSON Parser Rewrite**
+- Root cause: `max_tokens: 500` was too small. Haiku's response got truncated mid-JSON, and the naive `rfind("}")` grabbed a brace inside a string value instead of the closing brace of the JSON object.
+- New `_extract_json()` static method: proper brace-depth parser that tracks `depth` and `in_string` state. Handles markdown fences, preamble text, nested braces in strings, and truncated responses (returns `None`).
+- Added `stop_reason == "max_tokens"` detection to skip parsing entirely on truncated responses.
+- Increased `max_tokens` from 500 to 1024 for the main heartbeat call, 200 to 300 for the minimal retry.
+- Added system prompt to the minimal retry path for consistent JSON output.
+
+**Performance Tracker Log Throttling**
+- Health warnings were logging every 3-second cycle for critical strategies. `mean_reversion` had 29K+ identical log lines.
+- Throttled to: first occurrence, every 100th cycle, and on status transitions. Log is now clean.
+
+**State Reset**
+- Cleared `consecutive_parse_errors` (3 -> 0), `last_ai_summary` ("Parse error" -> ""), and `repairs_today` in heartbeat and repair state files.
+- Reset `consecutive_warnings` in strategy_health SQLite table for critical strategies.
+
+### Lessons
+- **`rfind("}")` is never safe for JSON extraction.** If the response is truncated, the last `}` could be inside a string value. Always track brace depth and string state.
+- **Self-repair has a ceiling.** The repair engine diagnosed "heartbeat parse failure" correctly but its code-level fixes couldn't address the fundamental problem (token budget too small for the growing bot state context). Sometimes the fix isn't in the code being repaired.
+- **Log throttling is infrastructure hygiene.** 29K identical warning lines per day is 100% noise. Logging the first occurrence + every 100th preserves signal while cutting 99% of volume.
+
+---
+
+## Phase 20: Balance Reporting Fix + Lessons Compaction (Mar 24-25)
+
+**The bot was reporting $115 balance while the Kalshi app showed $150.** The discrepancy was confusing and made the Phase 1 floor check inaccurate.
+
+### What Was Built
+
+**Total Balance Reporting**
+- The bot was using cash-only balance (`balance["available"]`) for floor checks, heartbeat summaries, and drawdown calculations.
+- Kalshi app shows cash + portfolio value (max payout of open positions). Eddie confirmed the floor check should use total balance.
+- Added `_total_balance` field: `cash + portfolio_value`. Used for floor checks, drawdown, heartbeat, and captain's log.
+- Position sizing (`risk.update_balance()`) still uses cash-only, since that's what's actually available for new orders.
+- Added `cash_balance` to `bot_state` so downstream consumers can distinguish.
+
+**AI Lessons Self-Compaction**
+- Dae's heartbeat AI rewrote its own `lessons.md`: 22 redundant entries compacted into 7 actionable insights.
+- Key distillations: calibration_edge carries the portfolio below $150, negative EV strategies should be disabled regardless of win rate, Kelly math breaks below $1/position floor, auto-disable threshold should be 24h not 48h.
+- This is the bot learning to learn: reducing noise in its own memory to improve future decision quality.
+
+### Architecture Decision: Cash vs Total Balance
+Two numbers, two purposes. Cash balance = buying power for new orders (what `risk.update_balance` needs). Total balance = cash + portfolio value = what the Kalshi app shows and what the floor check should compare against. Mixing them up made Dae think it was $35 below floor when it was actually at floor. The fix separates them clearly in the data model.
+
+### Lessons
+- **Always verify which "balance" an exchange API returns.** Kalshi's `get_balance` returns both `available` (cash) and `portfolio_value` (max payout of open positions). The app shows their sum. The bot was only using one.
+- **Paper/live PnL divergence is real.** calibration_edge: +$360.62 paper vs -$7.84 live. Same strategy, same parameters, very different results. Paper fills are more favorable than live fills. The graduation gate exists for this reason.
+
+---
+
 ## The Numbers
 
 | Metric | Value |
 |--------|-------|
-| Total commits | 150+ |
-| Active build days | 19 (Feb 7 — Mar 20, 2026) |
-| PRs merged | 118 |
-| Strategies | 19 (calibration_edge LIVE, stock_momentum v2 PAPER, 17 disabled) |
+| Total commits | 160+ |
+| Active build days | 22 (Feb 7 — Mar 25, 2026) |
+| PRs merged | 123 |
+| Strategies | 19 (calibration_edge LIVE, stock_momentum v2 + crisis_alpha PAPER, 16 disabled) |
 | Tests | 64+ (38 existing + 26 agent) |
-| Real balance | $115.71 (LIVE on Kalshi since Mar 11, down from $146 HWM) |
-| Lifetime closed P&L | +$220.96 (206 trades, 145 wins, 61 losses) |
-| Best strategy | calibration_edge: 85.5% WR, 159 live trades, +$355.06 |
-| Worst strategy | stock_momentum v1: 0% WR, 3 trades, -$149.52 |
+| Total balance | ~$150 (cash + portfolio, LIVE on Kalshi since Mar 11) |
+| Live closed trades | 111 (+$6.50 PnL) |
+| Paper closed trades | 111 (+$211.10 PnL) |
+| Best strategy (live) | calibration_edge: 60.6% WR, 66 closed, market_making: +$16.41 |
+| Best strategy (paper) | calibration_edge: 92.6% WR, 108 closed, +$360.62 |
+| Worst strategy | stock_momentum v1: 0% WR, 3 paper trades, -$149.52 |
 | Self-healing systems | 3 tiers (deterministic, AI advisory, Claude Code CLI) |
 | Arena seas tested | 5 regimes, 18 strategies, stock_momentum v2 PF=1.73 |
 
@@ -837,5 +894,5 @@ These are hard-won lessons from production bugs. Save yourself the debugging.
 
 ---
 
-*Last updated: 2026-03-13*
+*Last updated: 2026-03-25*
 *Private -- id8Labs LLC*
