@@ -24,28 +24,28 @@
 
 ## AI-Learned
 
-- Five enabled strategies with n=0 trades (cross_platform_arbitrage, high_probability_bonds, tv_signals, stock_momentum, futures_trend, options_income) are pure overhead. Auto-disable idle strategies after 48h—Eddie built lessons.md to say this. Execute it.
-- Regime confidence for low_vol_calm collapsed (0.10 vs 0.30 yesterday). Calibration_edge success may be regime-specific noise, not generalizable signal. Require regime stability >0.50 before trusting graduation gate progress.
-- Idle strategies with n=0 trades add cognitive load and false confidence. Implement auto-disable after 48h inactivity—Eddie documented this in lessons.md. Execute standing order.
-- Idle strategies (n=0 trades, enabled=true) are cognitive load masquerading as optionality. Auto-disable after 48h inactivity; Eddie documented this standing order. Execute it.
-- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (confidence=0.10) is unreliable signal. Require regime stability before scaling.
-- Regime confidence <0.50 invalidates graduation progress. Calibration_edge success in low_vol_calm (0.10 confidence) is unreliable signal—require regime stability before scaling.
-- Idle strategies (enabled=true, n=0 trades, 48h+) are cognitive load masquerading as optionality. Auto-disable after 48h inactivity per standing order.
-- 5 strategies enabled with zero trades add false confidence to portfolio. Implement auto-disable logic: if (enabled && n==0 && idle_hours>48) then disable.
-- Idle strategies (enabled=true, n=0 trades, 48h+) are pure overhead. Implement auto-disable after 48h inactivity per standing order.
-- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (0.57) is unreliable signal until regime stability improves.
-- Capital constraint at $153.92 forces fractional Kelly to zero. Graduation readiness is theoretical only until balance supports minimum 1-contract positions across strategies.
-- Idle strategies (enabled=true, n=0 trades, 48h+ inactivity) are cognitive load masquerading as optionality. Auto-disable per standing order to reduce false confidence.
-- Regime confidence <0.50 invalidates graduation gate progress. Calibration_edge success in low_vol_calm (0.30 confidence) is unreliable signal until regime stability improves.
-- Capital constraint at $149.57 forces fractional Kelly to zero across non-Kalshi strategies. Graduation readiness is theoretical until balance supports minimum 1-contract positions.
-- Idle strategies (enabled=true, n=0 trades, 48h+ inactivity) masquerade as optionality; implement auto-disable to reduce false confidence.
-- Regime confidence <0.50 invalidates graduation gate progress; require regime stability >0.50 before trusting regime-gated scaling decisions.
-- Capital floor ($150+) is hard constraint on fractional Kelly. Strategies requiring minimum 1-contract positions cannot execute until balance supports it.
-- Balance below Phase 1 floor ($150). Fractional Kelly rounds to zero on most strategies. Graduation readiness is theoretical until balance recovers.
-- Regime confidence 0.80 (high_vol_choppy) is your only reliable signal. Calibration_edge 86% win rate is regime-specific—test portability before scaling.
-- 5 enabled strategies with zero trades (stock_momentum, correlated_event_arbitrage, etc.) add false confidence. Auto-disable after 48h inactivity per standing order.
-- Mean_reversion EV=-12.3c (n=3) stays disabled. Re-enable only at EV>0 + n≥10 confirmed.
-- Balance dropped below Phase 1 floor ($150). Fractional Kelly now rounds to zero on most strategies. Growth stalled until balance recovers to $150+.
-- High_vol_choppy regime (0.80 confidence) is only reliable signal. All profitable strategies are regime-specific—portability untested.
-- Calibration_edge dominates portfolio (157/159 total trades). Concentration risk masked by positive strategy performance. Diversification blocked by capital constraint and zero idle-strategy execution.
-- Five enabled strategies with zero trades (correlated_event_arbitrage, high_probability_bonds, etc.) are dead weight. Auto-disable idle strategies after 48h per standing order.
+- Regime confidence <0.10 signals market structure opacity, not recovery weakness. Pre-staging parameters before transitions is now mandatory.
+- Position audit at sub-$151 balance: 23 positions suggest fractional sizing. Kelly math breaks below $1/position floor; audit and consolidate.
+- Enabled-but-idle strategies below $150 balance are computational overhead masquerading as diversification. Auto-disable threshold should be 24h inactivity, not 48h.
+- calibration_edge mathematical proof: 174 trades, 80% WR, 167.1c EV carries entire sub-$150 portfolio. All other strategies are luxury goods until $250+ balance.
+- Negative EV strategies (mean_reversion -9.7c, stock_momentum -956.1c) prove regime mismatch, not broken logic. Disable regardless of win rate when EV turns negative.
+- Regime confidence <0.10 at $150+ balance signals market structure shift, not recovery weakness. Requires proactive pre-staging, not reactive waiting.
+- 23 positions on $151 balance = fractional sizing risk. Kelly math breaks below $1/position floor. Audit and consolidate oversized position count.
+- Enabled-but-idle strategies at sub-$150 balance are drag without hedge value. Auto-disable threshold should be 24h inactivity, not 48h, to force consolidation onto proven engine (calibration_edge).
+- Negative EV overrides win rate: stock_momentum at 34% WR and mean_reversion at 49% WR both correctly disabled. EV < 0 = disable signal regardless of win %.  regime mismatch proof.
+- Fractional position sizing at sub-$151 balance breaks Kelly math. Verify $1 minimum floor enforcement across all 23 open positions.
+- Regime confidence <0.10 requires pre-staged parameters ready, not reactive waiting. Market structure opacity demands preparation, not panic.
+- Negative EV is disable signal regardless of win rate. stock_momentum (-955.3c EV, 34% WR) and mean_reversion (-9.7c EV, 49% WR) prove regime mismatch, not strategy failure.
+- calibration_edge mathematical dominance unambiguous: 174 trades, 80% WR, 167.1c EV carries entire sub-$151 portfolio. All disabled strategies remain overhead until $250+ balance.
+- Position count at sub-$160 balance suggests fractional sizing creep. Kelly math breaks below $1/position floor; audit 23 positions for enforcement.
+- Regime confidence <0.10 without pre-staged parameters is existential risk, not recovery weakness. Mandatory pre-staging before regime transitions, not reactive waiting.
+- Enabled-but-idle strategies at recovery balance are drag without hedge value. 24h inactivity auto-disable rule forces consolidation onto proven engine (calibration_edge).
+- Negative EV overrides all other metrics: stock_momentum (-954.9c EV, 34% WR, 3 consec losses) and mean_reversion (-9.7c EV, 49% WR) correctly disabled. EV < 0 = disable signal, full stop.
+- Position count creep at sub-$160 balance violates Kelly sizing. Fractional positions (<$1) are existential risk. Enforce $1 minimum floor or auto-consolidate.
+- Regime confidence <0.10 without pre-staged parameters is operational blind spot. Pre-staging regime transitions is mandatory, not optional.
+- Three consecutive losses + negative EV (stock_momentum) = regime mismatch signal, not strategy failure. Disable is correct; monitor for regime recovery before re-enabling.
+- Enabled-but-idle strategies below $150 balance (high_probability_bonds, crisis_alpha at 0 trades) are computational drag. Auto-disable if 24h no signal generation.
+- Position count creep at sub-$160 balance violates Kelly sizing principle. Fractional positions (<$1) create existential risk; enforce $1 minimum floor or auto-consolidate.
+- Regime confidence <0.10 without pre-staged parameters is operational blind spot. Pre-staging regime transitions is mandatory risk control, not optional planning.
+- Enabled-but-idle strategies below $150 balance are pure computational drag. Auto-disable rule should trigger at 24h no signal generation, forcing consolidation onto proven engine (calibration_edge).
+- Negative EV is disable signal regardless of win rate. stock_momentum (-954.1c EV, 34% WR) and mean_reversion (-9.7c EV, 49% WR) prove this rule holds—EV < 0 = disable, full stop.
