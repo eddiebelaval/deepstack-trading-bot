@@ -18,6 +18,8 @@ Safety constraints:
 import asyncio
 import json
 import logging
+import os
+import shutil
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -32,7 +34,7 @@ _REPAIR_LOG_PATH = _PROJECT_ROOT / "repair-log.json"
 _REPAIR_STATE_PATH = _PROJECT_ROOT / "repair-state.json"
 
 # Claude Code CLI path
-_CLAUDE_CLI = "/Users/eddiebelaval/.local/bin/claude"
+_CLAUDE_CLI = os.getenv("CLAUDE_CLI_PATH", shutil.which("claude") or "claude")
 
 # Files DAE is NEVER allowed to modify via self-repair
 PROTECTED_FILES = {
@@ -383,7 +385,7 @@ class SelfRepairEngine:
             # 7. Restart bot
             await asyncio.to_thread(
                 subprocess.run,
-                ["launchctl", "kickstart", "-k", "gui/501/com.id8labs.deepstack-bot"],
+                ["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/{os.getenv('LAUNCHD_SERVICE', 'com.id8labs.deepstack-bot')}"],
                 capture_output=True,
                 timeout=10,
             )

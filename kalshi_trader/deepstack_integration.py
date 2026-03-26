@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 
 # Add DeepStack to path for importing risk management components
 # Path is configurable via environment variable
-DEEPSTACK_PATH = os.getenv('DEEPSTACK_PATH', '/Users/eddiebelaval/Development/id8/products/deepstack')
+DEEPSTACK_PATH = os.getenv('DEEPSTACK_PATH', '')
 if DEEPSTACK_PATH not in sys.path:
     sys.path.insert(0, DEEPSTACK_PATH)
 

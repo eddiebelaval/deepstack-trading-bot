@@ -4,7 +4,7 @@
 
 This is a **private trading bot** for personal use only. The bot scans Kalshi + Polymarket markets using 3 strategies (mean-reversion, combinatorial arbitrage, cross-platform arbitrage).
 
-**IMPORTANT:** This dashboard is for the **kalshi-trading bot**, NOT the DeepStack public repo. Do not commit or upload this to any public repository. This stays local in `/Users/eddiebelaval/clawd/projects/kalshi-trading/`.
+**IMPORTANT:** This dashboard is for the **kalshi-trading bot**, NOT the DeepStack public repo. Do not commit or upload this to any public repository. This stays local in `./`.
 
 ---
 
@@ -160,7 +160,7 @@ Or simpler: Dashboard just reads files directly (no API needed):
 
 ## Implementation Steps
 
-1. **Create Next.js dashboard** in `/Users/eddiebelaval/clawd/projects/kalshi-trading/dashboard/`
+1. **Create Next.js dashboard** in `./dashboard/`
 2. **Design terminal theme** (green phosphorus, scanlines, CRT glow)
 3. **Build components** (StrategyCard, LiveFeed, TradeJournal, etc.)
 4. **Connect to data sources** (SQLite, log file, bot state)
@@ -201,7 +201,7 @@ Or simpler: Dashboard just reads files directly (no API needed):
 - Connect to external services (all local data)
 
 ✅ **DO:**
-- Keep everything in `/Users/eddiebelaval/clawd/projects/kalshi-trading/dashboard/`
+- Keep everything in `./dashboard/`
 - Make it look fucking badass with terminal aesthetics
 - Ensure real-time updates work smoothly
 - Add hover effects, animations, and polish

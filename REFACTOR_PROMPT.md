@@ -317,6 +317,6 @@ If $40M was extracted historically, the strategy has proven edge. Modern impleme
 
 ---
 
-**Current codebase:** `/Users/eddiebelaval/clawd/projects/kalshi-trading/`
+**Current codebase:** `./`
 
 Please implement this refactor maintaining all existing functionality while enabling the modular multi-strategy architecture described above.

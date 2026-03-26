@@ -4,7 +4,7 @@
 
 ```bash
 # From the kalshi-trading/dashboard directory
-cd /Users/eddiebelaval/clawd/projects/kalshi-trading/dashboard
+cd ./dashboard
 
 # Install dependencies (already done)
 npm install
