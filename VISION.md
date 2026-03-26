@@ -13,7 +13,7 @@ DeepStack exists because the market is a conversation between fear and greed, an
 ## Pillars
 
 1. **Prediction Market Alpha** -- REALIZED + LIVE
-   Calibration edge strategy exploits favorite-longshot bias on Kalshi. 85.5% win rate on 159 live trades, +$355.06 lifetime live P&L. Graduated to live trading 2026-03-11. Balance: $115.71 (HWM $146.05, 20.8% drawdown). This is the foundational edge, proven and compounding. The drawdown is from stock_momentum v1 losses (-$149.52), not calibration_edge.
+   Calibration edge strategy exploits favorite-longshot bias on Kalshi. High win rate across 100+ trades. Graduated to live trading 2026-03-11. This is the foundational edge, proven and compounding. Paper/live PnL divergence observed, validating the graduation gate pattern.
 
 2. **Multi-Asset Coverage** -- PARTIAL (50%)
    IBKR adapter connects to stocks, futures, options. stock_momentum v2 rebuilt (Mar 20): dual-direction, MACD+RSI+VWAP signals, ATR stops, inverse ETF support. Paper trading active. Four other IBKR strategies (crisis_alpha, futures_trend, options_income, options_directional) disabled pending market data subscriptions. Watchlist: 20 tickers including inverse ETFs, volatility products, safe havens, defense, oil.
@@ -43,10 +43,10 @@ DeepStack exists because the market is a conversation between fear and greed, an
    news_sentiment_fade strategy exists but disabled. Vision: synthesize prediction market signals + recent news + capital markets into forward-looking intelligence. News API integration not built.
 
 10. **Graduation Gates** -- REALIZED
-    Per-asset-class graduation fully implemented across all 4 sectors with AUTO-PROMOTION. Kalshi GRADUATED 2026-03-11 (145 trades, 87% WR, 17.5% DD, $683.60 PnL). When any IBKR sector passes all gates, the heartbeat automatically flips paper_trade=false on all strategies in that sector — both at runtime and in config.yaml. No manual intervention required. Generates HTML report and sends "AUTO-PROMOTED to LIVE" Telegram alert. IBKR sectors still accumulating paper trades (blocked by IBKR connectivity).
+    Per-asset-class graduation fully implemented across all 4 sectors with AUTO-PROMOTION. Kalshi graduated to live trading 2026-03-11. When any IBKR sector passes all gates, the heartbeat automatically flips paper_trade=false on all strategies in that sector, at runtime and in config.yaml. No manual intervention required. Generates HTML report and sends Telegram alert. IBKR sectors still accumulating paper trades.
 
 11. **Capital Allocator (Master Strategist)** -- REALIZED
-    The strategic brain. Sits above GovernanceEngine and answers: "Given our capital, regime, and forward signals — what percentage of firepower goes where?" 5 capital phases (SEED through DYNASTY) with 30 allocation profiles (5 phases x 6 regimes). Replaces naive equal-split position sizing with weight-based allocation. Forward signal adjustments modify weights in real-time. Fitness feedback loop rewards proven strategies with more capital. Phase auto-detects from balance — as the $160 grows, the allocator automatically shifts from SEED (concentrated on proven edges) through GROWTH (diversifying into IBKR) toward DYNASTY (generational preservation). Currently SEED phase: 65% calibration_edge, 25% high_probability_bonds, 10% reserve.
+    The strategic brain. Sits above GovernanceEngine and answers: "Given our capital, regime, and forward signals, what percentage of firepower goes where?" 5 capital phases (SEED through DYNASTY) with 30 allocation profiles (5 phases x 6 regimes). Replaces naive equal-split position sizing with weight-based allocation. Forward signal adjustments modify weights in real-time. Fitness feedback loop rewards proven strategies with more capital. Phase auto-detects from balance. As capital grows, the allocator automatically shifts from SEED (concentrated on proven edges) through GROWTH (diversifying into IBKR) toward DYNASTY (generational preservation).
 
 12. **Deep Wisdom + Principle Router** -- REALIZED
     The Council of Masters is runtime. 14 trader archetypes with deep strategic DNA — each ~80-120 lines of Core Principles, Mental Models, and Prediction Market Translation. The Principle Router scores each master's relevance (60% phase fit + 40% regime fit), enforces role diversity, and outputs a CouncilVerdict. Convergence/divergence as confirmation signal — the same fractal shape that runs through forward signals, regime detection, and TradingView indicators. When the council converges, conviction amplifies. When it diverges, reserve increases and sizing dampens. The router resolves conflicts: phase trumps regime, evidence trumps philosophy, caution trumps aggression.
@@ -59,13 +59,13 @@ DeepStack exists because the market is a conversation between fear and greed, an
 
 ## User Truth
 
-**Who:** Eddie Belaval, founder of id8Labs. One-person operation. $115.71 live capital on Kalshi, IBKR paper trading independently.
+**Who:** Eddie Belaval, founder of id8Labs. One-person operation. LIVE on Kalshi, PAPER on IBKR.
 
 **Before:** "Markets are moving because of Iran and I can't capitalize. I can only buy prediction market contracts. I can't short, I can't buy puts, I can't trade inverse ETFs. The bot finds zero opportunities for days. When it does trade, it loses."
 
 **Now:** "calibration_edge is printing. stock_momentum v1 was a disaster, but v2 is rebuilt from scratch with real signals, dual direction, and an immune system. The bot can fix its own code, deploy its own PRs, and auto-disable broken strategies. It was offline for a week and when I came back, the self-healing system had already caught the broken data feeds."
 
-**After (vision):** "The bot thinks in centuries. It reads the market, convenes its council of masters, and acts with conviction when they converge. In SEED phase, Thorp, Jobs, and Buffett speak loudest — fractional Kelly, focus, don't lose money. As capital grows, the allocator automatically diversifies into IBKR — stocks, options, futures — each graduating on merit. When crisis hits, Taleb and Soros take the lead. When markets are calm, Livermore and Templeton say 'sit tight.' Every Sunday, Dae writes his own Oak Tree Report — investigating what worked, what didn't, and what the plan says to do next. Every decision carries the synthesized wisdom of 14 traders who collectively managed trillions. The $160 becomes generational."
+**After (vision):** "The bot thinks in centuries. It reads the market, convenes its council of masters, and acts with conviction when they converge. In SEED phase, Thorp, Jobs, and Buffett speak loudest: fractional Kelly, focus, don't lose money. As capital grows, the allocator automatically diversifies into IBKR: stocks, options, futures, each graduating on merit. When crisis hits, Taleb and Soros take the lead. When markets are calm, Livermore and Templeton say 'sit tight.' Every Sunday, Dae writes his own Oak Tree Report: investigating what worked, what didn't, and what the plan says to do next. Every decision carries the synthesized wisdom of 14 traders who collectively managed trillions. Capital becomes generational."
 
 ## Edges
 

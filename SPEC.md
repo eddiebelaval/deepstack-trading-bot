@@ -17,7 +17,7 @@ What this system can do TODAY.
 
 ### Trading Engine
 - **Core Loop:** 60-second polling cycle. Update state, manage positions, scan opportunities, execute trades.
-- **LIVE Trading (Kalshi):** Real money trades on `api.elections.kalshi.com` since 2026-03-11. Total balance: ~$150 (cash + portfolio). 111 live closed trades, +$6.50 PnL. Kelly max position: ~$10. Daily loss limit: $5.
+- **LIVE Trading (Kalshi):** Real money trades on `api.elections.kalshi.com` since 2026-03-11. Balance tracks cash + portfolio value. Kelly max position: ~$10. Daily loss limit: $5.
 - **Paper Trading (IBKR):** Stocks, futures, options still in paper mode. Each sector graduates independently.
 - **Multi-Asset Routing:** Positions route to correct exchange by asset_class (prediction_market -> Kalshi, stock/future/option -> IBKR).
 - **Graceful Degradation:** asyncio.wait_for timeouts (10-15s) on all IBKR calls. When IBKR is disconnected, Kalshi strategies run unimpeded. Cycles complete in ~2 minutes regardless.
@@ -26,7 +26,7 @@ What this system can do TODAY.
 
 | Strategy | Platform | Status | Win Rate | Notes |
 |----------|----------|--------|----------|-------|
-| calibration_edge | Kalshi | **LIVE** | 60.6% (66 live closed) / 92.6% (108 paper closed) | Favorite-longshot bias. Live: -$7.84, Paper: +$360.62. |
+| calibration_edge | Kalshi | **LIVE** | 60.6% live / 92.6% paper | Favorite-longshot bias. Paper/live divergence observed. |
 | stock_momentum v2 | IBKR | **PAPER** | -- | Rebuilt Mar 20: MACD+RSI+VWAP, dual-direction, ATR stops. Arena PF=1.73. |
 | crisis_alpha | IBKR | DISABLED | -- | No IBKR market data subscription. 0 trades ever. |
 | options_income | IBKR | DISABLED | -- | No IBKR options data subscription. Auto-disabled by error rate monitor. |
@@ -34,7 +34,7 @@ What this system can do TODAY.
 | futures_trend | IBKR | DISABLED | -- | No IBKR futures data subscription. 0 trades ever. |
 | mean_reversion | Kalshi | DISABLED | 33.3% | Structurally invalid for binary contracts (Round 3 assessment). |
 | momentum | Kalshi | DISABLED | -- | Governance disabled in low_vol_calm regime. |
-| 11 others | Various | DISABLED | -- | settlement_betting (-$10.83), weather, news, arbitrage, etc. |
+| 11 others | Various | DISABLED | -- | settlement_betting, weather, news, arbitrage, etc. |
 
 ### Forward Signal Bridge
 - **Signal Taxonomy:** RATE_SHIFT (KXFED), INFLATION (KXCPI), GROWTH (KXGDP), RISK_APPETITE (KXBTC/KXETH), GEOPOLITICAL (future).
@@ -64,7 +64,7 @@ What this system can do TODAY.
 - **Synthesis Framework:** Cross-master decision protocols (Before Trade, During Drawdown, During Euphoria, Building Strategies). Regime-Master Alignment Matrix. Capital Phase councils.
 - **Principle Router:** Runtime master selection with scoring (60% phase + 40% regime), role diversity constraints (max 2 per role), convergence/divergence measurement (inverse σ of caution levels). Conflict resolution: phase > regime, evidence > philosophy, caution > aggression.
 - **Phase Auto-Detection:** Phase is determined by balance, not config. As capital grows, the allocator automatically shifts strategy.
-- **Status:** ACTIVE. Currently in SEED phase at ~$150 total balance.
+- **Status:** ACTIVE. Currently in SEED phase.
 
 ### Risk Management
 - **Kelly Sizing:** Dynamic per-strategy from realized win rate. Capped at 0.05.
@@ -149,7 +149,7 @@ What this system can do TODAY.
 |-----------|-------|-------|
 | poll_interval_seconds | 60 | Main cycle interval |
 | max_position_size | $10 (real) / $125 (paper) | Paper scaled 12.5x from real balance |
-| daily_loss_limit | $5 (real) / $62.64 (paper) | Hard stop per day |
+| daily_loss_limit | Configurable per mode | Hard stop per day |
 | governance.lookback_periods | 10 | Cycles for regime detection (was 20) |
 | governance.min_confidence | 0.5 | Act faster on regime shifts (was 0.6) |
 | forward_signal_bridge.lookback_cycles | 10 | Price history window |
