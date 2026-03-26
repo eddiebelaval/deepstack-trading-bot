@@ -1,7 +1,7 @@
 # SPEC.md -- Living Specification
 ## DeepStack
 
-> Last reconciled: 2026-03-20 | Build stage: Phase 18 (Triage + Self-Healing + stock_momentum v2)
+> Last reconciled: 2026-03-25 | Build stage: Phase 20 (Balance fix + heartbeat parse + lessons compaction)
 > Drift status: CURRENT
 > VISION alignment: 87% (12 of 14 pillars realized, self-healing operational)
 
@@ -17,7 +17,7 @@ What this system can do TODAY.
 
 ### Trading Engine
 - **Core Loop:** 60-second polling cycle. Update state, manage positions, scan opportunities, execute trades.
-- **LIVE Trading (Kalshi):** Real money trades on `api.elections.kalshi.com` since 2026-03-11. Balance: $115.71 (HWM $146.05, 20.8% drawdown). Kelly max position: ~$10. Daily loss limit: $5.
+- **LIVE Trading (Kalshi):** Real money trades on `api.elections.kalshi.com` since 2026-03-11. Total balance: ~$150 (cash + portfolio). 111 live closed trades, +$6.50 PnL. Kelly max position: ~$10. Daily loss limit: $5.
 - **Paper Trading (IBKR):** Stocks, futures, options still in paper mode. Each sector graduates independently.
 - **Multi-Asset Routing:** Positions route to correct exchange by asset_class (prediction_market -> Kalshi, stock/future/option -> IBKR).
 - **Graceful Degradation:** asyncio.wait_for timeouts (10-15s) on all IBKR calls. When IBKR is disconnected, Kalshi strategies run unimpeded. Cycles complete in ~2 minutes regardless.
@@ -26,7 +26,7 @@ What this system can do TODAY.
 
 | Strategy | Platform | Status | Win Rate | Notes |
 |----------|----------|--------|----------|-------|
-| calibration_edge | Kalshi | **LIVE** | 85.5% (159 trades) | Favorite-longshot bias. Best performer. +$355.06 lifetime. |
+| calibration_edge | Kalshi | **LIVE** | 60.6% (66 live closed) / 92.6% (108 paper closed) | Favorite-longshot bias. Live: -$7.84, Paper: +$360.62. |
 | stock_momentum v2 | IBKR | **PAPER** | -- | Rebuilt Mar 20: MACD+RSI+VWAP, dual-direction, ATR stops. Arena PF=1.73. |
 | crisis_alpha | IBKR | DISABLED | -- | No IBKR market data subscription. 0 trades ever. |
 | options_income | IBKR | DISABLED | -- | No IBKR options data subscription. Auto-disabled by error rate monitor. |
@@ -64,7 +64,7 @@ What this system can do TODAY.
 - **Synthesis Framework:** Cross-master decision protocols (Before Trade, During Drawdown, During Euphoria, Building Strategies). Regime-Master Alignment Matrix. Capital Phase councils.
 - **Principle Router:** Runtime master selection with scoring (60% phase + 40% regime), role diversity constraints (max 2 per role), convergence/divergence measurement (inverse σ of caution levels). Conflict resolution: phase > regime, evidence > philosophy, caution > aggression.
 - **Phase Auto-Detection:** Phase is determined by balance, not config. As capital grows, the allocator automatically shifts strategy.
-- **Status:** ACTIVE. Currently in SEED phase at $159.64 balance.
+- **Status:** ACTIVE. Currently in SEED phase at ~$150 total balance.
 
 ### Risk Management
 - **Kelly Sizing:** Dynamic per-strategy from realized win rate. Capped at 0.05.
@@ -79,7 +79,7 @@ What this system can do TODAY.
 - **Heartbeat:** Three-tier monitoring:
   - Tier 1 (every cycle, free): P&L breach, consecutive losses, win rate degradation, error rate monitor, position sizing invariant.
   - Tier 1.5 (every cycle, free): Strategy error rate auto-disable (50+ errors, 0 trades = kill), startup self-test on boot.
-  - Tier 2 (every 30 min, ~$0.01): AI interpretation of HEARTBEAT.md standing orders via Haiku. Self-repair on parse failure.
+  - Tier 2 (every 30 min, ~$0.01): AI interpretation of HEARTBEAT.md standing orders via Haiku. Brace-depth JSON parser with truncation detection. Self-repair on parse failure.
   - Tier 3 (on critical failure, ~$0.05): Self-repair via Claude Code CLI. Branch, fix, commit, push, PR, merge, restart. Protected files list prevents modification of risk/auth/safety. Max 1 repair per category per day.
 - **Self-Repair Engine** (`self_repair.py`): Autonomous code fixes with full Git deploy pipeline. Protected files: risk management, config schema, auth, self_repair.py. Audit trail in repair-log.json.
 - **Telegram Notifications:** 8 hooks — trade opened/closed, settlement, strategy auto-disable, inaction critical, daily summary, IBKR connection, self-repair alerts.
