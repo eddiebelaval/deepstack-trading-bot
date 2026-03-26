@@ -4,17 +4,16 @@ Autonomous multi-asset trading bot for Kalshi prediction markets and IBKR tradit
 
 **LIVE on Kalshi since March 11, 2026.** Paper trading on IBKR.
 
-## Current Status (Mar 25, 2026)
+## Current Status
 
 | Metric | Value |
 |--------|-------|
-| Balance | ~$150 (cash + portfolio) |
-| Live trades closed | 111 |
-| Paper trades closed | 111 |
-| Live PnL | +$6.50 |
-| Primary strategy | calibration_edge (80.5% WR live) |
+| Primary strategy | calibration_edge |
 | Phase | SEED ($0-$500) |
 | Uptime | Continuous (launchd managed) |
+| Mode | LIVE on Kalshi, PAPER on IBKR |
+
+Balance and PnL data are tracked per-account and not published here. Run the bot with your own API credentials to see your own metrics.
 
 ## Architecture
 
@@ -48,16 +47,15 @@ kalshi_trader/
 
 ## Strategy Arsenal
 
-| Strategy | Platform | Mode | Trades | PnL | Win % |
-|----------|----------|------|--------|-----|-------|
-| calibration_edge | Kalshi | LIVE | 66 closed, 24 open | -$7.84 | 60.6% |
-| calibration_edge | Kalshi | PAPER | 108 closed, 20 open | +$360.62 | 92.6% |
-| market_making | Kalshi | LIVE | 39 closed | +$16.41 | 15.4% |
-| momentum | Kalshi | LIVE | 3 closed | +$0.16 | 66.7% |
-| stock_momentum v2 | IBKR | PAPER | 3 closed, 1 open | -$149.52 | 0.0% |
-| crisis_alpha | IBKR | PAPER | 5 open | -- | -- |
-| mean_reversion | Kalshi | DISABLED | 3 closed | -$2.23 | 33.3% |
-| 12 others | Various | DISABLED | -- | -- | -- |
+| Strategy | Platform | Mode | Description |
+|----------|----------|------|-------------|
+| calibration_edge | Kalshi | LIVE + PAPER | Favorite-longshot bias. Primary earner. |
+| market_making | Kalshi | LIVE | Spread capture on liquid markets. |
+| momentum | Kalshi | LIVE | Trend-following based on price velocity. |
+| stock_momentum v2 | IBKR | PAPER | MACD+RSI+VWAP, dual-direction, ATR stops. |
+| crisis_alpha | IBKR | PAPER | Volatility-linked ETF trading. |
+| mean_reversion | Kalshi | DISABLED | Structurally invalid for binary contracts. |
+| 12 others | Various | DISABLED | Settlement, weather, news, arbitrage, etc. |
 
 ## Key Systems
 

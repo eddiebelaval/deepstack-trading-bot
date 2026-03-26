@@ -429,7 +429,7 @@ ca13a6d feat(engine): multi-asset graduation gates, IBKR bridge, new strategies
 
 ## Phase 13: Graduation — Kalshi Goes Live (Mar 11)
 
-**"We have graduated."** After 145 paper trades, 86.9% win rate, and $683.60 paper P&L, the Kalshi prediction market sector passed all gate checks and went live with real money.
+**"We have graduated."** After 145 paper trades and an 86.9% win rate, the Kalshi prediction market sector passed all gate checks and went live with real money.
 
 ### What Was Built
 
@@ -455,7 +455,7 @@ ca13a6d feat(engine): multi-asset graduation gates, IBKR bridge, new strategies
 **Go-Live (PR #93)**
 - Removed `--paper-balance 2000` from `bot-launcher.sh`.
 - Bot now runs `run_bot.py --multi` — placing real orders on `api.elections.kalshi.com`.
-- Live balance: $159.64. Kelly max position: ~$10 (6.3%). Daily loss limit: $5.
+- Kelly max position: ~$10 (6.3% of balance). Daily loss limit: $5.
 - IBKR strategies remain in paper mode — each sector graduates independently.
 
 ### Key Commits
@@ -471,7 +471,7 @@ e5d4ecf feat: go live — raise drawdown threshold to 20%, remove paper trading
 | Trades | 145 | 50 |
 | Win Rate | 86.9% | 45% |
 | Max Drawdown | 17.5% | 20% |
-| Total P&L | $683.60 | -- |
+| Total P&L | Positive | -- |
 | Strategies | calibration_edge, mean_reversion, settlement_betting | -- |
 
 ### Lessons
@@ -551,7 +551,7 @@ e5d4ecf feat: go live — raise drawdown threshold to 20%, remove paper trading
 
 ### Lessons
 - **Position sizing IS the strategy.** The same edge applied with 70% allocation vs 15% allocation produces dramatically different compounding curves. Kelly tells you how much to bet on ONE trade; the allocator tells you how much capital each strategy DESERVES across the portfolio.
-- **Phase-based thinking prevents ruin.** At $159 (SEED), concentrating on the proven 87% win rate strategy is objectively correct. Diversifying into unproven IBKR strategies at this capital level would be destroying edge for the illusion of diversification.
+- **Phase-based thinking prevents ruin.** In SEED phase, concentrating on the proven high win rate strategy is objectively correct. Diversifying into unproven IBKR strategies at low capital levels would be destroying edge for the illusion of diversification.
 
 ---
 
@@ -734,7 +734,7 @@ kalshi-trading/
 | PRs merged | 111 |
 | Strategies | 19 (6 active, 13 disabled) |
 | Tests | 64+ (38 existing + 26 agent) |
-| Real balance | $159.64 (LIVE on Kalshi since Mar 11) |
+| Status | LIVE on Kalshi since Mar 11 |
 | Paper balance | N/A — Kalshi graduated |
 | Best strategy | calibration_edge: 87% WR, 145 trades |
 | Asset classes | 4 (prediction markets, stocks/ETFs, futures, options) |
@@ -747,7 +747,7 @@ kalshi-trading/
 
 ## Phase 18: Triage + Three-Tier Self-Healing + stock_momentum v2 (Mar 19-20)
 
-**The bot was bleeding and nobody was watching.** A week offline revealed 2,409 IBKR subscription errors, a $149.52 stock_momentum loss from broken position sizing, and a Supabase dashboard overriding config-disabled strategies. This phase built the immune system that prevents it from happening again.
+**The bot was bleeding and nobody was watching.** A week offline revealed 2,409 IBKR subscription errors, a significant stock_momentum loss from broken position sizing, and a Supabase dashboard overriding config-disabled strategies. This phase built the immune system that prevents it from happening again.
 
 ### What Was Built
 
@@ -788,7 +788,7 @@ eff6d2b [Meta] feat(dae): full deploy pipeline for self-repair
 
 ### Architecture Decisions
 - **Self-repair with protected files**: DAE can fix its own parsers and data adapters, but CANNOT modify risk limits, auth, config schema, or the self-repair system itself. The constitution is unamendable by the AI.
-- **Inverse ETFs over shorting**: A $230 account can't short stocks (margin requirements, unlimited risk). Buying SQQQ/SH achieves bearish exposure with capped risk and no margin.
+- **Inverse ETFs over shorting**: Small accounts can't short stocks (margin requirements, unlimited risk). Buying SQQQ/SH achieves bearish exposure with capped risk and no margin.
 - **ATR stops over fixed percentage**: A 1.5% stop on SPY ($670) = $10 stop distance. In low volatility that's 2x ATR (reasonable), but in high volatility it's 0.5x ATR (whipsawed immediately). ATR adapts to actual market conditions.
 - **TradingView backtests as confirmation, not signal**: v1 treated historical Sharpe as a buy signal. v2 uses them as a contrarian confirmation layer (329 inverted signals tell us when wrong strategies are losing).
 
@@ -830,7 +830,7 @@ eff6d2b [Meta] feat(dae): full deploy pipeline for self-repair
 
 ## Phase 20: Balance Reporting Fix + Lessons Compaction (Mar 24-25)
 
-**The bot was reporting $115 balance while the Kalshi app showed $150.** The discrepancy was confusing and made the Phase 1 floor check inaccurate.
+**The bot was reporting cash-only balance while the Kalshi app showed total balance (cash + portfolio).** The discrepancy was confusing and made the Phase 1 floor check inaccurate.
 
 ### What Was Built
 
@@ -843,15 +843,15 @@ eff6d2b [Meta] feat(dae): full deploy pipeline for self-repair
 
 **AI Lessons Self-Compaction**
 - Dae's heartbeat AI rewrote its own `lessons.md`: 22 redundant entries compacted into 7 actionable insights.
-- Key distillations: calibration_edge carries the portfolio below $150, negative EV strategies should be disabled regardless of win rate, Kelly math breaks below $1/position floor, auto-disable threshold should be 24h not 48h.
+- Key distillations: calibration_edge carries the portfolio in SEED phase, negative EV strategies should be disabled regardless of win rate, Kelly math breaks below $1/position floor, auto-disable threshold should be 24h not 48h.
 - This is the bot learning to learn: reducing noise in its own memory to improve future decision quality.
 
 ### Architecture Decision: Cash vs Total Balance
-Two numbers, two purposes. Cash balance = buying power for new orders (what `risk.update_balance` needs). Total balance = cash + portfolio value = what the Kalshi app shows and what the floor check should compare against. Mixing them up made Dae think it was $35 below floor when it was actually at floor. The fix separates them clearly in the data model.
+Two numbers, two purposes. Cash balance = buying power for new orders (what `risk.update_balance` needs). Total balance = cash + portfolio value = what the Kalshi app shows and what the floor check should compare against. The fix separates them clearly in the data model.
 
 ### Lessons
 - **Always verify which "balance" an exchange API returns.** Kalshi's `get_balance` returns both `available` (cash) and `portfolio_value` (max payout of open positions). The app shows their sum. The bot was only using one.
-- **Paper/live PnL divergence is real.** calibration_edge: +$360.62 paper vs -$7.84 live. Same strategy, same parameters, very different results. Paper fills are more favorable than live fills. The graduation gate exists for this reason.
+- **Paper/live PnL divergence is real.** calibration_edge showed significantly positive PnL on paper but negative on live with identical parameters. Paper fills are more favorable than live fills. The graduation gate exists for this reason.
 
 ---
 
@@ -864,12 +864,11 @@ Two numbers, two purposes. Cash balance = buying power for new orders (what `ris
 | PRs merged | 123 |
 | Strategies | 19 (calibration_edge LIVE, stock_momentum v2 + crisis_alpha PAPER, 16 disabled) |
 | Tests | 64+ (38 existing + 26 agent) |
-| Total balance | ~$150 (cash + portfolio, LIVE on Kalshi since Mar 11) |
-| Live closed trades | 111 (+$6.50 PnL) |
-| Paper closed trades | 111 (+$211.10 PnL) |
-| Best strategy (live) | calibration_edge: 60.6% WR, 66 closed, market_making: +$16.41 |
-| Best strategy (paper) | calibration_edge: 92.6% WR, 108 closed, +$360.62 |
-| Worst strategy | stock_momentum v1: 0% WR, 3 paper trades, -$149.52 |
+| Live closed trades | 111 |
+| Paper closed trades | 111 |
+| Best strategy (live) | calibration_edge: 60.6% WR, 66 closed |
+| Best strategy (paper) | calibration_edge: 92.6% WR, 108 closed |
+| Worst strategy | stock_momentum v1: 0% WR, 3 paper trades |
 | Self-healing systems | 3 tiers (deterministic, AI advisory, Claude Code CLI) |
 | Arena seas tested | 5 regimes, 18 strategies, stock_momentum v2 PF=1.73 |
 
