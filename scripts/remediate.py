@@ -174,8 +174,16 @@ def spawn_claude_session(prompt: str, issue_key: str) -> bool:
     )
 
     try:
+        # NOTE: the CLI has no --yes flag — passing it made every
+        # remediation session exit non-zero before doing any work.
+        # Mirror self_repair.py's invocation: grant the tools a print-mode
+        # session needs to actually edit and commit.
         result = subprocess.run(
-            ["claude", "-p", claude_prompt, "--yes"],
+            [
+                "claude", "-p", claude_prompt,
+                "--allowedTools", "Read,Edit,Bash,Grep,Glob",
+                "--max-turns", "10",
+            ],
             cwd=str(BOT_REPO),
             capture_output=True,
             text=True,

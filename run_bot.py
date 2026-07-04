@@ -211,6 +211,25 @@ def build_strategy_configs(args, base_configs):
     return filtered
 
 
+def _pid_is_this_bot(pid: int) -> bool:
+    """Check that a PID belongs to a run_bot.py process, not a recycled PID.
+
+    After a crash or power loss the PID file survives, and the OS may hand
+    the old PID to an unrelated process — without this check the bot would
+    refuse to start (and crash-loop under launchd) forever.
+    """
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True, text=True, timeout=5,
+        )
+        return "run_bot.py" in out.stdout or "kalshi_trader" in out.stdout
+    except Exception:
+        # Can't inspect — be conservative and treat it as ours
+        return True
+
+
 def _acquire_pidlock() -> bool:
     """Prevent duplicate bot instances. Returns True if lock acquired."""
     pidfile = Path(__file__).parent / ".bot.pid"
@@ -219,6 +238,9 @@ def _acquire_pidlock() -> bool:
             old_pid = int(pidfile.read_text().strip())
             # Check if process is actually running
             os.kill(old_pid, 0)
+            if not _pid_is_this_bot(old_pid):
+                # PID recycled by an unrelated process — stale lock
+                raise ProcessLookupError
             # Process exists — refuse to start
             print(f"ERROR: Bot already running (PID {old_pid}). Kill it first or delete {pidfile}")
             return False

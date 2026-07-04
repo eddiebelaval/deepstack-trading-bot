@@ -445,8 +445,11 @@ class StrategyManager:
             series_counts[series] = count + 1
             correlated_filtered.append(opp)
 
-        # Apply portfolio capacity
-        remaining_capacity = self.max_total_positions - self.total_positions
+        # Apply portfolio capacity. Clamp at 0: a negative value here (more
+        # open positions than max_total_positions, e.g. after adopting
+        # positions or tightening config) would negative-slice and still
+        # return opportunities while over capacity.
+        remaining_capacity = max(0, self.max_total_positions - self.total_positions)
 
         # Limit results
         return correlated_filtered[:min(max_results, remaining_capacity)]

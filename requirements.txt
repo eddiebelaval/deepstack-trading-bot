@@ -25,7 +25,9 @@ python-dotenv>=1.0.0
 yfinance>=0.2.30
 
 # Interactive Brokers API client (async)
-ib_insync>=0.9.86
+# NOTE: the code imports `ib_async` (the maintained fork), NOT `ib_insync` —
+# installing ib_insync leaves IBKR permanently disabled with only a warning.
+ib_async>=1.0.0
 
 # Note: This bot also requires DeepStack for risk management
 # DeepStack path is configured in deepstack_integration.py

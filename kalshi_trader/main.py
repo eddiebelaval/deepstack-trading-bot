@@ -736,7 +736,10 @@ class KalshiTradingBot:
                     )
 
                     # Attach LexiconOrderRouter for paper signal trading (Phase 2)
-                    if ibkr_config.get("port") in (7497, 4001, 4002):  # Paper port (TWS or Gateway)
+                    # Paper ports only: 7497 = TWS paper, 4002 = Gateway paper.
+                    # 4001 is Gateway LIVE (see config.yaml) — routing it here
+                    # would send "paper" signal orders into a real account.
+                    if ibkr_config.get("port") in (7497, 4002):
                         from markets.ibkr import LexiconOrderRouter
                         self._lexicon_order_router = LexiconOrderRouter(
                             ibkr_market=ibkr_market,
@@ -1964,7 +1967,10 @@ class KalshiTradingBot:
             current_kelly = self._dynamic_kelly_fractions.get(
                 name, self.config.kelly_fraction
             )
-            cautious_kelly = max(0.05, current_kelly * self._reenable_tighter_factor)
+            # min(), not max(): 0.05 is the Kelly *ceiling* used everywhere
+            # else — max() here floored probation sizing at the cap, giving
+            # freshly re-enabled failing strategies 2.5x their normal size
+            cautious_kelly = max(0.005, min(0.05, current_kelly * self._reenable_tighter_factor))
             self._dynamic_kelly_fractions[name] = cautious_kelly
 
             # Captain's Log: strategy re-enabled

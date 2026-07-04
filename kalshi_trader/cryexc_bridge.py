@@ -22,6 +22,14 @@ from typing import Any, Dict, List, Optional
 
 # Add DeepStack to path (same pattern as deepstack_integration.py)
 DEEPSTACK_PATH = os.getenv("DEEPSTACK_PATH", "")
+if not DEEPSTACK_PATH or not os.path.isdir(DEEPSTACK_PATH):
+    # main.py imports this module inside try/except — raise a clean,
+    # actionable ImportError instead of a FileNotFoundError deep in
+    # importlib when the sibling DeepStack checkout is absent.
+    raise ImportError(
+        f"CryExc bridge unavailable: DEEPSTACK_PATH={DEEPSTACK_PATH!r} is not "
+        "a directory. Set DEEPSTACK_PATH in .env to enable crypto signals."
+    )
 if DEEPSTACK_PATH not in sys.path:
     sys.path.insert(0, DEEPSTACK_PATH)
 
