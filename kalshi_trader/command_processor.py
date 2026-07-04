@@ -109,6 +109,7 @@ class CommandProcessor:
             "place_trade": self._handle_place_trade,
             "set_poll_interval": self._handle_set_poll_interval,
             "run_arena": self._handle_run_arena,
+            "reset_hwm": self._handle_reset_hwm,
         }
 
     async def poll_and_execute(self) -> None:
@@ -436,6 +437,29 @@ class CommandProcessor:
         interval = max(15, min(300, interval))  # Clamp to 15s-300s
         self.bot.config.poll_interval_seconds = interval
         return {"poll_interval_seconds": interval}
+
+    async def _handle_reset_hwm(self, params: dict) -> dict:
+        """Reset the portfolio high-water mark to the current total balance.
+
+        Clears a latched drawdown halt caused by a stale HWM — e.g. after a
+        withdrawal, or an HWM inflated by the old max-payout accounting bug.
+        """
+        old_hwm = self.bot._initial_balance
+        new_hwm = self.bot._total_balance
+        if new_hwm <= 0:
+            return {"error": "Current total balance unknown — try again next cycle"}
+
+        self.bot._initial_balance = new_hwm
+        self.bot._portfolio_halted = False
+        if self.bot.performance_tracker:
+            self.bot.performance_tracker.save_bot_state(
+                "high_water_mark_balance", new_hwm
+            )
+        return {
+            "old_hwm": round(old_hwm, 2),
+            "new_hwm": round(new_hwm, 2),
+            "halt_cleared": True,
+        }
 
     async def _handle_run_arena(self, params: dict) -> dict:
         """Run arena tournament in background and persist results to Supabase.

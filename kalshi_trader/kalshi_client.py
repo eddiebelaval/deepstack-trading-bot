@@ -13,6 +13,7 @@ import asyncio
 import base64
 import logging
 import time
+import uuid
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -825,8 +826,13 @@ class AuthenticatedKalshiClient:
             "no_price": price_cents if side == "no" else None,
         }
 
-        if client_order_id:
-            payload["client_order_id"] = client_order_id
+        # Always send a client_order_id: _request retries order POSTs on
+        # timeout, and a timeout after Kalshi accepted the order would
+        # otherwise double-fill. With a stable UUID per intent (same payload
+        # on every retry), Kalshi dedupes server-side.
+        if not client_order_id:
+            client_order_id = str(uuid.uuid4())
+        payload["client_order_id"] = client_order_id
 
         try:
             response = await self._request(

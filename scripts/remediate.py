@@ -31,6 +31,10 @@ BOT_REPO = Path(__file__).parent.parent
 STATE_FILE = BOT_REPO / ".remediation_state.json"
 COOLDOWN_HOURS = 2
 MAX_SESSIONS_PER_DAY = 3
+# Dead-man switch: alert when the bot's health row is older than this.
+# The bot refreshes it every sensory cycle (~5 min), so 30 min of silence
+# means the process is down, not slow.
+DEAD_MAN_THRESHOLD_SECONDS = int(os.getenv("DAE_DEAD_MAN_THRESHOLD", "1800"))
 TELEGRAM_TOKEN = os.getenv("DAE_TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("DAE_TELEGRAM_CHAT_ID", "") or os.getenv("TELEGRAM_CHAT_ID", "")
 
@@ -266,11 +270,59 @@ def spawn_claude_session(prompt: str, issue_key: str) -> bool:
         )
 
 
+def check_dead_man_switch(state: dict, now: float) -> None:
+    """Alert if the bot has stopped writing its health row.
+
+    Every other monitoring tier runs INSIDE the bot process, and this
+    script previously read only consecutive_critical — a dead bot leaves a
+    stale row with consecutive_critical=0 that reads as 'healthy' forever.
+    This staleness check is the one signal that survives a dead process.
+    """
+    health = fetch_health_status()
+    if not health:
+        return  # Supabase unreachable/unconfigured — nothing to judge
+
+    updated_at = health.get("updated_at")
+    if not updated_at:
+        return
+
+    try:
+        ts = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+        age_seconds = now - ts.timestamp()
+    except (ValueError, TypeError):
+        return
+
+    if age_seconds < DEAD_MAN_THRESHOLD_SECONDS:
+        # Fresh heartbeat — clear any previous alert latch
+        if state.pop("dead_man_alerted_at", None) is not None:
+            save_state(state)
+            send_telegram("[Dead-man] Dae's heartbeat is back — health row updating again.")
+        return
+
+    # Stale — alert, then re-alert every 2h rather than every 5-min run
+    last_alert = state.get("dead_man_alerted_at", 0)
+    if now - last_alert >= 2 * 3600:
+        age_min = age_seconds / 60
+        send_telegram(
+            f"[Dead-man] Dae's health row hasn't updated in {age_min:.0f} min "
+            f"(threshold {DEAD_MAN_THRESHOLD_SECONDS // 60} min). The bot "
+            f"process is likely DOWN. Check launchd: "
+            f"launchctl kickstart -k gui/$UID/com.id8labs.deepstack-bot"
+        )
+        print(f"DEAD-MAN ALERT: health row stale for {age_min:.0f} min")
+        state["dead_man_alerted_at"] = now
+        save_state(state)
+
+
 def main():
     """Main remediation loop — runs once per invocation (called by launchd)."""
     state = load_state()
     now = time.time()
     today = datetime.now().strftime("%Y-%m-%d")
+
+    # Dead-man switch runs FIRST, before any cooldown/limit early-return —
+    # it must fire even when remediation itself is throttled.
+    check_dead_man_switch(state, now)
 
     # Reset daily counter
     if state.get("today_date") != today:

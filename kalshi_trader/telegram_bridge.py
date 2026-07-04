@@ -593,6 +593,7 @@ Parse the user's message into one of these categories:
   - "set kelly to 0.03" -> {"type": "command", "command": "update_risk", "args": {"kelly_fraction": 0.03}}
   - "close all positions" -> {"type": "command", "command": "force_close", "args": {}}
   - "scan now" -> {"type": "command", "command": "scan_now", "args": {}}
+  - "reset hwm" / "reset high water mark" / "clear the halt" -> {"type": "command", "command": "reset_hwm", "args": {}}
   - "set poll interval to 30" -> {"type": "command", "command": "set_poll_interval", "args": {"interval": 30}}
   - "switch to conservative" -> {"type": "command", "command": "switch_profile", "args": {"profile": "conservative"}}
   - "go live" / "go dry run" -> {"type": "command", "command": "set_mode", "args": {"dry_run": false/true}}
