@@ -209,6 +209,7 @@ class DeepStackIntegration:
         avg_loss_cents: float,
         ticker: Optional[str] = None,
         kelly_override: Optional[float] = None,
+        max_size_dollars: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Calculate optimal position size using Kelly Criterion.
@@ -222,6 +223,10 @@ class DeepStackIntegration:
             ticker: Optional ticker for existing position check
             kelly_override: Per-strategy Kelly fraction; takes precedence
                 over self.config.kelly_fraction when provided.
+            max_size_dollars: Optional cap from the capital allocator
+                (phase/regime weight x scale). Applied on top of the
+                global max_position_size — without this, the allocator's
+                entire plan had no effect on actual sizing.
 
         Returns:
             Dict with:
@@ -247,8 +252,10 @@ class DeepStackIntegration:
             symbol=ticker,
         )
 
-        # Apply max position cap from config
+        # Apply max position cap from config, then the allocator's cap
         position_size = min(result["position_size"], self.config.max_position_size)
+        if max_size_dollars is not None and max_size_dollars >= 0:
+            position_size = min(position_size, max_size_dollars)
 
         # Calculate number of contracts (each contract = $1 at risk)
         contracts = int(position_size)

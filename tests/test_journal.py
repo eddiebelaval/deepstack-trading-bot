@@ -197,13 +197,16 @@ class TestCloseTradesBySettlement:
         assert contracts == 10
 
     def test_void_result(self, journal_with_trades):
-        """Void market result — all positions lose everything."""
+        """Void market result — Kalshi refunds the entry, so P&L is zero.
+
+        The old behavior settled voids at 0c, booking a refund as a total
+        loss and corrupting win rate / Kelly / circuit-breaker inputs.
+        """
         closed, pnl, contracts = journal_with_trades.close_trades_by_settlement(
             "KXBTC-26MAR-B70000", "void"
         )
         assert closed == 2
-        # Void = settle at 0: (0 - entry) * contracts - commission
-        assert pnl < 0
+        assert pnl == 0
 
 
 class TestGetOpenTrades:

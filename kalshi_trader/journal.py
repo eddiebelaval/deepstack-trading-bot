@@ -540,23 +540,39 @@ class TradeJournal:
         self,
         ticker: str,
         market_result: str,
+        strategy: Optional[str] = None,
     ) -> tuple:
         """
-        Close all open trades for a settled market ticker.
+        Close open trades for a settled market ticker.
 
         Computes per-trade P&L from market result:
           - YES result: YES contracts pay 100c, NO contracts pay 0c
           - NO result:  YES contracts pay 0c, NO contracts pay 100c
+          - void/other: entry refunded, P&L = 0
+
+        Args:
+            ticker: Market ticker that settled
+            market_result: "yes", "no", or anything else (treated as void)
+            strategy: Optional — close only this strategy's trades, so the
+                caller can attribute P&L per strategy instead of crediting
+                the whole ticker to whichever trade happened to be first.
 
         Returns:
             Tuple of (trades_closed, total_pnl_cents, total_contracts)
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT * FROM trades WHERE market_ticker = ? AND status = 'open'",
-                (ticker,),
-            )
+            if strategy is not None:
+                cursor.execute(
+                    "SELECT * FROM trades WHERE market_ticker = ? "
+                    "AND status = 'open' AND strategy = ?",
+                    (ticker, strategy),
+                )
+            else:
+                cursor.execute(
+                    "SELECT * FROM trades WHERE market_ticker = ? AND status = 'open'",
+                    (ticker,),
+                )
             open_trades = cursor.fetchall()
 
             if not open_trades:
@@ -577,11 +593,17 @@ class TradeJournal:
                 elif market_result == "no":
                     settle_price = 0 if side == "yes" else 100
                 else:
-                    settle_price = 0  # void
+                    settle_price = None  # void — Kalshi refunds the entry
 
                 # Entry commission: 2c/side per contract (Kalshi standard)
                 entry_commission = 2 * contracts
-                if action == "buy":
+                if settle_price is None:
+                    # Voided market: exit at entry, zero P&L. The old code
+                    # settled voids at 0c, booking a refund as a total loss
+                    # and corrupting win rate / Kelly / breaker inputs.
+                    settle_price = entry
+                    pnl = 0
+                elif action == "buy":
                     pnl = (settle_price - entry) * contracts - entry_commission
                 else:
                     pnl = (entry - settle_price) * contracts - entry_commission

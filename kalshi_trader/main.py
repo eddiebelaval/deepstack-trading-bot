@@ -405,6 +405,14 @@ class KalshiTradingBot:
                 "high_water_mark_balance", account_balance
             )
 
+        # Restore settlement watermark so a restart doesn't re-process (or,
+        # worse, with min_ts=None only fetch the most recent page of) the
+        # settlement history.
+        stored_settlement_ts = self.performance_tracker.load_bot_state("last_settlement_ts")
+        if stored_settlement_ts:
+            self._last_settlement_ts = int(stored_settlement_ts)
+            logger.info(f"Restored settlement watermark: {self._last_settlement_ts}")
+
         # Restore circuit breaker state (Round 2 P0: breakers survive restarts)
         persisted_breakers = self.performance_tracker.load_all_circuit_breakers()
         if persisted_breakers:
@@ -1153,7 +1161,8 @@ class KalshiTradingBot:
         Uses the Kelly Criterion: f* = p - q/b
         where p = blended win rate, q = 1-p, b = avg_win/avg_loss.
         Only overrides config when learning_confidence > 0.3 (enough observed data).
-        Clamped to [0.05, 0.5] to prevent ruin and maintain learning signal.
+        Positive edge is clamped to [0.005, 0.05]; non-positive edge stores 0
+        (execution treats 0 as "don't bet" for live trades).
         """
         if not self.performance_tracker:
             return
@@ -1183,7 +1192,13 @@ class KalshiTradingBot:
 
         win_loss_ratio = avg_win / avg_loss
         raw_kelly = blended_win_rate - ((1 - blended_win_rate) / win_loss_ratio)
-        clamped_kelly = max(0.005, min(0.05, raw_kelly))
+        if raw_kelly <= 0:
+            # Negative edge: Kelly says DON'T BET. Store 0 (execution blocks
+            # live trades on it) instead of flooring to a positive fraction —
+            # the old max(0.005, ...) turned "don't bet" into "always bet".
+            clamped_kelly = 0.0
+        else:
+            clamped_kelly = max(0.005, min(0.05, raw_kelly))
 
         old_kelly = self._dynamic_kelly_fractions.get(strategy_name, self.config.kelly_fraction)
         self._dynamic_kelly_fractions[strategy_name] = clamped_kelly
@@ -1737,46 +1752,41 @@ class KalshiTradingBot:
                 logger.debug(f"Failed to push fills: {e}")
 
             try:
+                # Paginate: after downtime there can be far more than one
+                # page of settlements, and the oldest were silently lost.
                 settlements = await self.client.get_settlements(
-                    limit=200, min_ts=self._last_settlement_ts,
+                    limit=200, min_ts=self._last_settlement_ts, paginate=True,
                 )
-                await self.dashboard.push_settlements(settlements)
+                try:
+                    await self.dashboard.push_settlements(settlements)
+                except Exception as e:
+                    logger.debug(f"Failed to push settlements to dashboard: {e}")
 
-                # Update watermark to avoid reprocessing
-                if settlements:
-                    epoch_timestamps = []
-                    for s in settlements:
-                        st = s.get("settled_time")
-                        if not st:
-                            continue
-                        if isinstance(st, (int, float)):
-                            epoch_timestamps.append(int(st))
-                        elif isinstance(st, str):
-                            try:
-                                dt = datetime.fromisoformat(st.replace("Z", "+00:00"))
-                                epoch_timestamps.append(int(dt.timestamp()))
-                            except (ValueError, TypeError):
-                                pass
-                    if epoch_timestamps:
-                        self._last_settlement_ts = max(epoch_timestamps)
-
-                # Bridge: close local SQLite trades that settled on exchange
+                # Bridge: close local SQLite trades that settled on exchange.
+                # Attribution is per (ticker, strategy) — the old code closed
+                # ALL trades for the ticker but credited the aggregate P&L to
+                # whichever open trade happened to be first.
                 if self.journal and settlements:
+                    open_by_ticker: Dict[str, set] = {}
+                    for t in self.journal.get_open_trades():
+                        open_by_ticker.setdefault(
+                            t.get("market_ticker", ""), set()
+                        ).add(t.get("strategy") or "calibration_edge")
+
                     for s in settlements:
                         ticker = s.get("ticker")
                         result = s.get("market_result")
                         if not ticker or not result:
                             continue
 
-                        # Get strategy name before closing (for downstream state)
-                        strategy_name = "calibration_edge"
-                        for t in self.journal.get_open_trades():
-                            if t.get("market_ticker") == ticker:
-                                strategy_name = t.get("strategy", strategy_name)
-                                break
-
-                        closed, total_pnl, total_contracts = self.journal.close_trades_by_settlement(ticker, result)
-                        if closed > 0:
+                        for strategy_name in sorted(open_by_ticker.get(ticker, set())):
+                            closed, total_pnl, total_contracts = (
+                                self.journal.close_trades_by_settlement(
+                                    ticker, result, strategy=strategy_name
+                                )
+                            )
+                            if closed <= 0:
+                                continue
                             mode = "PAPER" if self.paper_trade else "LIVE"
                             logger.info(
                                 f"Settlement bridge: closed {closed} trade(s) "
@@ -1804,8 +1814,35 @@ class KalshiTradingBot:
                                 f"[{mode} BRIDGE SETTLE] {ticker} -> {result}\n"
                                 f"P&L: {pnl_sign}${total_pnl / 100:.2f} | {strategy_name}"
                             )
+
+                # Advance the watermark only AFTER the bridge processed this
+                # batch, and persist it — the old in-memory watermark reset on
+                # every restart, and advancing before processing could skip
+                # settlements if the bridge raised mid-batch.
+                if settlements:
+                    epoch_timestamps = []
+                    for s in settlements:
+                        st = s.get("settled_time")
+                        if not st:
+                            continue
+                        if isinstance(st, (int, float)):
+                            epoch_timestamps.append(int(st))
+                        elif isinstance(st, str):
+                            try:
+                                dt = datetime.fromisoformat(st.replace("Z", "+00:00"))
+                                epoch_timestamps.append(int(dt.timestamp()))
+                            except (ValueError, TypeError):
+                                pass
+                    if epoch_timestamps:
+                        self._last_settlement_ts = max(epoch_timestamps)
+                        if self.performance_tracker:
+                            self.performance_tracker.save_bot_state(
+                                "last_settlement_ts", self._last_settlement_ts
+                            )
             except Exception as e:
-                logger.debug(f"Failed to push settlements: {e}")
+                # WARNING, not debug: a persistently failing settlement
+                # bridge silently starves every downstream stat.
+                logger.warning(f"Settlement bridge failed: {e}")
 
             # Push IBKR holdings and balance snapshot (if IBKR is connected)
             if self._ibkr_market and self._ibkr_market._connected:
@@ -2124,7 +2161,9 @@ class KalshiTradingBot:
                     old_kelly = self._dynamic_kelly_fractions.get(
                         strategy_name, self.config.kelly_fraction
                     )
-                    clamped = max(0.005, min(0.05, suggested_kelly))
+                    # AI suggesting <= 0 means "stop betting this" — honor it
+                    # instead of flooring to a positive fraction
+                    clamped = 0.0 if suggested_kelly <= 0 else max(0.005, min(0.05, suggested_kelly))
                     self._dynamic_kelly_fractions[strategy_name] = clamped
                     logger.info(
                         f"[AI Analysis] {strategy_name} kelly: "
@@ -3285,27 +3324,14 @@ class KalshiTradingBot:
         if not state:
             return False
 
-        # Round 2 P0: Pre-trade EV gate — reject trades with negative net EV
-        # Paper trade mode: skip EV gate — we need unbiased signal data.
-        # Check both bot-level AND per-strategy paper_trade flag.
-        is_paper_strategy = is_paper_alloc
-        edge = state.strategy.calculate_edge(commission_cents=2.0)
-        if edge["expected_value_net_cents"] <= 0 and not self.paper_trade and not is_paper_strategy:
-            logger.info(
-                f"Trade BLOCKED {ticker} [{strategy_name}]: negative net EV "
-                f"({edge['expected_value_net_cents']:+.2f}c/trade, "
-                f"breakeven WR={edge['breakeven_win_rate']:.0%}, "
-                f"current WR={edge['assumed_win_rate']:.0%})"
-            )
-            return False
-
-        # Use learned Bayesian blend for sizing (falls back to strategy priors)
+        # Use learned Bayesian blend for stats (falls back to strategy priors).
         # Round 9 P0 (Nakamura): Early-stage Bayesian protection.
         # With k=5 prior strength, a single settlement loss (-80c) can flip
         # the blended stats so negative that Kelly produces 0 contracts,
         # permanently killing the strategy after one bad trade.
         # Fix: Use pure prior stats until we have ≥3 observed trades.
         # At n=3, the blend is 5/(5+3)=62.5% prior, which dampens outliers.
+        # (Selected BEFORE the EV gate so the gate can run on the same stats.)
         if self.performance_tracker:
             health = self.performance_tracker.evaluate_health(strategy_name)
             if health and health.observed_trade_count >= 3:
@@ -3323,13 +3349,51 @@ class KalshiTradingBot:
                 )
         else:
             stats = state.strategy.get_historical_stats()
+
+        # Round 2 P0: Pre-trade EV gate — reject trades with negative net EV.
+        # Now computed from the SAME blended/prior stats used for sizing —
+        # the old gate called calculate_edge(), which runs on hardcoded
+        # assumed priors, so a strategy observably winning 17% still passed.
+        # Paper trade mode: skip EV gate — we need unbiased signal data.
+        is_paper_strategy = is_paper_alloc
+        commission_cents = 2.0
+        ev_net_cents = (
+            stats["win_rate"] * stats["avg_win_cents"]
+            - (1 - stats["win_rate"]) * stats["avg_loss_cents"]
+            - commission_cents
+        )
+        if ev_net_cents <= 0 and not self.paper_trade and not is_paper_strategy:
+            logger.info(
+                f"Trade BLOCKED {ticker} [{strategy_name}]: negative net EV "
+                f"({ev_net_cents:+.2f}c/trade on blended stats, "
+                f"WR={stats['win_rate']:.0%}, "
+                f"W/L={stats['avg_win_cents']:.1f}/{stats['avg_loss_cents']:.1f}c)"
+            )
+            return False
+
+        # Zero dynamic Kelly = observed negative edge = don't bet (live).
+        # The old floor of 0.005 converted "Kelly says don't bet" into
+        # "always bet a little" — the 17%-win-rate ruin scenario in slow motion.
         kelly_override = self._dynamic_kelly_fractions.get(strategy_name)
+        if (
+            kelly_override is not None
+            and kelly_override <= 0
+            and not self.paper_trade
+            and not is_paper_strategy
+        ):
+            logger.info(
+                f"Trade BLOCKED {ticker} [{strategy_name}]: dynamic Kelly is 0 "
+                f"(observed edge non-positive)"
+            )
+            return False
+
         size_result = self.risk.calculate_position_size(
             win_rate=stats["win_rate"],
             avg_win_cents=stats["avg_win_cents"],
             avg_loss_cents=stats["avg_loss_cents"],
             ticker=ticker,
             kelly_override=kelly_override,
+            max_size_dollars=max_size,
         )
 
         contracts = size_result["contracts"]
