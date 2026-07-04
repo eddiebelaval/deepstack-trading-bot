@@ -5,8 +5,14 @@
 
 set -euo pipefail
 
-BOT_DIR="/Users/eddiebelaval/clawd/projects/kalshi-trading"
+# Derive BOT_DIR from this script's location so a moved/renamed checkout
+# doesn't leave launchd crash-looping on a stale hardcoded path.
+# Override with BOT_DIR env var if the repo lives elsewhere.
+BOT_DIR="${BOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 VENV_DIR="${BOT_DIR}/venv"
+if [ ! -d "${VENV_DIR}" ] && [ -d "${BOT_DIR}/.venv" ]; then
+    VENV_DIR="${BOT_DIR}/.venv"
+fi
 LOG_DIR="${HOME}/Library/Logs/deepstack"
 
 # Ensure log directory exists

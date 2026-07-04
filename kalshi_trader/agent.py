@@ -37,8 +37,9 @@ logger = logging.getLogger(__name__)
 # Project root
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
-# Claude model
-SONNET = "claude-sonnet-4-6-20250514"
+# Claude model — Sonnet 4.6's ID has no date suffix; the old dated
+# string 404'd on every request, silently killing the DaeAgent layer
+SONNET = "claude-sonnet-4-6"
 
 MAX_TOOL_ITERATIONS = 15
 

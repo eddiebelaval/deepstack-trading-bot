@@ -255,7 +255,15 @@ class CommandProcessor:
     async def _handle_toggle_strategy(self, params: dict) -> dict:
         """Enable or disable a strategy, persisting to Supabase immediately."""
         strategy_name = params.get("strategy", "")
-        enabled = params.get("enabled", True)
+        # The Telegram classifier emits "enable" while the dashboard sends
+        # "enabled" — reading only "enabled" made "disable X" from Telegram
+        # silently ENABLE the strategy (default True). Accept both.
+        if "enabled" in params:
+            enabled = bool(params["enabled"])
+        elif "enable" in params:
+            enabled = bool(params["enable"])
+        else:
+            return {"error": "toggle_strategy requires an 'enabled' flag"}
 
         if not self.bot.strategy_manager:
             return {"error": "Not in multi-strategy mode"}

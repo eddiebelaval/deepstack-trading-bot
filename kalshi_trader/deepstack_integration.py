@@ -18,16 +18,35 @@ from typing import Any, Dict, Optional
 # Add DeepStack to path for importing risk management components
 # Path is configurable via environment variable
 DEEPSTACK_PATH = os.getenv('DEEPSTACK_PATH', '')
-if DEEPSTACK_PATH not in sys.path:
+if DEEPSTACK_PATH and DEEPSTACK_PATH not in sys.path:
     sys.path.insert(0, DEEPSTACK_PATH)
 
-from core.risk.kelly_position_sizer import KellyPositionSizer
-from core.psychology.emotional_firewall import EmotionalFirewall
+# The external DeepStack repo is optional. A missing/blank DEEPSTACK_PATH
+# must degrade to internal fallbacks, not crash the bot at import time
+# (commit 5adf40c blanked the default and crash-looped launchd for weeks).
+try:
+    from core.risk.kelly_position_sizer import KellyPositionSizer
+    from core.psychology.emotional_firewall import EmotionalFirewall
+    _USING_RISK_FALLBACK = False
+except ImportError:
+    from .risk_fallback import (
+        FallbackKellyPositionSizer as KellyPositionSizer,
+        FallbackEmotionalFirewall as EmotionalFirewall,
+    )
+    _USING_RISK_FALLBACK = True
 
 from .config import KalshiConfig
 from .exceptions import DailyLossLimitHit, RiskLimitExceeded
 
 logger = logging.getLogger(__name__)
+
+if _USING_RISK_FALLBACK:
+    logger.warning(
+        "DeepStack modules not importable (DEEPSTACK_PATH=%r) — using internal "
+        "risk fallbacks. Set DEEPSTACK_PATH in .env to restore the full "
+        "KellyPositionSizer/EmotionalFirewall.",
+        DEEPSTACK_PATH,
+    )
 
 
 class DeepStackIntegration:
