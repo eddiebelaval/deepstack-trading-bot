@@ -141,16 +141,63 @@ class CommandProcessor:
         except Exception as e:
             logger.debug(f"Command poll error: {e}")
 
+    # Commands older than this are marked expired instead of executed —
+    # after downtime, a queue of stale place_trade/set_mode commands must
+    # not replay against a market that has moved on.
+    COMMAND_MAX_AGE_SECONDS = 600
+
+    def _command_age_seconds(self, cmd: dict) -> Optional[float]:
+        created_at = cmd.get("created_at")
+        if not created_at:
+            return None
+        try:
+            ts = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+            return (datetime.now(timezone.utc) - ts).total_seconds()
+        except (ValueError, TypeError):
+            return None
+
     async def _execute_command(self, cmd: dict) -> None:
-        """Execute a single command and update its status."""
+        """Execute a single command and update its status.
+
+        Acknowledge-before-execute: the status is flipped away from
+        'pending' BEFORE the handler runs. Previously the status was
+        patched after execution and a PATCH failure was swallowed at
+        debug — a stuck 'pending' place_trade re-executed every poll
+        cycle (3s) indefinitely.
+        """
         command_type = cmd.get("command", "")
         command_id = cmd.get("id", "")
         params = cmd.get("params", {})
+
+        # Skip stale commands (accumulated while the bot was down)
+        age = self._command_age_seconds(cmd)
+        if age is not None and age > self.COMMAND_MAX_AGE_SECONDS:
+            logger.warning(
+                f"Skipping stale command {command_type} (age {age/60:.0f} min)"
+            )
+            await self._update_command_status(
+                command_id, "expired",
+                {"error": f"Command was {age/60:.0f} min old at poll time"},
+            )
+            return
 
         handler = self._handlers.get(command_type)
         if not handler:
             await self._update_command_status(
                 command_id, "failed", {"error": f"Unknown command: {command_type}"}
+            )
+            return
+
+        # Claim the command first. If we can't record the claim, do NOT
+        # execute — otherwise a Supabase blip turns one command into an
+        # infinite replay loop.
+        acked = await self._update_command_status(
+            command_id, "acknowledged", {"status": "claimed"}
+        )
+        if not acked:
+            logger.warning(
+                f"Could not acknowledge command {command_type} "
+                f"(id={command_id[:8]}) — deferring execution"
             )
             return
 
@@ -172,15 +219,13 @@ class CommandProcessor:
 
     async def _update_command_status(
         self, command_id: str, status: str, result: dict
-    ) -> None:
-        """Update command status in Supabase."""
+    ) -> bool:
+        """Update command status in Supabase. Returns True on success."""
         if not self._client:
-            return
+            return False
 
         try:
-            import json
-
-            await self._client.patch(
+            resp = await self._client.patch(
                 self._rest_url("bot_commands"),
                 params={"id": f"eq.{command_id}"},
                 json={
@@ -189,8 +234,16 @@ class CommandProcessor:
                     "executed_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
+            if resp.status_code >= 300:
+                logger.warning(
+                    f"Command status update -> {status} returned "
+                    f"HTTP {resp.status_code}"
+                )
+                return False
+            return True
         except Exception as e:
-            logger.debug(f"Failed to update command status: {e}")
+            logger.warning(f"Failed to update command status: {e}")
+            return False
 
     async def send_heartbeat(self) -> None:
         """Update last_heartbeat in bot_config to prove bot is alive."""
@@ -326,9 +379,17 @@ class CommandProcessor:
         if self.bot.client:
             cancelled = await self.bot.client.cancel_all_orders()
 
-        # Close all tracked positions
-        closed = list(self.bot.open_positions.keys())
-        for ticker in closed:
+        # Close all tracked positions. Selling N contracts of either side
+        # at a 1c limit is the most-aggressive ask ("take any bid") —
+        # price_cents is quoted in the position's OWN side for both YES
+        # and NO. The old `99 if no` produced the LEAST aggressive NO ask,
+        # which essentially never filled, and the position was then
+        # dropped from tracking anyway, leaving live exposure the bot had
+        # forgotten about. Now tracking is only dropped after the order
+        # was accepted by the exchange.
+        closed = []
+        failed = []
+        for ticker in list(self.bot.open_positions.keys()):
             pos = self.bot.open_positions[ticker]
             try:
                 await self.bot.client.create_limit_order(
@@ -336,13 +397,19 @@ class CommandProcessor:
                     side=pos["side"],
                     action="sell",
                     count=pos["contracts"],
-                    price_cents=1 if pos["side"] == "yes" else 99,  # market-like
+                    price_cents=1,  # market-like for both sides
+                    bypass_circuit_breaker=True,  # closing risk must not be blocked
                 )
+                del self.bot.open_positions[ticker]
+                closed.append(ticker)
             except Exception as e:
                 logger.error(f"Failed to close position {ticker}: {e}")
-            del self.bot.open_positions[ticker]
+                failed.append(ticker)
 
-        return {"cancelled_orders": cancelled, "closed_positions": closed}
+        result = {"cancelled_orders": cancelled, "closed_positions": closed}
+        if failed:
+            result["failed_to_close"] = failed
+        return result
 
     async def _handle_switch_profile(self, params: dict) -> dict:
         """Reload config from a named profile."""

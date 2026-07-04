@@ -132,6 +132,11 @@ class CalibrationEdgeStrategy(Strategy):
         self.favorite_threshold = config.get("favorite_threshold_cents", 70)
         self.longshot_threshold = config.get("longshot_threshold_cents", 30)
         self.max_hours_to_expiry = config.get("max_hours_to_expiry", 72)
+        # Widest book we'll cross. We enter at the ask, so on a wide book
+        # the edge measured at mid evaporates (or goes negative) at the
+        # actual fill — and exits mark to the bid, so a wide spread is paid
+        # twice. Spread previously only nudged the score (max 15 pts).
+        self.max_spread_cents = config.get("max_spread_cents", 5)
         self._last_funnel: Optional[Dict[str, int]] = None
 
         logger.info(
@@ -277,18 +282,30 @@ class CalibrationEdgeStrategy(Strategy):
     ) -> Optional[TradingOpportunity]:
         """Evaluate calibration edge for a single market."""
 
-        # Determine zone and direction
+        # Spread gate: we take liquidity, so a book wider than
+        # max_spread_cents costs more than the calibration edge is worth
+        if yes_bid and yes_ask and (yes_ask - yes_bid) > self.max_spread_cents:
+            return None
+
+        # Determine zone and direction. Zone membership is judged at mid,
+        # but the EDGE must survive the actual entry price (the ask) —
+        # measuring edge at mid while filling at the ask meant a "+4c edge"
+        # on a 6c-wide book was really a -1c edge after crossing the spread.
         if market_price >= self.favorite_threshold and edge_cents >= self.min_edge:
             # Favorite is underpriced — buy YES
             # Use ask price to cross the spread and fill immediately.
             # Maker orders at the bid rarely fill on illiquid hourly contracts.
             side = "yes"
             entry_price = yes_ask if yes_ask else market_price
+            entry_edge = true_price_cents - entry_price
+            if entry_edge < self.min_edge:
+                return None  # Edge doesn't survive crossing the spread
+            edge_cents = entry_edge
             zone = "favorite"
             zone_strength = (market_price - self.favorite_threshold) / 30.0
             reasoning = (
-                f"Favorite underpriced: market {market_price}c, "
-                f"calibrated {true_price_cents}c (+{edge_cents}c edge). "
+                f"Favorite underpriced: entry {entry_price}c (mid {market_price}c), "
+                f"calibrated {true_price_cents}c (+{edge_cents}c edge at entry). "
                 f"Buying YES."
             )
         elif market_price <= self.longshot_threshold and edge_cents <= -self.min_edge:
@@ -297,12 +314,17 @@ class CalibrationEdgeStrategy(Strategy):
             # Use ask price to cross the spread and fill immediately.
             # Maker orders at the bid rarely fill on illiquid hourly contracts.
             entry_price = no_ask if no_ask else (100 - market_price)
-            edge_cents = abs(edge_cents)
+            # NO's calibrated value is (100 - calibrated YES price); the edge
+            # must survive paying the NO ask
+            entry_edge = (100 - true_price_cents) - entry_price
+            if entry_edge < self.min_edge:
+                return None  # Edge doesn't survive crossing the spread
+            edge_cents = entry_edge
             zone = "longshot"
             zone_strength = (self.longshot_threshold - market_price) / 30.0
             reasoning = (
-                f"Longshot overpriced: market {market_price}c, "
-                f"calibrated {true_price_cents}c (-{edge_cents}c edge). "
+                f"Longshot overpriced: NO entry {entry_price}c (mid {market_price}c), "
+                f"calibrated {true_price_cents}c (+{edge_cents}c edge at entry). "
                 f"Buying NO."
             )
         else:
@@ -356,8 +378,17 @@ class CalibrationEdgeStrategy(Strategy):
         Near-expiry exit (5 min) ensures we don't hold through settlement
         mechanics that might cause slippage.
         """
-        entry_price = position.get("entry_price", 50)
-        pnl_cents = current_price - entry_price
+        entry_price = position.get("entry_price")
+        if entry_price is None:
+            # Adopted/exchange-synced position with no journal match — a
+            # phantom 50c default here manufactured fake TP/SL exits (e.g.
+            # a NO position bought at 85c read as +40c "profit" vs 50 and
+            # was sold minutes before settling at 100). With no real entry,
+            # only the near-expiry exit below is trustworthy.
+            entry_price = current_price
+            pnl_cents = 0
+        else:
+            pnl_cents = current_price - entry_price
 
         # Safety stop — only for catastrophic moves, not a trading signal
         if pnl_cents <= -self.stop_loss:

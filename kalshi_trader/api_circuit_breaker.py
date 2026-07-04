@@ -222,6 +222,37 @@ class CircuitBreaker:
                 await self._record_failure(e)
             raise
 
+    async def check_can_execute(self) -> None:
+        """Gate a request WITHOUT recording an outcome.
+
+        Use this (not `async with breaker: pass`) to ask "may I proceed?".
+        The context-manager form records a success on clean exit, so an
+        empty probe body counted as a real API success and closed the
+        breaker after `success_threshold` no-ops — without any actual
+        request having been made. Callers must report the real outcome
+        afterwards via record_success()/record_failure().
+
+        Raises:
+            CircuitOpenError: If the circuit is open.
+        """
+        async with self._lock:
+            self._stats.total_calls += 1
+            if not await self._can_execute():
+                self._stats.rejected_calls += 1
+                raise CircuitOpenError(
+                    f"Circuit breaker '{self.name}' is open"
+                )
+
+    async def record_success(self) -> None:
+        """Record a real request success (lock-guarded public API)."""
+        async with self._lock:
+            await self._record_success()
+
+    async def record_failure(self, error: Exception) -> None:
+        """Record a real request failure (lock-guarded public API)."""
+        async with self._lock:
+            await self._record_failure(error)
+
     async def __aenter__(self) -> 'CircuitBreaker':
         """Context manager entry."""
         async with self._lock:

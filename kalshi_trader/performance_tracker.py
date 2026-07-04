@@ -110,6 +110,24 @@ class PerformanceTracker:
             self._conn.execute("PRAGMA synchronous=NORMAL")
         return self._conn
 
+    def _live_only_sql(self) -> str:
+        """SQL clause excluding paper trades from live-stat queries.
+
+        Paper fills were feeding dynamic Kelly, health, and circuit-breaker
+        decisions for LIVE trading — the is_paper column exists precisely to
+        prevent that (journal.py migration). Returns '' when the column is
+        absent (e.g. minimal test schemas / pre-migration DBs).
+        """
+        if not hasattr(self, "_has_is_paper"):
+            try:
+                cols = self._get_conn().execute(
+                    "PRAGMA table_info(trades)"
+                ).fetchall()
+                self._has_is_paper = any(c["name"] == "is_paper" for c in cols)
+            except sqlite3.OperationalError:
+                self._has_is_paper = False
+        return " AND COALESCE(is_paper, 0) = 0" if self._has_is_paper else ""
+
     def _init_db(self) -> None:
         conn = self._get_conn()
         cursor = conn.cursor()
@@ -295,10 +313,11 @@ class PerformanceTracker:
         conn = self._get_conn()
         try:
             rows = conn.execute(
-                """
+                f"""
                 SELECT pnl_cents, created_at
                 FROM trades
                 WHERE strategy = ? AND status = 'closed' AND pnl_cents IS NOT NULL
+                  {self._live_only_sql()}
                 ORDER BY created_at DESC
                 """,
                 (strategy_name,),
@@ -393,7 +412,7 @@ class PerformanceTracker:
         conn = self._get_conn()
         try:
             count_row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM trades WHERE strategy = ? AND status = 'closed'",
+                f"SELECT COUNT(*) as cnt FROM trades WHERE strategy = ? AND status = 'closed'{self._live_only_sql()}",
                 (strategy_name,),
             ).fetchone()
             observed_count = count_row["cnt"] if count_row else 0
@@ -491,9 +510,10 @@ class PerformanceTracker:
         conn = self._get_conn()
         try:
             rows = conn.execute(
-                """
+                f"""
                 SELECT created_at FROM trades
                 WHERE strategy = ? AND status = 'closed' AND pnl_cents IS NOT NULL
+                  {self._live_only_sql()}
                 """,
                 (strategy_name,),
             ).fetchall()
@@ -564,10 +584,11 @@ class PerformanceTracker:
         conn = self._get_conn()
         try:
             rows = conn.execute(
-                """
+                f"""
                 SELECT pnl_cents, created_at
                 FROM trades
                 WHERE strategy = ? AND status = 'closed' AND pnl_cents IS NOT NULL
+                  {self._live_only_sql()}
                 ORDER BY pnl_cents
                 """,
                 (strategy_name,),

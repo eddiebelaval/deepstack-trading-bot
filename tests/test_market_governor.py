@@ -297,12 +297,15 @@ class TestRegimeHistoryPersistence:
 
 
 class TestStrategyRouterFitnessPriors:
-    """Test 11: All 14 strategies have default priors."""
+    """Test 11: Every registered strategy has complete regime priors.
+
+    Don't pin the count — the arsenal grows (was 14, now 19+); what matters
+    is that every prior covers every regime.
+    """
 
     def test_all_strategies_have_priors(self):
-        assert len(StrategyRouter.DEFAULT_PRIORS) == 14
+        assert len(StrategyRouter.DEFAULT_PRIORS) >= 14
         for name, regime_map in StrategyRouter.DEFAULT_PRIORS.items():
-            assert len(regime_map) == 5, f"{name} missing regime priors"
             for regime in MarketRegime:
                 assert regime.value in regime_map, f"{name} missing {regime.value}"
 

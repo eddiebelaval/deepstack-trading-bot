@@ -439,10 +439,13 @@ class AuthenticatedKalshiClient:
         # API degradation — the risk of holding a position through a flash crash
         # exceeds the risk of a failed API call. The breaker still records the
         # outcome (success/failure) to maintain state accuracy.
+        #
+        # Gate WITHOUT recording: the old `async with breaker: pass` probe
+        # counted its own no-op as a success, closing the breaker after two
+        # empty probes regardless of actual API health.
         if not bypass_circuit_breaker and not self._circuit_breaker.is_closed:
             try:
-                async with self._circuit_breaker:
-                    pass  # Check if we can proceed (handles HALF_OPEN probing)
+                await self._circuit_breaker.check_can_execute()
             except CircuitOpenError:
                 raise KalshiTradingError(
                     "API circuit breaker is open - service may be degraded"
@@ -468,9 +471,16 @@ class AuthenticatedKalshiClient:
                     params=params,
                 )
 
-                # Handle rate limiting
+                # Handle rate limiting.
+                # Retry-After may be an HTTP-date rather than seconds —
+                # int() raised uncaught ValueError; parse defensively and
+                # cap the sleep so a hostile/buggy header can't stall us.
                 if response.status_code == 429:
-                    retry_after = int(response.headers.get("Retry-After", 60))
+                    try:
+                        retry_after = int(response.headers.get("Retry-After", 60))
+                    except (ValueError, TypeError):
+                        retry_after = 60
+                    retry_after = max(1, min(retry_after, 120))
                     if attempt < self.MAX_RETRIES - 1:
                         logger.warning(f"Rate limited, waiting {retry_after}s")
                         await asyncio.sleep(retry_after)
@@ -478,17 +488,35 @@ class AuthenticatedKalshiClient:
                     last_error = KalshiRateLimitError(retry_after_seconds=retry_after)
                     break
 
-                # Handle other errors
-                if response.status_code >= 400:
-                    error_data = response.json() if response.content else {}
+                # 5xx: transient server errors — retry with backoff and
+                # count toward the breaker (the docstring always promised
+                # this; previously any 5xx failed the cycle immediately).
+                if response.status_code >= 500:
+                    if attempt < self.MAX_RETRIES - 1:
+                        delay = self.RETRY_BASE_DELAY * (2 ** attempt)
+                        logger.warning(
+                            f"Server error {response.status_code}, retrying in {delay}s"
+                        )
+                        await asyncio.sleep(delay)
+                        continue
                     last_error = KalshiTradingError(
-                        f"API error {response.status_code}: {error_data.get('message', 'Unknown error')}",
-                        details=error_data,
+                        f"API error {response.status_code} after retries",
                     )
                     break
 
+                # 4xx: client errors — OUR request was wrong (bad price,
+                # insufficient balance). Raise immediately but never count
+                # toward the breaker: five rejected orders must not cut off
+                # market data and exit management for all strategies.
+                if response.status_code >= 400:
+                    error_data = response.json() if response.content else {}
+                    raise KalshiTradingError(
+                        f"API error {response.status_code}: {error_data.get('message', 'Unknown error')}",
+                        details=error_data,
+                    )
+
                 # Success — record in circuit breaker and return
-                await self._circuit_breaker._record_success()
+                await self._circuit_breaker.record_success()
                 return response.json()
 
             except httpx.TimeoutException:
@@ -509,13 +537,12 @@ class AuthenticatedKalshiClient:
                 last_error = KalshiTradingError(f"Request failed: {e}")
                 break
 
-        # All retries exhausted or non-retryable error — record failure
-        # When bypass_circuit_breaker is True, still raise but don't record
-        # the failure. This prevents expected transient errors (e.g., 404s
-        # during order polling) from tripping the breaker.
+        # All retries exhausted — record failure. Only 5xx/timeout/transport
+        # errors reach here (4xx raises above without touching the breaker).
+        # When bypass_circuit_breaker is True, still raise but don't record.
         if last_error is not None:
             if not bypass_circuit_breaker:
-                await self._circuit_breaker._record_failure(last_error)
+                await self._circuit_breaker.record_failure(last_error)
             raise last_error
 
     # -------------------------------------------------------------------------
@@ -604,14 +631,21 @@ class AuthenticatedKalshiClient:
         limit: int = 100,
         ticker: Optional[str] = None,
         min_ts: Optional[int] = None,
+        paginate: bool = False,
+        max_pages: int = 25,
     ) -> List[Dict]:
         """
         Get settlement history — resolved market payouts.
 
         Args:
-            limit: Maximum results to return (max 200)
+            limit: Maximum results per page (max 200)
             ticker: Optional market ticker filter
             min_ts: Optional Unix timestamp floor (only settlements after this time)
+            paginate: If True, follow the cursor to fetch every page.
+                Without this, weeks of downtime with >limit settlements
+                silently dropped the oldest ones — journal trades stayed
+                open forever and every downstream stat ran stale.
+            max_pages: Safety cap on pages when paginating
 
         Returns:
             List of settlement dictionaries (monetary values in cents)
@@ -622,9 +656,27 @@ class AuthenticatedKalshiClient:
         if min_ts:
             params["min_ts"] = min_ts
 
-        response = await self._request("GET", "/portfolio/settlements", params=params)
-        settlements = response.get("settlements", [])
-        return [_normalize_settlement(s) for s in settlements]
+        all_settlements: List[Dict] = []
+        pages_fetched = 0
+        while True:
+            response = await self._request(
+                "GET", "/portfolio/settlements", params=params
+            )
+            settlements = response.get("settlements", [])
+            all_settlements.extend(_normalize_settlement(s) for s in settlements)
+            pages_fetched += 1
+
+            cursor = response.get("cursor")
+            if not paginate or not cursor or not settlements or pages_fetched >= max_pages:
+                break
+            params["cursor"] = cursor
+
+        if paginate and pages_fetched > 1:
+            logger.debug(
+                f"Paginated {pages_fetched} settlement pages, "
+                f"{len(all_settlements)} total"
+            )
+        return all_settlements
 
     # -------------------------------------------------------------------------
     # Market Methods
