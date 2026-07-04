@@ -1498,6 +1498,27 @@ class KalshiTradingBot:
                     self._portfolio_halted = True
                 live_trading_halted = True
 
+        # Re-alert periodically while halted — the halt previously logged one
+        # CRITICAL line at the transition and then went silent forever, so a
+        # latched halt (e.g. a stale high-water mark after a withdrawal) was
+        # indistinguishable from a healthy bot. ~1h at the 60s poll interval.
+        if live_trading_halted:
+            self._halt_alert_counter = getattr(self, "_halt_alert_counter", 0) + 1
+            realert_every = max(1, int(3600 / max(self.config.poll_interval_seconds, 1)))
+            if self._halt_alert_counter % realert_every == 1:
+                msg = (
+                    f"LIVE TRADING HALTED: balance ${current_balance:.2f}, "
+                    f"HWM ${self._initial_balance:.2f}, "
+                    f"floor ${self.config.min_balance_floor:.2f}. "
+                    f"If this is a stale high-water mark (withdrawal or old "
+                    f"max-payout inflation), send 'reset_hwm' to clear it."
+                )
+                logger.critical(msg)
+                await self._notify(f"[HALT] {msg}")
+        else:
+            self._halt_alert_counter = 0
+            self._portfolio_halted = False
+
         if not live_trading_halted:
             # 2b. Check risk limits (only for live trading)
             risk_check = self.risk.check_trade_allowed("", None)
@@ -1537,6 +1558,60 @@ class KalshiTradingBot:
 
         logger.debug("Trading cycle complete")
 
+    async def _compute_mtm_positions(self) -> tuple:
+        """Price open positions mark-to-market.
+
+        Returns (market_value_cents, enriched_positions) where enriched
+        positions carry current prices/titles for the dashboard. Positions
+        that can't be priced fall back to their cost basis (market_exposure)
+        so a transient pricing failure understates equity by at most the
+        unrealized P&L of that position — it never zeroes it out, which
+        could spuriously trip the portfolio drawdown halt.
+        """
+        market_value_cents = 0
+        enriched_positions = []
+        for ticker, position in self.open_positions.items():
+            contracts = position.get("contracts", 0)
+            exposure = position.get("market_exposure", 0)
+            try:
+                market = await self.client.get_market(ticker)
+                last_price = market.get("last_price", 50)
+                title = market.get("title", "")
+                side = position["side"]
+
+                if side == "yes":
+                    pos_value = contracts * last_price
+                else:
+                    pos_value = contracts * (100 - last_price)
+                market_value_cents += pos_value
+
+                # Compute avg entry from market_exposure if available
+                avg_entry = round(exposure / contracts) if contracts > 0 and exposure > 0 else None
+
+                enriched_positions.append({
+                    "ticker": ticker,
+                    "market_title": title,
+                    "side": side,
+                    "contracts": contracts,
+                    "position": contracts if side == "yes" else -contracts,
+                    "total_traded": position.get("total_traded", 0),
+                    "market_exposure": exposure,
+                    "realized_pnl": position.get("realized_pnl", 0),
+                    "fees_paid": position.get("fees_paid", 0),
+                    "resting_orders_count": position.get("resting_orders_count", 0),
+                    "current_price": last_price,
+                    "market_value_cents": pos_value,
+                    "avg_entry_price_cents": avg_entry,
+                    "volume_24h": market.get("volume_24h", 0),
+                    "open_interest": market.get("open_interest", 0),
+                    "previous_price": market.get("previous_price"),
+                    "last_updated_ts": position.get("last_updated_ts"),
+                })
+            except Exception:
+                # Pricing failed — value at cost basis rather than zero
+                market_value_cents += exposure
+        return market_value_cents, enriched_positions
+
     async def _update_state(self) -> None:
         """Update account balance and position state, then push to dashboard."""
         # Get current balance
@@ -1551,60 +1626,25 @@ class KalshiTradingBot:
                 effective_balance = self.paper_balance
         self.risk.update_balance(effective_balance)
 
-        # Total balance = cash + portfolio value (what Kalshi app shows)
-        self._total_balance = balance["available"] + balance.get("portfolio_value", 0)
-
-        # Sync positions with exchange
+        # Sync positions with exchange (needed before mark-to-market pricing)
         await self._sync_positions()
+
+        # Total balance = cash + MARK-TO-MARKET position value.
+        # Kalshi's balance["portfolio_value"] is max payout if every bet wins
+        # (see kalshi_client.get_balance) — using it here inflated the
+        # high-water mark with phantom equity and latched permanent
+        # drawdown halts (P0-1, REVIEW-2026-07-04.md).
+        market_value_cents, enriched_positions = await self._compute_mtm_positions()
+        if self.paper_balance is not None:
+            # Paper mode: real-account equity is irrelevant; track the
+            # simulated balance so drawdown checks compare like with like.
+            self._total_balance = effective_balance
+        else:
+            self._total_balance = balance["available"] + market_value_cents / 100.0
 
         # Push state to Supabase for dashboard (fire-and-forget)
         if self.dashboard:
             cash_cents = int(balance["available"] * 100)
-
-            # Compute mark-to-market portfolio value and enrich position data
-            # with current prices and market titles for the dashboard.
-            market_value_cents = 0
-            enriched_positions = []
-            for ticker, position in self.open_positions.items():
-                try:
-                    market = await self.client.get_market(ticker)
-                    last_price = market.get("last_price", 50)
-                    title = market.get("title", "")
-                    contracts = position["contracts"]
-                    side = position["side"]
-
-                    if side == "yes":
-                        pos_value = contracts * last_price
-                    else:
-                        pos_value = contracts * (100 - last_price)
-                    market_value_cents += pos_value
-
-                    # Compute avg entry from market_exposure if available
-                    exposure = position.get("market_exposure", 0)
-                    avg_entry = round(exposure / contracts) if contracts > 0 and exposure > 0 else None
-
-                    enriched_positions.append({
-                        "ticker": ticker,
-                        "market_title": title,
-                        "side": side,
-                        "contracts": contracts,
-                        "position": contracts if side == "yes" else -contracts,
-                        "total_traded": position.get("total_traded", 0),
-                        "market_exposure": exposure,
-                        "realized_pnl": position.get("realized_pnl", 0),
-                        "fees_paid": position.get("fees_paid", 0),
-                        "resting_orders_count": position.get("resting_orders_count", 0),
-                        "current_price": last_price,
-                        "market_value_cents": pos_value,
-                        "avg_entry_price_cents": avg_entry,
-                        "volume_24h": market.get("volume_24h", 0),
-                        "open_interest": market.get("open_interest", 0),
-                        "previous_price": market.get("previous_price"),
-                        "last_updated_ts": position.get("last_updated_ts"),
-                    })
-                except Exception:
-                    pass  # Skip positions we can't price — fire-and-forget
-
             balance_cents = cash_cents + market_value_cents
             available_cents = cash_cents
             daily_stats = self.risk.get_daily_stats()
@@ -2225,12 +2265,20 @@ class KalshiTradingBot:
         if stock_snapshots:
             self.market_governor.feed_stock_data(stock_snapshots)
 
-        # Gather strategy info for routing
+        # Gather strategy info for routing.
+        # Config-disabled strategies (enabled: false in config.yaml — e.g.
+        # mean_reversion, disabled as structurally invalid for binary
+        # contracts) are added to safety_disabled so the autonomous governor
+        # can never re-enable them on regime fitness alone. config.yaml is
+        # the constitution; the governor only manages what it permits.
         active_strategies = (
             list(self.strategy_manager._strategies.keys())
             if self.strategy_manager else []
         )
-        safety_disabled = self._auto_disabled_strategies if self.strategy_manager else set()
+        safety_disabled = (
+            set(self._auto_disabled_strategies) | self._config_disabled_strategies
+            if self.strategy_manager else set()
+        )
 
         # Inject forward signal bias into governance before cycle runs
         if self.forward_signal_bridge:

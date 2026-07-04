@@ -144,7 +144,12 @@ class SelfRepairEngine:
             return False
 
     def _check_protected_files(self, output: str) -> bool:
-        """Check if Claude Code tried to modify protected files."""
+        """Heuristic pre-check on CLI output text (kept for cheap early exit).
+
+        Real enforcement happens in _enforce_protected_files, which inspects
+        the actual git working tree — this text grep can be trivially
+        bypassed by any edit the CLI doesn't mention in prose.
+        """
         for protected in PROTECTED_FILES:
             if protected in output and ("Edit" in output or "Write" in output):
                 logger.warning(
@@ -153,6 +158,54 @@ class SelfRepairEngine:
                 )
                 return False
         return True
+
+    async def _changed_files(self) -> List[str]:
+        """Repo-relative paths of files modified/added since HEAD."""
+        status = await self._git("status", "--porcelain")
+        files = []
+        for line in status.splitlines():
+            if len(line) > 3:
+                # Renames show as "old -> new"; take the new path
+                path = line[3:].split(" -> ")[-1].strip().strip('"')
+                if path:
+                    files.append(path)
+        return files
+
+    async def _enforce_protected_files(self, changed: List[str]) -> List[str]:
+        """Revert any changed file on the protected list; return violations.
+
+        Ground truth from git, not from the CLI's stdout narration.
+        """
+        violations = [f for f in changed if f in PROTECTED_FILES]
+        for f in violations:
+            try:
+                await self._git("checkout", "--", f)
+                logger.warning("Self-repair: reverted protected file %s", f)
+            except Exception as e:
+                logger.error("Self-repair: FAILED to revert %s: %s", f, e)
+        return violations
+
+    async def _validate_import(self) -> bool:
+        """Smoke-test that the repaired package still imports.
+
+        ast.parse catches syntax errors only — a semantically broken edit
+        (wrong attribute, missing import) previously sailed straight through
+        to an auto-merged deploy.
+        """
+        import sys as _sys
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            [_sys.executable, "-c", "import kalshi_trader.main"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=str(_PROJECT_ROOT),
+        )
+        if proc.returncode != 0:
+            logger.error(
+                "Self-repair: import smoke test failed: %s", proc.stderr[-500:]
+            )
+        return proc.returncode == 0
 
     async def attempt_repair(
         self,
@@ -246,18 +299,32 @@ class SelfRepairEngine:
                 result["message"] = f"Claude Code exited with code {proc.returncode}: {stderr[:200]}"
                 await self._notify(f"Repair FAILED: {result['message']}")
             else:
-                # Check for protected file violations
-                if not self._check_protected_files(output):
-                    result["message"] = "Repair BLOCKED: attempted to modify protected files"
+                # Enforce protected files against the actual git diff (the
+                # stdout grep alone is bypassable), reverting violations.
+                changed = await self._changed_files()
+                violations = await self._enforce_protected_files(changed)
+                if violations or not self._check_protected_files(output):
+                    result["message"] = (
+                        "Repair BLOCKED: attempted to modify protected files "
+                        f"({', '.join(violations) or 'per output heuristic'}) — reverted"
+                    )
                     await self._notify(result["message"])
                 else:
-                    # Validate syntax of all Python files that might have changed
+                    # Validate syntax of every changed Python file (anywhere in
+                    # the repo — the old kalshi_trader/*.py glob missed edits
+                    # in strategies/, scripts/, and subpackages), then smoke-
+                    # test that the package still imports.
                     all_valid = True
-                    for py_file in _MODULE_DIR.glob("*.py"):
-                        if not self._validate_syntax(py_file):
-                            all_valid = False
-                            result["message"] = f"Syntax error in {py_file.name} after repair"
-                            break
+                    for rel in changed:
+                        if rel.endswith(".py"):
+                            if not self._validate_syntax(_PROJECT_ROOT / rel):
+                                all_valid = False
+                                result["message"] = f"Syntax error in {rel} after repair"
+                                break
+
+                    if all_valid and not await self._validate_import():
+                        all_valid = False
+                        result["message"] = "Import smoke test failed after repair"
 
                     if all_valid:
                         result["success"] = True
@@ -267,7 +334,7 @@ class SelfRepairEngine:
                             result["changes_made"].append("Code edited")
                         await self._notify(
                             f"Repair SUCCEEDED ({duration:.1f}s): {category}\n"
-                            f"Bot will restart to apply changes."
+                            f"A PR will be opened for review — no auto-deploy."
                         )
                     else:
                         await self._notify(f"Repair FAILED: {result['message']}")
@@ -297,25 +364,27 @@ class SelfRepairEngine:
         affected_files: Optional[List[str]] = None,
     ) -> bool:
         """
-        Full self-healing pipeline: branch → fix → commit → push → PR → merge → restart.
+        Self-healing pipeline: branch → fix → commit → push → PR → **await review**.
 
-        Follows the same pattern as Ava's auto-version/auto-release workflows.
-        DAE owns its own codebase changes through proper Git flow.
+        Deliberately does NOT auto-merge or restart. The old pipeline merged
+        its own PR to main and kickstarted the bot with only an ast.parse as
+        the gate — one semantically broken repair meant a crash loop that
+        Tier 3 could not fix (repair budget spent, process dead). A repair
+        now takes effect only after a human merges the PR.
 
-        Returns True if the full pipeline succeeded.
+        Returns True if a PR was opened for review.
         """
         result = await self.attempt_repair(category, diagnosis, context, affected_files)
 
         if not result["success"]:
             return False
 
-        # Check if there are actual changes to deploy
-        has_changes = await self._git_has_changes()
-        if not has_changes:
-            await self._notify("Repair ran but produced no file changes. Skipping deploy.")
+        # Check if there are actual changes to propose
+        changed = await self._changed_files()
+        if not changed:
+            await self._notify("Repair ran but produced no file changes. Skipping PR.")
             return False
 
-        # Full deploy pipeline: branch → commit → push → PR → merge → restart
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
         branch_name = f"self-repair/{category}-{timestamp}"
 
@@ -324,8 +393,9 @@ class SelfRepairEngine:
             await self._git("checkout", "-b", branch_name)
             await self._notify(f"Created branch: {branch_name}")
 
-            # 2. Stage and commit
-            await self._git("add", "-A")
+            # 2. Stage ONLY the files this repair changed — `git add -A`
+            #    swept up unrelated uncommitted work and runtime state.
+            await self._git("add", "--", *changed)
             commit_msg = (
                 f"[Meta] fix(dae-self-repair): {category}\n\n"
                 f"Diagnosis: {diagnosis}\n\n"
@@ -339,61 +409,48 @@ class SelfRepairEngine:
             await self._git("push", "-u", "origin", branch_name)
             await self._notify(f"Pushed to origin/{branch_name}")
 
-            # 4. Create PR
+            # 4. Create PR — left open for human review
             pr_url = await self._create_pr(
                 branch=branch_name,
                 title=f"fix(dae-self-repair): {category}",
                 body=(
-                    f"## Autonomous Self-Repair\n\n"
+                    f"## Autonomous Self-Repair (awaiting review)\n\n"
                     f"**Category:** `{category}`\n"
                     f"**Diagnosis:** {diagnosis}\n"
-                    f"**Duration:** {result['duration_seconds']}s\n\n"
-                    f"This PR was created autonomously by DAE's Tier 3 self-repair engine.\n"
-                    f"All changes passed syntax validation before commit.\n\n"
-                    f"### Safety checks\n"
-                    f"- [x] No protected files modified\n"
-                    f"- [x] Python syntax validated\n"
-                    f"- [x] Changes are minimal and scoped\n\n"
+                    f"**Duration:** {result['duration_seconds']}s\n"
+                    f"**Files:** {', '.join(changed)}\n\n"
+                    f"This PR was created autonomously by DAE's Tier 3 self-repair "
+                    f"engine. It will NOT merge or deploy itself — review and merge "
+                    f"to apply, then restart the bot.\n\n"
+                    f"### Automated checks run before commit\n"
+                    f"- Protected-files enforcement against the git diff\n"
+                    f"- Python syntax validation of changed files\n"
+                    f"- `import kalshi_trader.main` smoke test\n\n"
                     f"Co-Authored-By: DAE Self-Repair <noreply@id8labs.app>"
                 ),
             )
 
-            if not pr_url:
-                await self._notify("PR creation failed. Changes are on branch, merge manually.")
-                await self._git("checkout", "main")
-                return False
-
-            await self._notify(f"PR created: {pr_url}")
-
-            # 5. Merge PR (--merge, never squash per Eddie's rules)
-            merged = await self._merge_pr(pr_url)
-            if not merged:
-                await self._notify(f"Auto-merge failed. PR is open: {pr_url}")
-                await self._git("checkout", "main")
-                return False
-
-            # 6. Switch back to main and pull
+            # 5. Return to main — the running bot keeps its known-good code
+            #    and working tree until a human merges the PR.
             await self._git("checkout", "main")
-            await self._git("pull")
+
+            if not pr_url:
+                await self._notify(
+                    f"PR creation failed. Fix is on origin/{branch_name}; "
+                    f"open a PR manually."
+                )
+                return False
 
             await self._notify(
-                f"Self-repair DEPLOYED: {category}\n"
-                f"PR: {pr_url}\n"
-                f"Restarting bot..."
-            )
-
-            # 7. Restart bot
-            await asyncio.to_thread(
-                subprocess.run,
-                ["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/{os.getenv('LAUNCHD_SERVICE', 'com.id8labs.deepstack-bot')}"],
-                capture_output=True,
-                timeout=10,
+                f"Self-repair PROPOSED: {category}\n"
+                f"PR awaiting your review: {pr_url}\n"
+                f"Bot continues on current code until merged."
             )
             return True
 
         except Exception as e:
-            logger.error("Self-repair deploy pipeline failed: %s", e)
-            await self._notify(f"Deploy pipeline FAILED at: {e}")
+            logger.error("Self-repair pipeline failed: %s", e)
+            await self._notify(f"Repair pipeline FAILED at: {e}")
             # Best-effort: get back to main
             try:
                 await self._git("checkout", "main")
@@ -447,18 +504,3 @@ class SelfRepairEngine:
             logger.error("PR creation error: %s", e)
             return None
 
-    async def _merge_pr(self, pr_url: str) -> bool:
-        """Merge a PR via gh CLI (regular merge, never squash)."""
-        try:
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                ["gh", "pr", "merge", pr_url, "--merge", "--delete-branch"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                cwd=str(_PROJECT_ROOT),
-            )
-            return proc.returncode == 0
-        except Exception as e:
-            logger.error("PR merge error: %s", e)
-            return False
